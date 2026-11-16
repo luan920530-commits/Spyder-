@@ -231,6 +231,10 @@
   <script src="js/brain-rag.js"></script>
   <script src="js/study-bots.js"></script>
   <script>
+    // Registro de Service Worker para modo 100% Offline-First
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    }
     // Inicialización coordinada del sistema
     window.addEventListener('DOMContentLoaded', () => {
       if (window.NeuralStore) window.NeuralStore.init();

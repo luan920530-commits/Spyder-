@@ -129,12 +129,13 @@
   let idb = null;
   function initIndexedDB() {
     if (!window.indexedDB) return;
-    const req = indexedDB.open('NeuralSpiderDB', 1);
+    const req = indexedDB.open('NeuralSpiderDB', 2);
     req.onupgradeneeded = e => {
       const db = e.target.result;
-      if (!db.objectStoreNames.contains('patterns')) {
-        db.createObjectStore('patterns', { keyPath: 'id', autoIncrement: true });
+      if (db.objectStoreNames.contains('patterns')) {
+        db.deleteObjectStore('patterns');
       }
+      db.createObjectStore('patterns', { keyPath: 'hash' });
     };
     req.onsuccess = e => {
       idb = e.target.result;
@@ -151,10 +152,11 @@
   }
 
   function persistPatternIDB(pattern) {
-    if (!idb) return;
+    if (!idb || !pattern?.text) return;
     try {
+      const hash = hashPattern(pattern.text);
       const tx = idb.transaction('patterns', 'readwrite');
-      tx.objectStore('patterns').add({ ...pattern, ts: Date.now() });
+      tx.objectStore('patterns').put({ ...pattern, hash, ts: Date.now() });
     } catch (_) {}
   }
 

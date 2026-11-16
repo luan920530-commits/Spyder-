@@ -10,8 +10,25 @@
       .filter(w => w.length > 2);
   }
 
+  const SEMANTIC_SYNONYMS = {
+    latencia: ['tiempo', 'respuesta', 'milisegundos', 'ms', 'velocidad'],
+    tiempo: ['latencia', 'milisegundos', 'ms'],
+    red: ['neuronal', 'grafo', 'nodos', 'sinapsis'],
+    error: ['fallo', 'fallos', 'bizantinos', 'tolerancia'],
+    fallo: ['error', 'tolerancia', 'consenso'],
+    resumen: ['síntesis', 'conclusión', 'tesis']
+  };
+
+  function expandQueryTerms(terms) {
+    const expanded = new Set(terms);
+    terms.forEach(t => {
+      if (SEMANTIC_SYNONYMS[t]) SEMANTIC_SYNONYMS[t].forEach(s => expanded.add(s));
+    });
+    return Array.from(expanded);
+  }
+
   function bm25Search(query, sentences, topK = 4) {
-    const qTerms = tokenize(query);
+    const qTerms = expandQueryTerms(tokenize(query));
     if (!qTerms.length || !sentences.length) return [];
 
     const avgLen = sentences.reduce((a, s) => a + s.text.length, 0) / sentences.length || 1;
