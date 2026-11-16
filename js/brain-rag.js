@@ -398,6 +398,10 @@
       ];
 
       outEl.innerHTML = '';
+      if (nodes.length) {
+        window.NeuralGraph.highlightPath(nodes.slice(0, 6).map(n => n.id));
+        window.NeuralStore.emit('spider:queryVisual', { query: topic, nodeIds: nodes.slice(0, 6).map(n => n.id) });
+      }
       sections.forEach((sec, idx) => {
         setTimeout(() => {
           const block = document.createElement('div');
