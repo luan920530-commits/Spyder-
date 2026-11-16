@@ -1,0 +1,7 @@
+# Los hashes del modelo y su runtime se calculan sobre los bytes originales.
+# Mantenerlos idénticos en cualquier sistema (incluidos checkouts con autocrlf).
+models/minilm/*.json -text whitespace=cr-at-eol
+models/minilm/tokenizer.json -diff
+models/minilm/onnx/*.onnx binary
+vendor/transformers/transformers.min.js -text -diff
+vendor/transformers/*.wasm binary

@@ -10,6 +10,8 @@
   const store = () => root.NeuralStore;
 
   let renderScheduled = false;
+  // El enjambre consulta posiciones con frecuencia; evita recorrer todo el DOM por frame.
+  const sentenceElements = new Map();
 
   function scheduleRender() {
     if (renderScheduled) return;
@@ -30,6 +32,7 @@
     const sectionEl = document.getElementById('doc-section');
     const statusEl = document.getElementById('ingest-status');
 
+    sentenceElements.clear();
     renderDocTabs();
 
     if (!doc) {
@@ -109,6 +112,7 @@
       });
 
       contentEl.appendChild(block);
+      sentenceElements.set(sent.id, block);
       contentEl.appendChild(document.createTextNode(' '));
     });
   }
@@ -230,5 +234,5 @@
     scheduleRender();
   }
 
-  root.DocViewer = { init, render, toast };
+  root.DocViewer = { init, render, toast, getSentenceElement: id => sentenceElements.get(id) || null };
 })(typeof window !== 'undefined' ? window : globalThis);

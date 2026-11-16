@@ -203,13 +203,13 @@
     stage.appendChild(header('Evaluación del motor', 'Medición local de recuperación, latencia y citas.'));
     const btn = button('▶ Evaluar corpus', () => {
       btn.disabled = true; result.replaceChildren(el('p', 'muted', 'Evaluando…'));
-      setTimeout(() => {
+      setTimeout(async () => {
         try {
-          const run = root.NCEval.run({ sample: 40, k: 5 });
+          const run = await root.NCEval.run({ sample: 40, k: 5 });
           if (run.error) result.replaceChildren(el('p', 'citation-warning', run.error));
           else root.NCEval.render();
         } catch (error) { result.replaceChildren(el('p', 'citation-warning', error.message)); }
-        btn.disabled = false;
+        finally { btn.disabled = false; }
       }, 20);
     }, 'btn-hud btn-cyan');
     stage.appendChild(btn);

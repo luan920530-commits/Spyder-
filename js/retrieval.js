@@ -312,11 +312,29 @@
         candidateSet.set(pos, item);
       });
     }
+    // MiniLM puede ordenar candidatos existentes con una señal moderada, pero
+    // necesita una similitud más alta para añadir pasajes sin apoyo léxico.
+    // Son umbrales prudentes, no una garantía de que el pasaje responda.
+    const neural = [];
+    if (o.neuralScores && parsed.uniqueTerms.length) {
+      for (const [id, score] of o.neuralScores) {
+        const pos = index.posById.get(id);
+        if (pos == null || !Number.isFinite(score) || score < .42 || !eligible(index.sentences[pos])) continue;
+        if (!candidateSet.has(pos) && score < .58) continue;
+        neural.push({ pos, score });
+      }
+      neural.sort((a, b) => b.score - a.score || a.pos - b.pos);
+      neural.slice(0, o.pool).forEach((entry, i) => {
+        const item = candidateSet.get(entry.pos) || { pos: entry.pos, lexScore: 0, lexRank: 0, dense: 0, denseRank: 0 };
+        item.neural = entry.score; item.neuralRank = i + 1;
+        candidateSet.set(entry.pos, item);
+      });
+    }
     let ranked = [...candidateSet.values()].map(item => {
       const sentence = index.sentences[item.pos];
       const fuzzy = o.fuzzy ? U.trigramSim(parsed.cleaned || parsed.raw, sentence.text) : 0;
       // RRF favorece acuerdos entre rankings sin mezclar escalas incompatibles.
-      const rrf = (item.lexRank ? 1 / (60 + item.lexRank) : 0) + (item.denseRank ? 1 / (60 + item.denseRank) : 0);
+      const rrf = (item.lexRank ? 1 / (60 + item.lexRank) : 0) + (item.denseRank ? 1 / (60 + item.denseRank) : 0) + (item.neuralRank ? 1 / (60 + item.neuralRank) : 0);
       return { ...item, sentence, fuzzy, score: rrf + fuzzy * 0.001 };
     }).sort((a, b) => b.score - a.score || a.pos - b.pos);
 
@@ -348,9 +366,11 @@
     const hits = selected.slice(0, o.k).map((r, i) => ({
       rank: i + 1, sentence: r.sentence, score: Number(r.score.toFixed(6)),
       lexScore: Number((r.lexScore || 0).toFixed(4)), fuzzy: Number((r.fuzzy * 100).toFixed(1)),
-      dense: Number((r.dense || 0).toFixed(3)), merged: r.merged || 1
+      dense: Number((r.dense || 0).toFixed(3)), neural: Number((r.neural || 0).toFixed(3)), merged: r.merged || 1
     }));
-    return { hits, parsed, tookMs: Number(took.toFixed(2)), total: Math.max(lexList.length, candidateSet.size), pool: candidateSet.size };
+    return { hits, parsed, tookMs: Number(took.toFixed(2)), total: Math.max(lexList.length, candidateSet.size), pool: candidateSet.size,
+      neuralUsed: hits.some(hit => hit.neural > 0),
+      neuralOnly: hits.some(hit => hit.neural > 0 && !hit.lexScore && !hit.dense) };
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -374,6 +394,8 @@
         const s = index.sentences[p];
         if (!s) continue;
         if (s.docId !== base.docId || s.pageNum !== base.pageNum) continue;
+        // La ventana de contexto no debe reintroducir términos excluidos.
+        if (containsExcluded(s, o.filters)) continue;
         ids.push(s.id);
         parts.push(s.text);
       }

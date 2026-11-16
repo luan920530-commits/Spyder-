@@ -110,6 +110,48 @@
     setInterval(() => { if (!document.hidden) { update(); sample(); clock(); } }, 2000);
   }
 
+  function setupModel() {
+    const modal = document.getElementById('model-modal');
+    const trigger = document.getElementById('btn-model');
+    const install = document.getElementById('btn-install-model');
+    const disable = document.getElementById('btn-disable-model');
+    const retry = document.getElementById('btn-retry-index');
+    const remove = document.getElementById('btn-delete-model');
+    function close() { modal.classList.add('hidden'); trigger.setAttribute('aria-expanded', 'false'); trigger.focus(); }
+    function render(info) {
+      const removing = info.status === 'removing';
+      const busy = info.status === 'downloading' || info.status === 'loading' || removing;
+      const status = document.getElementById('model-status');
+      if (status.textContent !== info.message) status.textContent = info.message;
+      const percent = Math.round((info.progress || 0) * 100);
+      document.getElementById('model-progress').value = percent;
+      document.getElementById('model-percent').textContent = info.status === 'downloading' ? `${percent}%` : '';
+      install.classList.toggle('hidden', info.enabled || busy);
+      install.textContent = info.installed ? 'ACTIVAR MODELO' : info.hasDownload ? 'REANUDAR DESCARGA' : 'DESCARGAR Y ACTIVAR';
+      retry.classList.toggle('hidden', !(info.enabled && info.status === 'error'));
+      disable.classList.toggle('hidden', removing || !(info.enabled || busy));
+      disable.textContent = busy ? 'CANCELAR' : 'DESACTIVAR';
+      remove.classList.toggle('hidden', !info.hasDownload || busy);
+      trigger.classList.toggle('is-active', info.enabled);
+      trigger.title = info.enabled ? 'Modelo semántico local activo' : 'Modelo semántico opcional';
+    }
+    trigger.addEventListener('click', () => { render(root.NCLocalModel.info()); modal.classList.remove('hidden'); trigger.setAttribute('aria-expanded', 'true'); document.getElementById('btn-close-model').focus(); });
+    document.getElementById('btn-close-model').addEventListener('click', close);
+    install.addEventListener('click', () => { void root.NCLocalModel.activate(); });
+    disable.addEventListener('click', () => root.NCLocalModel.deactivate());
+    retry.addEventListener('click', () => { void root.NCLocalModel.reindex(); });
+    remove.addEventListener('click', () => { if (confirm('¿Eliminar la descarga del modelo de este navegador? Tus documentos no se borrarán. Cierra las demás pestañas de la aplicación para evitar que vuelvan a descargarla.')) void root.NCLocalModel.removeDownload(); });
+    document.getElementById('btn-download-brain').addEventListener('click', async () => {
+      try {
+        root.BrainRAG.download('neural-command-respaldo.json', JSON.stringify(await S.exportBrain(), null, 2), 'application/json;charset=utf-8');
+        root.DocViewer.toast('Respaldo local preparado.');
+      } catch (error) { document.getElementById('model-status').textContent = `No se pudo guardar el respaldo: ${error.message}`; }
+    });
+    document.addEventListener('keydown', event => { if (event.key === 'Escape' && !modal.classList.contains('hidden')) close(); });
+    S.on('model:status', render); render(root.NCLocalModel.info());
+    root.NCLocalModel.init().catch(error => { document.getElementById('model-status').textContent = `Almacenamiento no disponible: ${error.message}`; });
+  }
+
   function setupSettings() {
     const mode = document.getElementById('mode-select');
     root.NCProviders.MODES.forEach(m => {
@@ -171,7 +213,7 @@
       root.DocViewer.init();
       root.NeuralGraph.init();
       root.SpiderEngine.init();
-      setupTabs(); setupSettings(); setupActions(); setupDashboard();
+      setupTabs(); setupSettings(); setupActions(); setupDashboard(); setupModel();
       root.BrainRAG.init(); root.StudyBots.init();
       document.documentElement.dataset.appReady = 'true';
       if ('serviceWorker' in navigator && location.protocol !== 'file:') {

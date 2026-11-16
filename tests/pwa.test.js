@@ -9,15 +9,22 @@ const root = path.join(__dirname, '..');
 test('precache incluye el shell completo y funciona desconectado', async () => {
   const swUrl = 'https://local.test/app/sw.js';
   const absolute = value => new URL(typeof value === 'string' ? value : value.url, swUrl).href;
-  const listeners = {}, entries = new Map(), removed = [];
-  const cache = {
-    addAll: async assets => { for (const asset of assets) entries.set(absolute(asset), new Response('cached:' + asset)); },
-    match: async request => entries.get(absolute(request))?.clone()
-  };
+  const listeners = {}, buckets = new Map(), removed = [];
+  function cacheFor(name) {
+    if (!buckets.has(name)) {
+      const entries = new Map();
+      buckets.set(name, {
+        addAll: async assets => { for (const asset of assets) entries.set(absolute(asset), new Response('cached:' + asset)); },
+        match: async request => entries.get(absolute(request))?.clone(),
+        put: async (request, response) => { entries.set(absolute(request), response.clone()); }
+      });
+    }
+    return buckets.get(name);
+  }
   const context = {
-    self: { location: { origin: 'https://local.test' }, addEventListener: (type, cb) => { listeners[type] = cb; },
+    self: { location: { origin: 'https://local.test', href: swUrl }, addEventListener: (type, cb) => { listeners[type] = cb; },
       skipWaiting: async () => {}, clients: { claim: async () => {} } },
-    caches: { open: async () => cache, keys: async () => ['neural-spider-os-v3', 'other-app'], delete: async key => { removed.push(key); } },
+    caches: { open: async name => cacheFor(name), keys: async () => [...buckets.keys(), 'neural-spider-os-v3', 'other-app'], delete: async key => { removed.push(key); buckets.delete(key); } },
     fetch: async () => { throw new Error('offline'); }, URL, Response, console
   };
   vm.runInNewContext(fs.readFileSync(path.join(root, 'sw.js'), 'utf8') + '\nglobalThis.assets = ASSETS;', context);
@@ -34,14 +41,21 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
   assert.ok(manifest.icons.some(icon => icon.sizes === '512x512'));
   for (const icon of manifest.icons) assert.ok(assets.includes('./' + icon.src));
   assert.ok(assets.includes('./vendor/pdfjs/pdf.worker.min.mjs'));
+  assert.ok(assets.includes('./js/onnx-worker.js'));
+  assert.ok(!assets.some(asset => asset.startsWith('./models/minilm/') || asset.startsWith('./vendor/transformers/')), 'los pesos no deben descargarse al instalar el shell');
   for (const font of ['jetbrains-mono-latin-400-normal.woff2', 'jetbrains-mono-latin-600-normal.woff2', 'chakra-petch-latin-500-normal.woff2', 'chakra-petch-latin-700-normal.woff2']) assert.ok(assets.includes('./vendor/fonts/' + font));
   let pending;
   listeners.install({ waitUntil: p => { pending = p; } }); await pending;
+  const modelCache = await context.caches.open('neural-spider-model-v1');
+  await modelCache.put('https://local.test/app/models/minilm/onnx/model_quantized.onnx', new Response('pesos opcionales'));
   listeners.activate({ waitUntil: p => { pending = p; } }); await pending;
   assert.deepEqual(removed, ['neural-spider-os-v3']);
+  assert.ok(buckets.has('neural-spider-model-v1'), 'actualizar el shell no debe borrar el modelo');
   let response;
   listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/js/rag.js', mode: 'cors' }, respondWith: p => { response = p; } });
   assert.match(await (await response).text(), /cached:.*js\/rag/);
+  listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/models/minilm/onnx/model_quantized.onnx', mode: 'cors' }, respondWith: p => { response = p; } });
+  assert.equal(await (await response).text(), 'pesos opcionales');
   listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/unknown', mode: 'navigate' }, respondWith: p => { response = p; } });
   assert.match(await (await response).text(), /cached:.*index/);
   listeners.fetch({ request: { method: 'GET', url: 'https://external.test/track', mode: 'cors' }, respondWith: p => { response = p; } });

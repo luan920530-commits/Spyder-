@@ -33,8 +33,9 @@
   let activeCount = 1;
   let lastFrameTime = 0;
   let fpsCounter = 60;
-  let posCache = new Map();
-  let harvestWindow = { at: Date.now(), count: 0 };
+  let animationTime = 0, scanOwner = null;
+  let lastScrollX = 0, lastScrollY = 0, lastLayout = null;
+  let harvestWindow = { at: 0, count: 0 };
   let lastProgressEmit = 0;
 
   const store = () => root.NeuralStore;
@@ -118,218 +119,273 @@
     return S.state.allSentences || [];
   }
 
+  function sentenceElement(id) {
+    if (root.DocViewer?.getSentenceElement) return root.DocViewer.getSentenceElement(id);
+    const content = document.getElementById('doc-content');
+    return content ? Array.from(content.querySelectorAll('.sentence-block')).find(el => el.dataset.sid === id) : null;
+  }
+  function firstWord(element) { return element?.querySelector('.word-span') || element; }
+  function rectOf(element) {
+    if (!element) return null;
+    const rects = element.getClientRects ? Array.from(element.getClientRects()) : [];
+    return rects.find(r => r.width && r.height) || element.getBoundingClientRect();
+  }
+  function isWordVisible(word) {
+    const zone = document.getElementById('doc-dropzone');
+    const r = rectOf(word), z = zone?.getBoundingClientRect();
+    if (!r || !z) return false;
+    // jsdom no calcula geometría; se mantiene ejecutable en las pruebas.
+    if (!r.width && !r.height) return true;
+    return r.top >= z.top + 2 && r.bottom <= z.bottom - 2;
+  }
+  function wordPosition(word, reveal) {
+    const zone = document.getElementById('doc-dropzone');
+    if (!word || !zone) return null;
+    let r = rectOf(word), z = zone.getBoundingClientRect();
+    if (!r) return null;
+    if (reveal && r.height && z.height) {
+      let delta = 0;
+      if (r.top < z.top + 6) delta = r.top - z.top - 6;
+      else if (r.bottom > z.bottom - 6) delta = r.bottom - z.bottom + 6;
+      // Solo desplaza el interior del documento, nunca la ventana completa.
+      if (delta) { zone.scrollTop += delta; r = rectOf(word); }
+    }
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }
+  function documentBusy(except) {
+    return spiders.some(other => other !== except && other.targetSentence &&
+      (other.phase === 'IR_A_PALABRA' || other.phase === 'EXTRAER_DATOS'));
+  }
   function pickNextSentence(sp) {
     const S = store();
     if (!S) return null;
-    const doc = S.getActiveDoc();
-    const activePage = S.state.activePage;
-    const list = candidates();
-    if (!list.length) return null;
-
-    const available = list.filter(s => !s.harvested && !S.state.claimedTargets.has(s.id));
+    const doc = S.getActiveDoc(), page = S.state.activePage;
+    const available = candidates().filter(s => !s.harvested && !S.state.claimedTargets.has(s.id));
     if (!available.length) return null;
-
-    // Prioriza la página visible (para que la animación tenga un destino real)
-    const local = available.filter(s => doc && s.docId === doc.id && s.pageNum === activePage);
+    const local = available.filter(s => doc && s.docId === doc.id && s.pageNum === page);
     const auto = document.getElementById('chk-auto-page');
     const mayNavigate = (!auto || auto.checked) && Date.now() >= (S.state.autoNavigationPausedUntil || 0);
-    const pool = local.length ? local : (mayNavigate ? available : []);
-    if (!pool.length) return null;
-
+    let pool;
+    if (local.length) {
+      const visible = local.filter(s => {
+        const el = sentenceElement(s.id);
+        return !el || isWordVisible(firstWord(el));
+      });
+      if (visible.length) pool = visible;
+      else if (!documentBusy(sp)) pool = local;
+      else return null; // No desplazar el texto que otra araña está escaneando.
+    } else {
+      if (!mayNavigate || documentBusy(sp)) return null;
+      pool = available;
+    }
     let best = null, bestScore = -Infinity;
-    // Muestreo acotado para mantener el coste por frame bajo
     const step = Math.max(1, Math.floor(pool.length / 40));
     for (let i = 0; i < pool.length; i += step) {
-      const s = pool[i];
-      const sc = scoreSentenceForSpider(sp, s.text, i) + Math.random() * 0.35;
-      if (sc > bestScore) { bestScore = sc; best = s; }
+      const sentence = pool[i];
+      const score = scoreSentenceForSpider(sp, sentence.text, i) + Math.random() * .35;
+      if (score > bestScore) { bestScore = score; best = sentence; }
     }
     if (!best) return null;
-
-    // Si el objetivo no está en la página visible, se navega (si hay auto-página)
     if ((!doc || best.docId !== doc.id) && mayNavigate) S.setActiveDoc(best.docId, best.pageNum);
-    else if (best.pageNum !== activePage && mayNavigate) S.setActivePage(best.pageNum);
-
+    else if (best.pageNum !== page && mayNavigate) S.setActivePage(best.pageNum);
     S.state.claimedTargets.add(best.id);
     sp.thought = `${sp.id} [${sp.role}]: analizando «${U.truncate(best.text, 34)}»`;
     return best;
   }
 
-  function getSentenceScreenPos(sentenceId) {
-    const cached = posCache.get(sentenceId);
-    if (cached && Date.now() - cached.at < 600) return cached.pos;
-    const el = Array.from(document.querySelectorAll('.sentence-block')).find(x => x.dataset.sid === sentenceId);
-    if (!el) return null;
-    const rect = el.getBoundingClientRect();
-    if (!rect.width && !rect.height) return { x: rect.left, y: rect.top };
-    const zone = document.getElementById('doc-dropzone')?.getBoundingClientRect();
-    if (zone && (rect.bottom < zone.top || rect.top > zone.bottom)) {
-      try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
-    }
-    const pos = { x: rect.left + Math.min(rect.width * 0.5, 130), y: rect.top + rect.height * 0.5 };
-    if (posCache.size > 600) posCache.clear();
-    posCache.set(sentenceId, { pos, at: Date.now() });
-    return pos;
-  }
-
   // ── Ciclo de vida ────────────────────────────────────────────────────────
   function createSpider(index) {
     const spec = AGENT_SPECS[index % AGENT_SPECS.length];
-    const arena = document.getElementById('panel-arena')?.getBoundingClientRect() || { left: 400, top: 200, width: 300, height: 300 };
+    const arena = document.getElementById('arena-stage')?.getBoundingClientRect() || { left: 400, top: 200, width: 300, height: 300 };
     return Object.assign({}, spec, {
-      x: arena.left + arena.width * 0.5 + (Math.random() - 0.5) * 50,
-      y: arena.top + arena.height * 0.5 + (Math.random() - 0.5) * 50,
-      angle: 0,
-      phase: 'IDLE',
-      phaseStart: performance.now(),
-      targetSentence: null,
-      targetPos: null,
-      extractedPattern: null,
-      legPhase: Math.random() * Math.PI * 2,
-      harvestedCount: 0
+      x: arena.left + arena.width * .5 + (Math.random() - .5) * 50,
+      y: arena.top + arena.height * .5 + (Math.random() - .5) * 50,
+      angle: 0, phase: 'IDLE', phaseStart: animationTime,
+      targetSentence: null, extractedPattern: null, scanWords: [], scanIndex: -1,
+      route: null, routeSignature: '', lane: (index - 2) * 5, nextPickAt: animationTime,
+      legPhase: Math.random() * Math.PI * 2, harvestedCount: 0
     });
   }
-
-  function setSpiderCount(count) {
+  function clearScan(sp) {
+    if (sp.scanElement) {
+      sp.scanElement.classList.remove('sentence-scanning');
+      sp.scanElement.style.removeProperty('--spider-scan-color');
+    }
+    (sp.scanWords || []).forEach(word => word.classList.remove('word-scanned', 'word-scanning'));
+    sp.scanWords = []; sp.scanElement = null; sp.scanIndex = -1;
+    if (scanOwner === sp) scanOwner = null;
+  }
+  function releaseClaim(sp) {
     const S = store();
-    const max = 5;
+    if (S && sp.targetSentence) S.state.claimedTargets.delete(sp.targetSentence.id);
+  }
+  function cancelTarget(sp) {
+    clearScan(sp); releaseClaim(sp);
+    sp.phase = 'IDLE'; sp.targetSentence = null; sp.extractedPattern = null;
+    sp.route = null; sp.routeSignature = ''; sp.phaseStart = animationTime; sp.nextPickAt = animationTime + 200;
+  }
+  function setSpiderCount(count) {
+    const S = store(), max = 5;
     activeCount = Math.max(1, Math.min(max, count));
     while (spiders.length < activeCount) spiders.push(createSpider(spiders.length));
     if (spiders.length > activeCount) {
-      spiders.slice(activeCount).forEach(sp => {
-        if (sp.targetSentence && S) S.state.claimedTargets.delete(sp.targetSentence.id);
-      });
+      spiders.slice(activeCount).forEach(cancelTarget);
       spiders = spiders.slice(0, activeCount);
     }
     const el = document.getElementById('stat-spiders');
     if (el) el.textContent = `${spiders.length}/${max}`;
     if (S) S.emit('spiders:count', { count: spiders.length });
   }
-
-  function releaseClaim(sp) {
-    const S = store();
-    if (S && sp.targetSentence) S.state.claimedTargets.delete(sp.targetSentence.id);
-  }
-
   function extractPattern(sentence) {
     const label = U.words3(sentence.text).replace(/[.,;:]$/, '');
-    return {
-      cluster: null,
-      label,
-      text: U.truncate(sentence.text, 240),
-      pageNum: sentence.pageNum,
-      sentenceId: sentence.id,
-      section: sentence.section || ''
-    };
+    return { cluster: null, label, text: U.truncate(sentence.text, 240), pageNum: sentence.pageNum,
+      sentenceId: sentence.id, section: sentence.section || '' };
   }
-
+  function layout() {
+    const doc = document.getElementById('doc-dropzone')?.getBoundingClientRect();
+    const arena = document.getElementById('arena-stage')?.getBoundingClientRect();
+    if (!doc || !arena) return null;
+    const signature = [doc.left, doc.top, doc.right, doc.bottom, arena.left, arena.top, arena.right, arena.bottom].map(n => Math.round(n)).join(':');
+    return { doc, arena, signature };
+  }
+  function within(point, r) {
+    return point.x >= r.left && point.x <= r.right && point.y >= r.top && point.y <= r.bottom;
+  }
+  function distanceToRect(point, r) {
+    return Math.hypot(Math.max(r.left - point.x, 0, point.x - r.right), Math.max(r.top - point.y, 0, point.y - r.bottom));
+  }
+  function projectBetween(point, from, to) {
+    if (!from.width || !from.height || !to.width || !to.height) return;
+    const x = root.NCSpiderPaths.bound((point.x - from.left) / from.width, 0, 1);
+    const y = root.NCSpiderPaths.bound((point.y - from.top) / from.height, 0, 1);
+    point.x = to.left + x * to.width; point.y = to.top + y * to.height;
+  }
+  function syncViewport(frame) {
+    const x = window.scrollX || 0, y = window.scrollY || 0;
+    const dx = x - lastScrollX, dy = y - lastScrollY;
+    if (dx || dy) {
+      // Las posiciones se dibujan en el viewport, pero pertenecen a la página.
+      spiders.forEach(sp => { sp.x -= dx; sp.y -= dy; });
+      shockwaves.forEach(sw => { sw.x -= dx; sw.y -= dy; });
+    } else if (frame && lastLayout && frame.signature !== lastLayout.signature) {
+      // Al cambiar de columnas a filas, conserva la posición relativa en el panel.
+      spiders.forEach(sp => {
+        const useDoc = within(sp, lastLayout.doc) || (!within(sp, lastLayout.arena) &&
+          distanceToRect(sp, lastLayout.doc) <= distanceToRect(sp, lastLayout.arena));
+        projectBetween(sp, useDoc ? lastLayout.doc : lastLayout.arena, useDoc ? frame.doc : frame.arena);
+        sp.route = null;
+      });
+    }
+    lastScrollX = x; lastScrollY = y; lastLayout = frame;
+  }
+  function travel(sp, target, toDocument, dt) {
+    const frame = layout();
+    if (!frame) return false;
+    if (!sp.route || sp.routeSignature !== frame.signature || (!sp.route.length && Math.hypot(target.x - sp.x, target.y - sp.y) > 2)) {
+      const alreadyThere = toDocument ? within(sp, frame.doc) : within(sp, frame.arena);
+      sp.route = alreadyThere ? [target] : root.NCSpiderPaths.route(frame.doc, frame.arena, target, toDocument, sp.lane);
+      sp.routeSignature = frame.signature;
+    } else if (sp.route.length) sp.route[sp.route.length - 1] = target;
+    if (isReduced()) { sp.x = target.x; sp.y = target.y; sp.route = []; return true; }
+    const move = root.NCSpiderPaths.advance(sp, sp.route, 430 * dt);
+    if (!move.done) sp.angle = move.angle;
+    sp.legPhase += dt * 18;
+    return move.done;
+  }
+  function beginScan(sp, element, now) {
+    scanOwner = sp;
+    sp.scanElement = element;
+    sp.scanWords = Array.from(element.querySelectorAll('.word-span')).slice(0, 18);
+    if (!sp.scanWords.length) sp.scanWords = [element];
+    sp.scanIndex = -1;
+    element.classList.add('sentence-scanning');
+    element.style.setProperty('--spider-scan-color', sp.color);
+    sp.phase = 'EXTRAER_DATOS'; sp.phaseStart = now; sp.route = null;
+    store()?.emit('spider:scanStart', { spiderId: sp.id, sentenceId: sp.targetSentence.id });
+  }
+  function updateScan(sp, now) {
+    if (!sp.scanElement?.isConnected) { cancelTarget(sp); return; }
+    const words = sp.scanWords, durationPerWord = 105;
+    const progress = isReduced() ? words.length : (now - sp.phaseStart) / durationPerWord;
+    const index = Math.min(words.length - 1, Math.floor(progress));
+    if (index !== sp.scanIndex) {
+      if (sp.scanIndex >= 0 && words[sp.scanIndex]) words[sp.scanIndex].classList.remove('word-scanning');
+      for (let i = Math.max(0, sp.scanIndex + 1); i <= index; i++) words[i].classList.add('word-scanned');
+      words[index].classList.add('word-scanning');
+      sp.scanIndex = index;
+    }
+    const current = wordPosition(words[index], true);
+    const next = index + 1 < words.length && isWordVisible(words[index + 1]) ? wordPosition(words[index + 1], false) : current;
+    if (current) {
+      const fraction = Math.min(1, Math.max(0, progress - index));
+      const eased = fraction * fraction * (3 - 2 * fraction);
+      const x = current.x + ((next?.x ?? current.x) - current.x) * eased;
+      const y = current.y + ((next?.y ?? current.y) - current.y) * eased;
+      if (Math.hypot(x - sp.x, y - sp.y) > .5) sp.angle = Math.atan2(y - sp.y, x - sp.x);
+      sp.x = x; sp.y = y;
+    }
+    sp.legPhase += .12;
+    if (progress < words.length) return;
+    const pattern = extractPattern(sp.targetSentence);
+    pattern.cluster = sp.cluster; pattern.color = sp.color;
+    sp.extractedPattern = pattern;
+    clearScan(sp);
+    sp.phase = 'ARRASTRAR_A_RED'; sp.phaseStart = now; sp.route = null;
+    store()?.emit('spider:extracted', { spiderId: sp.id, sentenceId: sp.targetSentence.id, label: pattern.label });
+  }
   function updateSpider(sp, now, dt) {
     const S = store();
     if (!S) return;
-
-    if (sp.phase !== 'IDLE' && now - sp.phaseStart > 3200) {
-      releaseClaim(sp);
-      sp.phase = 'IDLE';
-      sp.targetSentence = null;
-      sp.extractedPattern = null;
-      sp.phaseStart = now;
-    }
-
+    if (sp.phase !== 'IDLE' && now - sp.phaseStart > 30000) { cancelTarget(sp); return; }
+    if (sp.targetSentence && !S.getSentence(sp.targetSentence.id)) { cancelTarget(sp); return; }
     if (sp.phase === 'IDLE') {
+      // Una araña sin trabajo no debe escanear el corpus 60 veces por segundo.
+      if (now < sp.nextPickAt) return;
+      sp.nextPickAt = now + 300;
       const sent = pickNextSentence(sp);
       if (!sent) return;
-      sp.targetSentence = sent;
-      sp.targetPos = getSentenceScreenPos(sent.id);
-      if (sp.targetPos) {
-        sp.phase = 'IR_A_PALABRA';
-        sp.phaseStart = now;
-      } else {
-        S.state.claimedTargets.delete(sent.id);
-      }
+      sp.targetSentence = sent; sp.phase = 'IR_A_PALABRA'; sp.phaseStart = now; sp.route = null;
       return;
     }
-
     if (sp.phase === 'IR_A_PALABRA') {
-      const pos = getSentenceScreenPos(sp.targetSentence.id) || sp.targetPos;
-      if (!pos) { releaseClaim(sp); sp.phase = 'IDLE'; return; }
-      const dx = pos.x - sp.x, dy = pos.y - sp.y;
-      const dist = Math.hypot(dx, dy);
-      sp.angle = Math.atan2(dy, dx);
-      const snap = isReduced();
-      if (dist < 16 || snap) {
-        sp.x = pos.x; sp.y = pos.y;
-        sp.phase = 'EXTRAER_DATOS';
-        sp.phaseStart = now;
-      } else {
-        const speed = 300 * dt;
-        sp.x += (dx / dist) * speed;
-        sp.y += (dy / dist) * speed;
-        sp.legPhase += dt * 18;
-      }
+      // Si el usuario cambia de página, no se usa la posición obsoleta de otro texto.
+      if (S.state.activeDocId !== sp.targetSentence.docId || S.state.activePage !== sp.targetSentence.pageNum) { cancelTarget(sp); return; }
+      const element = sentenceElement(sp.targetSentence.id), word = firstWord(element);
+      if (!element || !word) return; // El visor puede estar esperando su siguiente render.
+      if (!isWordVisible(word) && scanOwner && scanOwner !== sp) return;
+      const pos = wordPosition(word, !scanOwner || scanOwner === sp);
+      if (!pos) return;
+      if (travel(sp, pos, true, dt) && (!scanOwner || scanOwner === sp)) beginScan(sp, element, now);
       return;
     }
-
-    if (sp.phase === 'EXTRAER_DATOS') {
-      sp.legPhase += dt * 10;
-      if (now - sp.phaseStart > 420) {
-        const pattern = extractPattern(sp.targetSentence);
-        pattern.cluster = sp.cluster;
-        pattern.color = sp.color;
-        sp.extractedPattern = pattern;
-        sp.phase = 'ARRASTRAR_A_RED';
-        sp.phaseStart = now;
-      }
-      return;
-    }
-
+    if (sp.phase === 'EXTRAER_DATOS') { updateScan(sp, now); return; }
     if (sp.phase === 'ARRASTRAR_A_RED') {
       const hub = root.NeuralGraph.getHubScreenPos(sp.cluster);
-      const dx = hub.x - sp.x, dy = hub.y - sp.y;
-      const dist = Math.hypot(dx, dy);
-      sp.angle = Math.atan2(dy, dx);
-      if (dist < 20 || isReduced()) {
-        sp.phase = 'ALIMENTAR_NODO';
-        sp.phaseStart = now;
-      } else {
-        const speed = 320 * dt;
-        sp.x += (dx / dist) * speed;
-        sp.y += (dy / dist) * speed;
-        sp.legPhase += dt * 18;
-      }
+      if (travel(sp, hub, false, dt)) { sp.phase = 'ALIMENTAR_NODO'; sp.phaseStart = now; sp.route = null; }
       return;
     }
-
     if (sp.phase === 'ALIMENTAR_NODO') {
       if (sp.extractedPattern) {
         const p = sp.extractedPattern;
+        // Un clic sobre un pasaje ya cosechado puede repetirse visualmente sin duplicar el aprendizaje.
+        const fresh = !sp.targetSentence.harvested;
         sp.targetSentence.harvested = true;
-        Array.from(document.querySelectorAll('.sentence-block')).find(x => x.dataset.sid === sp.targetSentence.id)?.classList.add('sentence-harvested');
-        S.addPattern({
-          cluster: p.cluster, label: p.label, text: p.text,
-          pageNum: p.pageNum, sentenceId: p.sentenceId, color: p.color, section: p.section
-        });
-        learnFromPattern(sp, p.text + ' ' + p.label, 1);
-        if (root.KimiAuxModel) root.KimiAuxModel.trainOnPattern(p.text, 1);
-        if (root.NCMemory) root.NCMemory.vaultAdd({
-          phrase: p.label, detail: p.text, cluster: p.cluster,
-          pageNum: p.pageNum, sentenceId: p.sentenceId,
-          docName: sp.targetSentence.docName
-        });
+        sentenceElement(sp.targetSentence.id)?.classList.add('sentence-harvested');
+        if (fresh) {
+          S.addPattern({ cluster: p.cluster, label: p.label, text: p.text, pageNum: p.pageNum,
+            sentenceId: p.sentenceId, color: p.color, section: p.section });
+          learnFromPattern(sp, p.text + ' ' + p.label, 1);
+          root.KimiAuxModel?.trainOnPattern(p.text, 1);
+          root.NCMemory?.vaultAdd({ phrase: p.label, detail: p.text, cluster: p.cluster,
+            pageNum: p.pageNum, sentenceId: p.sentenceId, docName: sp.targetSentence.docName });
+          sp.harvestedCount++; harvestWindow.count++;
+        }
         shockwaves.push({ x: sp.x, y: sp.y, r: 4, maxR: 38, color: sp.color, alpha: 1 });
-        sp.harvestedCount++;
-        harvestWindow.count++;
-        const vocab = microBrains[sp.id]?.learnedTokens || 0;
-        S.emit('spider:thought', {
-          spiderId: sp.id, role: sp.role, color: sp.color,
-          text: `${sp.id} (${sp.role}) aprendió «${p.label}» [vocab ${vocab}]`
-        });
-        releaseClaim(sp);
+        S.emit('spider:delivered', { spiderId: sp.id, sentenceId: p.sentenceId, cluster: p.cluster, fresh });
+        S.emit('spider:thought', { spiderId: sp.id, role: sp.role, color: sp.color,
+          text: `${sp.id} (${sp.role}) llevó «${p.label}» a la red` });
       }
-      sp.extractedPattern = null;
-      sp.targetSentence = null;
-      sp.phase = 'IDLE';
-      sp.phaseStart = now;
-      emitProgress(now);
+      cancelTarget(sp); emitProgress(now);
     }
   }
 
@@ -339,8 +395,8 @@
     return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   }
 
-  function emitProgress(now) {
-    if (now - lastProgressEmit < 900) return;
+  function emitProgress(now, force) {
+    if (!force && now - lastProgressEmit < 900) return;
     lastProgressEmit = now;
     const S = store();
     if (!S) return;
@@ -358,24 +414,27 @@
     ctx.translate(sp.x, sp.y);
 
     if (sp.phase === 'ARRASTRAR_A_RED' && sp.extractedPattern) {
-      ctx.fillStyle = sp.color;
-      ctx.shadowColor = sp.color;
-      ctx.shadowBlur = 10;
-      ctx.beginPath();
-      ctx.arc(-Math.cos(sp.angle) * 16, -Math.sin(sp.angle) * 16, 5, 0, Math.PI * 2);
-      ctx.fill();
+      // La cápsula contiene palabras reales del pasaje que viaja al nodo.
+      const label = U.truncate(sp.extractedPattern.label || 'pasaje', 26);
+      const trailX = -Math.cos(sp.angle) * 28, trailY = -Math.sin(sp.angle) * 28;
+      ctx.strokeStyle = sp.color; ctx.shadowColor = sp.color; ctx.shadowBlur = 7; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(trailX, trailY); ctx.stroke();
+      ctx.font = '600 9px monospace';
+      const boxWidth = Math.min(160, ctx.measureText(label).width + 17);
+      const boxX = trailX - boxWidth / 2, boxY = trailY - 24;
+      ctx.fillStyle = 'rgba(4, 10, 16, .94)'; ctx.fillRect(boxX, boxY, boxWidth, 16);
+      ctx.strokeStyle = sp.color; ctx.strokeRect(boxX, boxY, boxWidth, 16);
+      ctx.fillStyle = sp.color; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, boxX + 8, boxY + 8);
     }
     if (sp.phase === 'EXTRAER_DATOS') {
-      ctx.strokeStyle = sp.color;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(Math.cos(sp.angle) * 18, Math.sin(sp.angle) * 18);
-      ctx.stroke();
+      ctx.strokeStyle = sp.color; ctx.shadowColor = sp.color; ctx.shadowBlur = 8; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(0, 0, 19, 0, Math.PI * 2); ctx.stroke();
     }
 
     ctx.rotate(sp.angle);
-    ctx.scale(1.3, 1.3);
+    const bodyScale = sp.phase === 'EXTRAER_DATOS' ? 1.0 : 1.3;
+    ctx.scale(bodyScale, bodyScale);
 
     const legColors = ['#00f0ff', '#a855f7', '#f59e0b', '#10b981'];
     ctx.lineWidth = 1.4;
@@ -436,70 +495,42 @@
   }
 
   function loop(now) {
-    const dt = Math.min(0.05, (lastFrameTime ? (now - lastFrameTime) / 1000 : 0.016));
-    fpsCounter = Math.round(fpsCounter * 0.9 + (1 / Math.max(0.001, dt)) * 0.1);
+    const dt = Math.min(.05, (lastFrameTime ? (now - lastFrameTime) / 1000 : .016));
+    fpsCounter = Math.round(fpsCounter * .9 + (1 / Math.max(.001, dt)) * .1);
     lastFrameTime = now;
-
     const fpsEl = document.getElementById('stat-fps');
-    if (fpsEl && Math.random() < 0.08) fpsEl.textContent = Math.min(60, fpsCounter);
-
+    if (fpsEl && Math.random() < .08) fpsEl.textContent = Math.min(60, fpsCounter);
     if (canvas && (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight)) {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      canvas.width = window.innerWidth; canvas.height = window.innerHeight;
     }
     if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    const docRect = document.getElementById('panel-doc')?.getBoundingClientRect();
-    const arenaRect = document.getElementById('panel-arena')?.getBoundingClientRect();
-    if (ctx) {
-      ctx.save();
-      ctx.beginPath();
-      if (docRect) ctx.rect(docRect.left, docRect.top, docRect.width, docRect.height);
-      if (arenaRect) ctx.rect(arenaRect.left, arenaRect.top, arenaRect.width, arenaRect.height);
-      ctx.clip();
-    }
-
+    const frame = layout();
+    syncViewport(frame);
     if (!paused && !document.hidden) {
-      spiders.forEach(sp => updateSpider(sp, now, dt));
-      applyRepulsion();
+      animationTime += dt * 1000;
+      spiders.forEach(sp => updateSpider(sp, animationTime, dt));
     }
-
     if (ctx) {
-      spiders.forEach(sp => drawSpider(sp));
-
-      shockwaves = shockwaves.filter(sw => sw.alpha > 0.05);
+      ctx.save(); ctx.beginPath();
+      if (frame) {
+        const { doc, arena } = frame;
+        ctx.rect(doc.left, doc.top, doc.width, doc.height);
+        ctx.rect(arena.left, arena.top, arena.width, arena.height);
+        const bridge = root.NCSpiderPaths.portals(doc, arena, { x: doc.left + doc.width / 2, y: doc.top + doc.height / 2 }).bridge;
+        if (bridge && bridge.right > bridge.left && bridge.bottom > bridge.top)
+          ctx.rect(bridge.left, bridge.top, bridge.right - bridge.left, bridge.bottom - bridge.top);
+      }
+      ctx.clip();
+      spiders.forEach(drawSpider);
+      shockwaves = shockwaves.filter(sw => sw.alpha > .05);
       shockwaves.forEach(sw => {
-        sw.r += 1.8;
-        sw.alpha *= 0.9;
-        ctx.strokeStyle = sw.color;
-        ctx.globalAlpha = sw.alpha;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(sw.x, sw.y, sw.r, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.globalAlpha = 1;
+        if (!paused && !document.hidden) { sw.r += 1.8; sw.alpha *= .9; }
+        ctx.strokeStyle = sw.color; ctx.globalAlpha = sw.alpha; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(sw.x, sw.y, sw.r, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
       });
       ctx.restore();
     }
-
     requestAnimationFrame(loop);
-  }
-
-  function applyRepulsion() {
-    for (let i = 0; i < spiders.length; i++) {
-      for (let j = i + 1; j < spiders.length; j++) {
-        const dx = spiders[j].x - spiders[i].x;
-        const dy = spiders[j].y - spiders[i].y;
-        const dist = Math.hypot(dx, dy) || 1;
-        if (dist < 28) {
-          const push = (28 - dist) * 0.25;
-          spiders[i].x -= (dx / dist) * push;
-          spiders[i].y -= (dy / dist) * push;
-          spiders[j].x += (dx / dist) * push;
-          spiders[j].y += (dy / dist) * push;
-        }
-      }
-    }
   }
 
   // ── Arranque ─────────────────────────────────────────────────────────────
@@ -507,6 +538,7 @@
     const S = store();
     if (!S) return;
     initMicroBrains();
+    lastScrollX = window.scrollX || 0; lastScrollY = window.scrollY || 0; lastLayout = layout();
     canvas = document.getElementById('spider-canvas');
     if (canvas) {
       ctx = canvas.getContext('2d');
@@ -522,33 +554,44 @@
     });
 
     const btnPause = document.getElementById('btn-toggle-spiders');
-    btnPause?.addEventListener('click', () => {
-      paused = !paused;
-      btnPause.textContent = paused ? '▶' : 'Ⅱ';
-      btnPause.setAttribute('aria-label', paused ? 'Reanudar enjambre' : 'Pausar enjambre');
-      btnPause.title = paused ? 'Reanudar enjambre' : 'Pausar enjambre';
+    function setPaused(value) {
+      paused = value;
+      if (btnPause) {
+        btnPause.textContent = paused ? '▶' : 'Ⅱ';
+        btnPause.setAttribute('aria-label', paused ? 'Reanudar enjambre' : 'Pausar enjambre');
+        btnPause.title = paused ? 'Reanudar enjambre' : 'Pausar enjambre';
+      }
       S.emit('spiders:paused', { paused });
-    });
+    }
+    btnPause?.addEventListener('click', () => setPaused(!paused));
 
     S.on('doc:added', doc => {
       const totalChars = (doc.pages || []).reduce((acc, p) => acc + (p.text || '').length, 0);
       const target = Math.min(5, Math.max(1, Math.ceil(totalChars / 2200)));
       setSpiderCount(target);
-      emitProgress(performance.now());
-      if (S.getSetting('autoHarvest', true) === false) paused = true;
+      emitProgress(animationTime, true);
+      if (S.getSetting('autoHarvest', true) === false) setPaused(true);
     });
 
     S.on('spider:dispatchToSentence', ({ sentence }) => {
-      if (!sentence) return;
-      const sp = spiders[0];
-      if (!sp) return;
-      if (sp.targetSentence) S.state.claimedTargets.delete(sp.targetSentence.id);
-      sp.targetSentence = sentence;
-      sp.targetPos = getSentenceScreenPos(sentence.id);
-      sp.phase = 'IR_A_PALABRA';
-      sp.phaseStart = performance.now();
+      if (!sentence || S.state.claimedTargets.has(sentence.id)) return;
+      const sp = spiders.find(candidate => candidate.phase === 'IDLE');
+      if (!sp) { root.DocViewer?.toast('Las arañas están ocupadas; vuelve a intentarlo en un momento.'); return; }
+      sp.targetSentence = sentence; sp.phase = 'IR_A_PALABRA'; sp.phaseStart = animationTime; sp.route = null;
       S.state.claimedTargets.add(sentence.id);
     });
+
+    S.on('doc:pageChanged', ({ docId, pageNum }) => {
+      spiders.forEach(sp => {
+        if (sp.targetSentence && ['IR_A_PALABRA', 'EXTRAER_DATOS'].includes(sp.phase) &&
+            (sp.targetSentence.docId !== docId || sp.targetSentence.pageNum !== pageNum)) cancelTarget(sp);
+      });
+    });
+    S.on('doc:removed', () => {
+      spiders.forEach(sp => { if (sp.targetSentence && !S.getSentence(sp.targetSentence.id)) cancelTarget(sp); });
+      emitProgress(animationTime, true);
+    });
+    S.on('brain:imported', () => { spiders.forEach(cancelTarget); emitProgress(animationTime, true); });
 
     S.on('spider:queryVisual', ({ nodeIds }) => {
       const sp = spiders[spiders.length - 1] || spiders[0];
@@ -561,12 +604,10 @@
     });
 
     S.on('system:reset', () => {
-      resetMicroBrains();
-      posCache.clear();
-      setSpiderCount(1);
-      paused = false;
-      if (btnPause) { btnPause.textContent = 'Ⅱ'; btnPause.title = 'Pausar enjambre'; btnPause.setAttribute('aria-label', 'Pausar enjambre'); }
+      spiders.forEach(cancelTarget); spiders = []; shockwaves = []; scanOwner = null;
+      resetMicroBrains(); setSpiderCount(1); setPaused(false); emitProgress(animationTime, true);
     });
+    emitProgress(animationTime, true);
 
     // Ciclo de sueño: consolidación periódica de la bóveda
     setInterval(() => {
@@ -576,5 +617,5 @@
   }
 
   root.SpiderEngine = { init, setSpiderCount, AGENT_SPECS, microBrains, reloadMicroBrains: initMicroBrains,
-    getStatus: () => ({ paused, spiders: spiders.map(({ id, role, cluster, phase }) => ({ id, role, cluster, phase })) }) };
+    getStatus: () => ({ paused, spiders: spiders.map(({ id, role, cluster, phase, x, y, scanIndex, targetSentence }) => ({ id, role, cluster, phase, x, y, scanIndex, sentenceId: targetSentence?.id || null })) }) };
 })(typeof window !== 'undefined' ? window : globalThis);

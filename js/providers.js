@@ -23,7 +23,7 @@
   function setInternalComposer(fn) { composer = fn; }
   register({
     id: 'internal', label: 'Motor interno extractivo', kind: 'extractive', streaming: false,
-    description: 'Sin modelos preentrenados, servidores ni descargas. Usa fragmentos y análisis del corpus.',
+    description: 'Compositor extractivo local; utiliza fragmentos y análisis del corpus.',
     models: [{ id: 'kimi-core', label: 'KIMI-CORE local' }],
     available: async () => true,
     complete: async ctx => {

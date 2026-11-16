@@ -10,12 +10,17 @@
     const ranked = [...unique.values()].sort((a, b) => a.df - b.df).slice(0, 4);
     return ranked.length >= 2 ? ranked.map(x => x.word).join(' ') : null;
   }
-  function run(opts) {
+  async function run(opts) {
     const S = store();
     if (!S?.state.index) return { error: 'Sin índice' };
     const o = Object.assign({ sample: 40, k: 5 }, opts || {});
     const index = S.state.index, total = index.sentences.length;
     if (total < 5) return { error: 'Se necesitan al menos 5 pasajes indexados.' };
+    const model = root.NCLocalModel;
+    const useModel = S.getSetting('embedEnabled', true) && !!model?.info().enabled;
+    if (useModel && (model.info().status !== 'ready' || model.info().indexed !== total)) {
+      return { error: 'Espera a que el modelo termine de indexar el corpus antes de evaluar.' };
+    }
     const count = Math.min(total, o.sample), cases = [];
     for (let i = 0; i < count; i++) {
       const pos = Math.floor(i * total / count), sentence = index.sentences[pos];
@@ -26,9 +31,21 @@
     let hit1 = 0, hit3 = 0, hitK = 0, mrr = 0;
     const latencies = [], byDoc = new Map(), failures = [];
     for (const c of cases) {
+      if (S.state.index !== index || index.sentences.length !== total ||
+          (useModel && (!S.getSetting('embedEnabled', true) || !model.info().enabled || model.info().status !== 'ready' || model.info().indexed !== total))) {
+        return { error: 'El corpus o el modelo cambió durante la evaluación. Inténtalo de nuevo.' };
+      }
       const t = performance.now();
-      // Se mide la misma ruta híbrida que usa el chat.
-      const result = S.search(c.q, { k: Math.max(10, o.k), diversify: false, expand: false });
+      let neuralScores = null;
+      if (useModel) {
+        try { neuralScores = await model.scores(R.parseQuery(c.q).cleaned); }
+        catch (_) { return { error: 'El modelo se detuvo durante la evaluación. Inténtalo de nuevo.' }; }
+        if (!neuralScores || !S.getSetting('embedEnabled', true) || !model.info().enabled || model.info().status !== 'ready' || S.state.index !== index || index.sentences.length !== total) {
+          return { error: 'El corpus o el modelo cambió durante la evaluación. Inténtalo de nuevo.' };
+        }
+      }
+      // Mismas capas y expansiones del chat; la latencia incluye inferencia ONNX.
+      const result = S.search(c.q, { k: Math.max(10, o.k), neuralScores });
       latencies.push(performance.now() - t);
       const rank = result.hits.findIndex(h => h.sentence.id === c.id) + 1;
       if (rank === 1) hit1++;
@@ -45,7 +62,10 @@
       at: Date.now(), sample: n, k: o.k, recall1: hit1 / n, recall3: hit3 / n,
       recallK: hitK / n, mrr: mrr / n, p50: U.percentile(latencies, 50), p95: U.percentile(latencies, 95),
       byDoc: [...byDoc.values()].map(row => ({ ...row, recall: row.hits / row.total })),
-      failures, stats: R.stats(index), vectors: index.vectors.size
+      failures, stats: R.stats(index), vectors: index.vectors.size,
+      retrieval: useModel ? 'BM25 + proyección + MiniLM ONNX local' :
+        S.getSetting('embedEnabled', true) ? 'BM25 + proyección local' : 'BM25 local',
+      neuralVectors: useModel ? model.info().indexed : 0
     };
     S.state.evalRuns.push(result);
     if (S.state.evalRuns.length > 50) S.state.evalRuns.shift();
@@ -69,8 +89,9 @@
       const add = (value, label) => { const card = el('div', 'eval-kpi'); card.append(el('strong', '', value), el('small', '', label)); summary.appendChild(card); };
       add(U.pct(last.recallK), `recall@${last.k}`); add(U.pct(last.recall1), 'recall@1');
       add(Number(last.mrr).toFixed(2), 'MRR@10'); add(U.formatMs(last.p95), 'latencia p95');
-      add(String(last.sample), 'consultas'); add(String(last.vectors), 'vectores locales');
+      add(String(last.sample), 'consultas'); add(String(last.vectors), 'vectores proyectados');
       box.appendChild(summary);
+      box.appendChild(el('p', 'muted small', `Ruta evaluada: ${last.retrieval || 'evaluación anterior'}${last.neuralVectors ? ` · ${last.neuralVectors} pasajes ONNX` : ''}. Latencia con inferencia incluida cuando corresponde.`));
       if (last.byDoc?.length) {
         box.appendChild(el('h4', '', 'Por documento'));
         const list = el('ul', 'metrics-list');

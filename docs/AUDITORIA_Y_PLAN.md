@@ -1,5 +1,7 @@
 # AUDITORÍA Y PLAN DE TRABAJO — NEURAL COMMAND // AI SPIDER OS
 
+> **Documento histórico:** esta auditoría describe el commit indicado abajo, no el estado actual. Se acordó mantener el procesamiento local y descartar el puente Ollama y los proxies propuestos. El avance y los límites vigentes están en [`IMPLEMENTACION_V11.md`](IMPLEMENTACION_V11.md).
+
 **Repositorio:** `luan920530-commits/Spyder-`
 **Rama auditada:** `arena/7f0fa194-spyder` @ `350cddb`
 **Fecha:** 2026-11-16

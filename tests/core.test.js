@@ -61,6 +61,24 @@ test('vector local y RRF encuentran un alias sin coincidencia léxica', () => {
   assert.ok(Math.abs(U.cosine(v, v) - 1) < 1e-6);
 });
 
+test('MiniLM reordena candidatos, exige señal más fuerte para los puramente semánticos y respeta filtros', () => {
+  const index = R.rebuildFrom([
+    { id: 'cat', docId: 'pets', docName: 'pets.txt', pageNum: 1, text: 'A cat sleeps on the sofa.' },
+    { id: 'tree', docId: 'nature', docName: 'nature.txt', pageNum: 2, text: 'A tree grows in the garden.' }
+  ]);
+  const search = (query, scores) => R.search(index, query, { neuralScores: new Map(scores), diversify: false, fuzzy: false });
+  assert.equal(search('feline napping couch', [['cat', .57], ['tree', .43]]).hits.length, 0);
+  const semantic = search('feline napping couch', [['cat', .59], ['tree', .43]]);
+  assert.deepEqual(semantic.hits.map(hit => hit.sentence.id), ['cat']);
+  assert.equal(semantic.neuralUsed, true);
+  assert.equal(semantic.neuralOnly, true);
+  const lexical = search('cat', [['cat', .45]]);
+  assert.equal(lexical.hits[0].neural, .45);
+  assert.equal(lexical.neuralOnly, false);
+  assert.equal(search('=doc:nature feline', [['cat', .99]]).hits.length, 0);
+  assert.equal(search('feline -sofa', [['cat', .99]]).hits.length, 0);
+});
+
 test('verificación diferencia referencias válidas, débiles y fuera de rango', () => {
   const sources = [{ text: 'La sinapsis transmite señales neuronales entre neuronas.' }];
   const result = R.verifyCitations('La sinapsis transmite señales neuronales [1].\nOtro asunto [2].', sources);

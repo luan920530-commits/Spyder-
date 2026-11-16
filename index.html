@@ -20,6 +20,7 @@
   <script defer src="js/db.js"></script>
   <script defer src="js/embeddings.js"></script>
   <script defer src="js/store.js"></script>
+  <script defer src="js/local-model.js"></script>
   <script defer src="js/parsers.js"></script>
   <script defer src="js/memory.js"></script>
   <script defer src="js/providers.js"></script>
@@ -27,6 +28,7 @@
   <script defer src="js/kimi-aux-model.js"></script>
   <script defer src="js/viewer.js"></script>
   <script defer src="js/neural-graph.js"></script>
+  <script defer src="js/spider-paths.js"></script>
   <script defer src="js/spiders.js"></script>
   <script defer src="js/eval.js"></script>
   <script defer src="js/brain-rag.js"></script>
@@ -48,6 +50,7 @@
     <div class="top-status">
       <div class="status-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
       <div class="system-time"><span id="system-clock">--:--:--</span><span class="clock-divider"> / </span><span id="hud-mode-badge" title="Procesamiento en tu dispositivo">LOCAL</span></div>
+      <button class="model-trigger" id="btn-model" title="Modelo semántico opcional" aria-haspopup="dialog" aria-controls="model-modal" aria-expanded="false"><span aria-hidden="true">◇</span> MODELO</button>
       <button class="icon-button settings-button" id="btn-settings" aria-label="Abrir ajustes" title="Ajustes">⚙</button>
     </div>
   </header>
@@ -192,9 +195,21 @@
       <div class="modal-foot"><button id="btn-confirm-paste" class="btn-hud btn-cyan">INDEXAR TEXTO</button></div>
     </div>
   </div>
+  <div id="model-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="model-heading">
+    <div class="modal-card model-card">
+      <div class="modal-head"><span id="model-heading">MODELO SEMÁNTICO LOCAL</span><button id="btn-close-model" class="btn-mini" aria-label="Cerrar modelo local">✕</button></div>
+      <div class="model-detail"><span class="model-detail-icon" aria-hidden="true">◇</span><div><strong>all-MiniLM-L6-v2 · ONNX</strong><small>384 dimensiones · ejecución local en el navegador</small></div></div>
+      <p class="muted small">Descarga opcional de aproximadamente 42 MiB (44 MB) desde esta instalación. El modelo se guarda en este navegador y ayuda a buscar pasajes relacionados. No envía tus documentos a ningún servicio.</p>
+      <p class="muted small">Es un modelo de búsqueda, <strong>no genera texto</strong>. Fue entrenado principalmente en inglés; su rendimiento en español puede variar. El motor extractivo funciona sin él.</p>
+      <p class="muted small">Requiere HTTPS o localhost y almacenamiento local. Reindexa tus pasajes al abrir; para usarlo, mantén activada la búsqueda híbrida en Ajustes.</p>
+      <div class="model-progress"><div class="model-progress-head"><span id="model-status" role="status">Modelo opcional desactivado.</span><span id="model-percent"></span></div><progress id="model-progress" max="100" value="0" aria-label="Progreso del modelo"></progress></div>
+      <div class="model-actions"><button id="btn-install-model" class="btn-hud btn-cyan">DESCARGAR Y ACTIVAR</button><button id="btn-retry-index" class="btn-hud btn-cyan hidden">REINTENTAR ÍNDICE</button><button id="btn-disable-model" class="btn-hud btn-ghost hidden">DESACTIVAR</button><button id="btn-delete-model" class="btn-hud btn-ghost hidden">ELIMINAR DESCARGA</button></div>
+      <div class="model-backup"><strong>Tu conocimiento aprendido</strong><p class="muted small">Guarda tus documentos indexados, grafo y progreso en un respaldo JSON. No incluye los pesos ONNX.</p><button id="btn-download-brain" class="btn-mini">↓ DESCARGAR MI CEREBRO .JSON</button></div>
+    </div>
+  </div>
   <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-heading">
     <div class="modal-card"><div class="modal-head"><span id="settings-heading">AJUSTES LOCALES</span><button id="btn-close-settings" class="btn-mini" aria-label="Cerrar ajustes">✕</button></div>
-      <p class="muted">Motor extractivo independiente: no usa servidores, claves ni modelos descargados. La capa vectorial es una proyección local, no un LLM preentrenado.</p>
+      <p class="muted">Motor extractivo independiente, sin servidores de IA ni claves. El modelo ONNX opcional se ejecuta localmente y se activa desde MODELO.</p>
       <label class="check-row"><input id="cfg-dense" type="checkbox"> Búsqueda híbrida vectorial</label><label class="check-row"><input id="cfg-fuzzy" type="checkbox"> Coincidencia difusa</label><label class="check-row"><input id="cfg-reduced" type="checkbox"> Reducir animaciones</label>
       <label for="cfg-topk">Máximo de fuentes</label><select id="cfg-topk"><option>3</option><option>4</option><option>5</option><option>6</option><option>8</option><option>10</option></select>
       <label for="cfg-window">Contexto vecino</label><select id="cfg-window"><option value="0">Solo el pasaje</option><option value="1">Una oración a cada lado</option><option value="2">Dos oraciones a cada lado</option></select>

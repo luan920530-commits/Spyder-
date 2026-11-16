@@ -5,7 +5,7 @@ const path = require('node:path');
 const { JSDOM, VirtualConsole } = require('jsdom');
 const { IDBFactory } = require('fake-indexeddb');
 const root = path.join(__dirname, '..');
-const scripts = ['util', 'retrieval', 'analysis', 'srs', 'db', 'embeddings', 'store', 'parsers', 'memory', 'providers', 'rag', 'kimi-aux-model', 'viewer', 'neural-graph', 'spiders', 'eval', 'brain-rag', 'study-bots', 'app'];
+const scripts = ['util', 'retrieval', 'analysis', 'srs', 'db', 'embeddings', 'store', 'local-model', 'parsers', 'memory', 'providers', 'rag', 'kimi-aux-model', 'viewer', 'neural-graph', 'spider-paths', 'spiders', 'eval', 'brain-rag', 'study-bots', 'app'];
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(fn, timeout = 4000) {
   const end = Date.now() + timeout;
@@ -13,8 +13,8 @@ async function until(fn, timeout = 4000) {
   throw new Error('Tiempo agotado esperando condición');
 }
 function canvasContext() {
-  const ctx = { createRadialGradient: () => ({ addColorStop() {} }) };
-  ['arc', 'beginPath', 'bezierCurveTo', 'clearRect', 'clip', 'closePath', 'fill', 'fillRect', 'fillText', 'lineTo', 'moveTo', 'rect', 'restore', 'rotate', 'save', 'scale', 'setLineDash', 'setTransform', 'stroke', 'translate'].forEach(name => { ctx[name] = () => {}; });
+  const ctx = { createRadialGradient: () => ({ addColorStop() {} }), measureText: text => ({ width: String(text).length * 6 }) };
+  ['arc', 'beginPath', 'bezierCurveTo', 'clearRect', 'clip', 'closePath', 'fill', 'fillRect', 'fillText', 'lineTo', 'moveTo', 'rect', 'restore', 'rotate', 'save', 'scale', 'setLineDash', 'setTransform', 'stroke', 'strokeRect', 'translate'].forEach(name => { ctx[name] = () => {}; });
   return ctx;
 }
 async function createApp(indexedDB) {
@@ -39,6 +39,51 @@ async function createApp(indexedDB) {
 function byText(w, selector, text) {
   return [...w.document.querySelectorAll(selector)].find(x => x.textContent.includes(text));
 }
+
+test('resumen global respeta filtros y no reintroduce texto excluido por contexto', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    w.document.getElementById('btn-toggle-spiders').click();
+    w.NeuralStore.addDocument({ id: 'a', name: 'uno.txt', pages: [{ pageNum: 1, sentences: [
+      { id: 'a', text: 'La biología estudia los seres vivos y sus relaciones.' },
+      { id: 'b', text: 'La biología marina estudia peces y océanos.' }
+    ] }] });
+    w.NeuralStore.addDocument({ id: 'b', name: 'dos.txt', pages: [{ pageNum: 1, sentences: [
+      { id: 'c', text: 'La química estudia los materiales y sus propiedades.' }
+    ] }, { pageNum: 2, sentences: [
+      { id: 'd', text: 'La química analiza reacciones entre diferentes sustancias.' }
+    ] }] });
+    const summary = await w.NCRag.ask('Resume el documento =doc:uno -marina');
+    assert.ok(summary.sources.length);
+    assert.ok(summary.sources.every(source => source.docName === 'uno.txt' && !source.text.includes('marina')));
+    const page = await w.NCRag.ask('Resume el documento =doc:dos =pag:2');
+    assert.ok(page.sources.length);
+    assert.ok(page.sources.every(source => source.docName === 'dos.txt' && source.pageNum === 2));
+    const absent = await w.NCRag.ask('Resume el documento =doc:inexistente');
+    assert.equal(absent.sources.length, 0);
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('el chat identifica evidencia exclusivamente semántica y conserva el fallback', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    w.document.getElementById('btn-toggle-spiders').click();
+    w.document.getElementById('btn-load-demo').click();
+    const id = w.NeuralStore.state.allSentences[0].id;
+    w.NCLocalModel.info = () => ({ enabled: true });
+    w.NCLocalModel.scores = async () => new w.Map([[id, .95]]);
+    const semantic = await w.NCRag.ask('xyzzyplugh quasar');
+    assert.equal(semantic.sources.length, 1);
+    assert.match(semantic.text, /solo por similitud semántica/i);
+    assert.ok(semantic.trace.some(line => line.includes('MiniLM ONNX')));
+    w.NCLocalModel.scores = async () => { throw new Error('inferencia interrumpida'); };
+    const fallback = await w.NCRag.ask('xyzzyplugh quasar');
+    assert.equal(fallback.sources.length, 0);
+    assert.ok(!fallback.trace.some(line => line.includes('MiniLM ONNX')));
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
 
 test('flujo de interfaz: demo, XSS, chat, estudio y restauración local', async () => {
   const db = new IDBFactory();

@@ -4,7 +4,7 @@
  *   consulta → filtros → recuperación híbrida → contexto con citas → router de modelos
  *   → verificación de citas → memoria/aprendizaje.
  *
- * El compositor interno (modo 100 % local sin descargas) genera respuestas
+ * El compositor interno (extractivo y local, sin modelo generativo) produce respuestas
  * estructuradas y verificables con TextRank, afirmaciones y crítica.
  */
 (function (root, factory) {
@@ -340,20 +340,28 @@
     const k = o.k || (S ? S.getSetting('topK', 6) : 6);
     const window_ = S ? S.getSetting('window', 1) : 1;
 
-    let searchResult = S ? S.search(q, { k, fuzzy: S.getSetting('fuzzy', true) }) : { hits: [], tookMs: 0, total: 0 };
+    let neuralScores = null;
+    const localModel = typeof window !== 'undefined' ? window.NCLocalModel : null;
+    if (S && S.getSetting('embedEnabled', true) && localModel?.info().enabled) {
+      try { neuralScores = await localModel.scores(R.parseQuery(q).cleaned); }
+      catch (_) { /* La búsqueda interna sigue operativa si se desactiva o falla el modelo. */ }
+      if (!S.getSetting('embedEnabled', true)) neuralScores = null;
+    }
+    let searchResult = S ? S.search(q, { k, fuzzy: S.getSetting('fuzzy', true), neuralScores }) : { hits: [], tookMs: 0, total: 0 };
 
     // Para una petición global, muestra una muestra del corpus en lugar de tratar
     // las palabras «resumir documento» como si fueran un tema presente en él.
     const genericWords = new Set(['resum', 'resumen', 'sintetiz', 'analiz', 'analisis', 'critic', 'evalu', 'revis', 'document', 'material', 'texto', 'complet', 'corpus', 'archiv', 'general', 'todo', 'principal', 'redact', 'contradicc', 'inconsist', 'compar']);
     const contentTerms = (searchResult.parsed?.uniqueTerms || []).filter(t => !genericWords.has(t));
     if (S && ['resumen', 'critico', 'redaccion'].includes(mode) && !contentTerms.length && S.state.index.sentences.length) {
-      const all = S.state.index.sentences;
+      const filters = searchResult.parsed?.filters;
+      const all = S.state.index.sentences.filter(sentence => R.passesFilters(sentence, filters) && !R.containsExcluded(sentence, filters));
       const count = Math.min(k, all.length);
       const hits = Array.from({ length: count }, (_, i) => ({ sentence: all[Math.floor(i * all.length / count)], score: 1 }));
-      searchResult = { ...searchResult, hits, total: all.length, globalSample: true };
+      searchResult = { ...searchResult, hits, total: all.length, globalSample: true, neuralUsed: false, neuralOnly: false };
     }
 
-    const chunks = S ? R.buildContext(S.state.index, searchResult.hits, { window: window_, maxChars: MAX_CONTEXT_CHARS, maxChunks: k }) : [];
+    const chunks = S ? R.buildContext(S.state.index, searchResult.hits, { window: window_, maxChars: MAX_CONTEXT_CHARS, maxChunks: k, filters: searchResult.parsed?.filters }) : [];
     const graphNodes = relatedNodes(q, 8);
     const facts = M.facts ? M.facts(q, 3) : [];
     const vaultHits = M.vaultSearch ? M.vaultSearch(q, { limit: 4 }) : [];
@@ -393,6 +401,9 @@
     }
 
     let text = (result.text || '').trim();
+    if (searchResult.neuralOnly && !searchResult.globalSample) {
+      text = `> ⚠️ Al menos una fuente se seleccionó solo por similitud semántica. Podría no responder a la pregunta; revisa el pasaje original.\n\n${text}`;
+    }
     if (facts.length) text += `\n\n**Recuerdo guardado por ti (no verificado):** ${facts.map(f => f.fact).join('; ')}.`;
     let usedProvider = result.provider || 'internal';
 
@@ -442,6 +453,7 @@
     trace.push(`intención: ${p.intent || 'auto'} → modo ${p.mode || 'auto'}`);
     if (p.search) {
       trace.push(`recuperación: ${p.search.hits.length} de ${p.search.total} candidatas en ${p.search.tookMs} ms`);
+      if (p.search.neuralUsed) trace.push('recuperación semántica: MiniLM ONNX local');
       if (p.search.parsed && p.search.parsed.hasFilters) trace.push(`filtros: ${JSON.stringify(p.search.parsed.filters)}`);
     }
     trace.push(`proveedor: ${p.provider}${p.model ? ' · ' + p.model : ''}${p.fallback ? ' (degradado)' : ''}`);
