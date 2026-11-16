@@ -296,16 +296,17 @@
       const nodes = window.NeuralStore.state.nodes.filter(n => !n.isHub);
 
       const pick = (cluster, fallback) => {
-        const found = nodes.filter(n => n.cluster === cluster);
-        return found.length ? found.map(n => n.text).join(' ') : fallback;
+        const found = nodes.filter(n => n.cluster === cluster).sort((a, b) => (b.weight || 1) - (a.weight || 1));
+        return found.length ? found.slice(0, 2).map(n => n.text).join('; ') : fallback;
       };
 
+      const topConcepts = nodes.slice(0, 4).map(n => n.label).join(', ') || topic;
       const sections = [
-        { id: 'SPDR-01 [DEF-AI]', color: '#00f0ff', text: `En relación con ${topic}, se establece como marco conceptual: ${pick('AGT-01', 'la definición fundamental de los nodos semánticos y su estructura ontológica.')}` },
-        { id: 'SPDR-02 [CAUSAL-AI]', color: '#a855f7', text: `Desde la perspectiva causal y operativa: ${pick('AGT-02', 'los mecanismos de propagación y reglas de decisión conectan cada etapa del proceso.')}` },
-        { id: 'SPDR-03 [QUANT-AI]', color: '#f59e0b', text: `La evidencia cuantitativa respalda este análisis: ${pick('AGT-03', 'las métricas de rendimiento y latencia confirman la eficiencia del sistema.')}` },
-        { id: 'SPDR-04 [SYNTH-AI]', color: '#10b981', text: `En síntesis: ${pick('AGT-04', 'la integración de estos factores permite consolidar una conclusión sólida y verificable.')}` },
-        { id: 'SPDR-05 [CORE-AI]', color: '#f43f5e', text: `Cierre KIMI-CORE: ${nodes.length} nodos neuronales han sido articulados para responder a "${topic}".` }
+        { id: 'SPDR-01 [DEF-AI]', color: '#00f0ff', text: `**1. Marco Conceptual (${topic}):** A partir de los patrones comprendidos (${topConcepts}), se define que ${pick('AGT-01', 'la estructura central se fundamenta en nodos semánticos interconectados.')}` },
+        { id: 'SPDR-02 [CAUSAL-AI]', color: '#a855f7', text: `**2. Argumentación y Mecanismos:** El análisis causal demuestra que ${pick('AGT-02', 'cada regla operativa desencadena una respuesta directa en el sistema.')}` },
+        { id: 'SPDR-03 [QUANT-AI]', color: '#f59e0b', text: `**3. Evidencia y Métricas Clave:** Los datos extraídos respaldan esta tesis: ${pick('AGT-03', 'las métricas observadas validan la eficiencia del enfoque.')}` },
+        { id: 'SPDR-04 [SYNTH-AI]', color: '#10b981', text: `**4. Síntesis Crítica:** En conclusión, ${pick('AGT-04', 'la convergencia de estos argumentos consolida una postura coherente sobre ' + topic + '.')}` },
+        { id: 'SPDR-05 [CORE-AI]', color: '#f43f5e', text: `**5. Veredicto KIMI-CORE:** Documento redactado integrando ${nodes.length} nodos aprendidos de la red neuronal.` }
       ];
 
       outEl.innerHTML = '';
