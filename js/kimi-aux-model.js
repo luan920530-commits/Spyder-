@@ -10,6 +10,7 @@
     markov: {},       // { wordA: { nextWord: weight } } para generación N-gram natural
     negativeEpisodes: [], // Memoria negativa (EMK): patrones penalizados con 👎
     episodes: [],         // Episodios maestros comprimidos por SleepCycle
+    styleConnectors: ['por lo tanto', 'en síntesis', 'en contraste', 'además'], // Patrones de escritura aprendidos
     evolutionXP: 0,
     level: 1,
     totalInferences: 0
@@ -156,6 +157,19 @@
     return brain.episodes;
   }
 
+  function getSelfReflection(nodes = []) {
+    const counts = { 'AGT-01': 0, 'AGT-02': 0, 'AGT-03': 0, 'AGT-04': 0 };
+    nodes.filter(n => !n.isHub).forEach(n => { if (counts[n.cluster] !== undefined) counts[n.cluster]++; });
+    const weakest = Object.entries(counts).sort((a, b) => a[1] - b[1])[0];
+    return {
+      level: brain.level,
+      xp: brain.evolutionXP,
+      counts,
+      weakestCluster: weakest[0],
+      reflection: `Nivel ${brain.level} (${brain.evolutionXP} XP). Domino ${Object.keys(brain.cooccurrence).length} conceptos. Mi área más débil es ${weakest[0]} (${weakest[1]} nodos); necesito más patrones de ese tipo.`
+    };
+  }
+
   load();
   window.KimiAuxModel = {
     trainOnPattern,
@@ -164,6 +178,7 @@
     reason,
     recordNegativeEpisode,
     runSleepCycle,
+    getSelfReflection,
     brain
   };
 })();
