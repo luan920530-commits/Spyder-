@@ -153,12 +153,25 @@
       return generateStructuredAnalysis();
     }
 
-    // 4. Búsqueda híbrida BM25 + Expansión de grafo 1-salto + Memoria consolidada
+    // 4. Búsqueda híbrida BM25 + Propagación de Activación Sináptica (2 saltos en el grafo) + Memoria
     const hits = bm25Search(query, store.state.allSentences, 3);
     const nodes = store.state.nodes.filter(n => !n.isHub);
-    const matchedNodes = nodes.filter(n =>
-      tokenize(query).some(qt => n.label.toLowerCase().includes(qt) || (n.text || '').toLowerCase().includes(qt))
-    ).slice(0, 5);
+    const seedNodes = nodes.filter(n =>
+      expandQueryTerms(tokenize(query)).some(qt => n.label.toLowerCase().includes(qt) || (n.text || '').toLowerCase().includes(qt))
+    );
+
+    // Propagación de activación por ramas neuronales (conectando clústeres relacionados)
+    const activatedIds = new Set(seedNodes.map(n => n.id));
+    for (let hop = 0; hop < 2; hop++) {
+      store.state.links.forEach(l => {
+        const s = typeof l.source === 'object' ? l.source.id : l.source;
+        const t = typeof l.target === 'object' ? l.target.id : l.target;
+        if (activatedIds.has(s)) activatedIds.add(t);
+        if (activatedIds.has(t)) activatedIds.add(s);
+      });
+    }
+    const matchedNodes = nodes.filter(n => activatedIds.has(n.id)).slice(0, 6);
+    const corePower = nodes.length * 10 + store.state.links.length * 5 + store.state.consolidatedMemory.length * 15;
 
     const memHits = store.state.consolidatedMemory.filter(m =>
       tokenize(query).some(qt => m.fact.toLowerCase().includes(qt))
@@ -210,7 +223,7 @@
 
     return {
       html,
-      trace: `Tools: BM25(${hits.length} hits) + Graph1Hop(${matchedNodes.length} nodes) + Memory(${memHits.length})`,
+      trace: `Tools: BM25(${hits.length}) + SynapticPropagation2Hop(${matchedNodes.length} nodes) + CorePower(${corePower} pts)`,
       nodeIds: matchedNodes.map(n => n.id)
     };
   }
