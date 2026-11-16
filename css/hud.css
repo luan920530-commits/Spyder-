@@ -143,3 +143,9 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .character-model-button{justify-self:start;color:#e5b6da;border-color:rgba(255,128,198,.35)}
 .model-section{margin-top:8px}.model-import{cursor:pointer}.model-import:focus-within{outline:2px solid var(--amber);outline-offset:2px}.model-import.is-busy{opacity:.5;cursor:not-allowed}
 .modal-card .model-import input.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+/* Los temas son derivados de MiniLM; los roles del enjambre siguen en AGENTES. */
+.cluster-filters{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+.graph-grouping{position:absolute;z-index:3;top:66px;left:16px;max-width:47%;padding:3px 5px;border:1px solid #284153;background:rgba(4,10,18,.88);color:#9ab2c3;font-size:7px;letter-spacing:.06em;line-height:1.35;pointer-events:none}
+.arena-stage.semantic-mode .orbit-label,.arena-stage.semantic-mode .orbit-icon{display:none}
+@container network (max-width:420px){.graph-grouping{left:12px;top:59px;font-size:6px;max-width:48%}.cluster-filters{gap:3px}}

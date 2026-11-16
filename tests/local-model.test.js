@@ -295,3 +295,32 @@ test('cancelar conserva una descarga parcial reanudable y permite borrarla', asy
     assert.equal(h.model.info().hasDownload, false);
   } finally { h.dom.window.close(); }
 });
+
+test('MiniLM recibe el título y el fragmento completo; expone copias y descarta vectores con contexto cambiado', async () => {
+  const h = harness({ cached: files.length });
+  try {
+    const first = { ...sentence('Una oración. Otra oración.'), section: 'Capítulo uno',
+      contextText: 'Capítulo uno\nUna oración. Otra oración.' };
+    h.store.state.index = R.rebuildFrom([first]);
+    const changes = [];
+    h.store.on('model:vectorsChanged', detail => changes.push(detail));
+    await h.model.init();
+    await h.model.activate({ onlyCached: true });
+    assert.ok(h.workerMessages.some(message => message.type === 'embed' && message.texts.includes(first.contextText)));
+    assert.ok(changes.some(change => change.added?.includes('s1')));
+    const snapshot = h.model.vectorSnapshot(['s1']);
+    assert.equal(snapshot.length, 1);
+    snapshot[0].vector[0] = 999;
+    assert.notEqual(h.model.vectorSnapshot(['s1'])[0].vector[0], 999, 'la vista no puede mutar el índice interno');
+    h.settings.embedEnabled = false;
+    assert.equal(h.model.vectorSnapshot().length, 0);
+    h.settings.embedEnabled = true;
+    const changed = { ...first, section: 'Capítulo dos', contextText: 'Capítulo dos\nUna oración. Otra oración.' };
+    h.store.state.index = R.rebuildFrom([changed]);
+    assert.equal(h.model.vectorSnapshot().length, 0, 'un cambio de título también invalida el vector');
+    h.store.emit('brain:imported');
+    await until(() => h.model.info().status === 'ready' && h.model.info().indexed === 1);
+    assert.ok(h.workerMessages.some(message => message.type === 'embed' && message.texts.includes(changed.contextText)));
+    assert.ok(changes.some(change => change.reset));
+  } finally { h.dom.window.close(); }
+});

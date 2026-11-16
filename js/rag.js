@@ -21,7 +21,7 @@
   'use strict';
 
   const MAX_CONTEXT_CHARS = 7000;
-  let contradictionCache = { key: '', value: [] };
+  let contradictionCache = { index: null, length: -1, value: [] };
   let activeCharacterJob = null;
   const abortError = () => new DOMException('Generación cancelada', 'AbortError');
 
@@ -114,13 +114,14 @@
   function contradictionsForAll() {
     const S = store();
     if (!S) return [];
-    const sents = S.state.allSentences || [];
-    const key = sents.length + '|' + (S.state.docs || []).map(d => d.id).join('|');
-    if (contradictionCache.key === key) return contradictionCache.value;
-    const sample = sents.length > 1500 ? sents.slice(0, 1500) : sents;
+    const sents = S.state.allSentences || [], index = S.state.index;
+    if (contradictionCache.index === index && contradictionCache.length === sents.length) return contradictionCache.value;
+    // Contrastar oraciones originales evita contar como afirmaciones distintas
+    // el mismo número repetido en las ventanas solapadas.
+    const sample = sents.slice(0, 1500).map(s => ({ ...s, text: s.sourceText || s.text }));
     let value = [];
     try { value = A.detectContradictions(sample, { max: 20 }); } catch (e) { console.warn('[RAG] contradicciones:', e.message); }
-    contradictionCache = { key, value };
+    contradictionCache = { index, length: sents.length, value };
     return value;
   }
 
@@ -149,8 +150,9 @@
 
   function noEvidenceAnswer(ctx) {
     const S = store();
-    const suggestions = S && S.state.allSentences.length
-      ? A.keyphrases(S.state.allSentences.slice(0, 400), 5).map(k => k.surface || k.term)
+    const candidates = ctx.suggestionSentences || S?.state.allSentences || [];
+    const suggestions = candidates.length
+      ? A.keyphrases(candidates.slice(0, 400), 5).map(k => k.surface || k.term)
       : [];
     let out = `### Sin evidencia suficiente\n`;
     out += `No encontré fragmentos que respondan a «${ctx.question}» en los ${S ? S.state.allSentences.length : 0} pasajes indexados.\n\n`;
@@ -203,7 +205,7 @@
     const limit = critique.find(c => c.kind !== 'ok');
 
     let out = `### 1. Definición\n`;
-    out += `${stripTrailingPunct(chunks[0].sentence?.text || chunks[0].text)}${cite(1)}\n\n`;
+    out += `${stripTrailingPunct(chunks[0].text)}${cite(1)}\n\n`;
 
     out += `### 2. Mecanismo\n`;
     if (mechanism) out += `${stripTrailingPunct(mechanism.claim.text)}${cite(mechanism.citation)}\n\n`;
@@ -256,8 +258,8 @@
     if (contradictions.length) {
       out += `**Contradicciones entre fuentes.**\n`;
       contradictions.forEach(c => {
-        const aPage = c.a.pageNum ? ` (Pág ${c.a.pageNum})` : '';
-        const bPage = c.b.pageNum ? ` (Pág ${c.b.pageNum})` : '';
+        const aPage = (c.a.sourcePage || c.a.pageNum) ? ` (Pág ${c.a.sourcePage || c.a.pageNum})` : '';
+        const bPage = (c.b.sourcePage || c.b.pageNum) ? ` (Pág ${c.b.sourcePage || c.b.pageNum})` : '';
         out += `- ${c.type === 'numeric' ? 'Cifras' : 'Tendencias'} discrepantes: ${c.reason}.\n`;
         out += `  · «${U.truncate(c.a.text, 150)}»${aPage}\n`;
         out += `  · «${U.truncate(c.b.text, 150)}»${bPage}\n`;
@@ -284,10 +286,10 @@
     const connectors = (typeof window !== 'undefined' && window.KimiAuxModel)
       ? window.KimiAuxModel.suggestConnectors(3) : ['además', 'en contraste', 'en síntesis'];
     let out = `### ${title}\n\n`;
-    out += `**Introducción.** ${stripTrailingPunct(chunks[0].sentence?.text || chunks[0].text)}${cite(1)}\n\n`;
+    out += `**Introducción.** ${stripTrailingPunct(chunks[0].text)}${cite(1)}\n\n`;
     chunks.slice(1, 4).forEach((chunk, i) => {
       const connector = connectors[i % connectors.length];
-      out += `**Desarrollo ${i + 1}.** ${connector.charAt(0).toUpperCase() + connector.slice(1)}, ${stripTrailingPunct(chunk.sentence?.text || chunk.text)}${cite(chunk.index)}\n\n`;
+      out += `**Desarrollo ${i + 1}.** ${connector.charAt(0).toUpperCase() + connector.slice(1)}, ${stripTrailingPunct(chunk.text)}${cite(chunk.index)}\n\n`;
     });
     const topics = keyphrases.slice(0, 3).map(k => k.surface || k.term).join(', ');
     out += `**Cierre.** Estos fragmentos abordan ${topics || 'el tema consultado'}. Las relaciones y conclusiones adicionales deben contrastarse con las fuentes.\n\n`;
@@ -310,7 +312,7 @@
     }
     // La selección por reglas centra la cita en la palabra buscada, incluso si
     // la oración es muy larga. Es también el fragmento que recibe el modelo.
-    const excerpt = chunks.length ? (reply.reply?.excerpt || C.excerpt(chunks[0].sentence?.text || chunks[0].text, [])) : '';
+    const excerpt = chunks.length ? (reply.reply?.excerpt || C.excerpt(chunks[0].sentence?.sourceText || chunks[0].text, [])) : '';
     const history = (S?.state.chat || []).filter(entry => entry.mode === 'conversacion' && entry.provider === 'qwen-local' &&
       entry.character?.docId === doc?.id && U.normalize(entry.character?.name) === U.normalize(name))
       .slice(-2).map(entry => ({ question: entry.question, answer: entry.characterReply?.lead || entry.text }));
@@ -354,6 +356,7 @@
     const S = store();
     const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     const q = String(question || '').trim();
+    if (o.signal?.aborted) throw abortError();
     if (!q) return emptyResult(q);
 
     // No se ejecutan comandos de memoria ni se mezclan otros documentos o
@@ -415,12 +418,16 @@
 
     let neuralScores = null;
     const localModel = typeof window !== 'undefined' ? window.NCLocalModel : null;
+    const initialIndex = S?.state.index, initialLength = initialIndex?.sentences.length;
     if (S && S.getSetting('embedEnabled', true) && localModel?.info().enabled) {
       try { neuralScores = await localModel.scores(R.parseQuery(q).cleaned); }
       catch (_) { /* La búsqueda interna sigue operativa si se desactiva o falla el modelo. */ }
-      if (!S.getSetting('embedEnabled', true)) neuralScores = null;
+      if (o.signal?.aborted || S.state.index !== initialIndex || initialIndex.sentences.length !== initialLength) throw abortError();
+      if (!S.getSetting('embedEnabled', true) || !localModel.info().enabled) neuralScores = null;
     }
+    if (o.signal?.aborted) throw abortError();
     let searchResult = S ? S.search(q, { k, fuzzy: S.getSetting('fuzzy', true), neuralScores }) : { hits: [], tookMs: 0, total: 0 };
+    const searchedIndex = S?.state.index, searchedLength = searchedIndex?.sentences.length;
 
     // Para una petición global, muestra una muestra del corpus en lugar de tratar
     // las palabras «resumir documento» como si fueran un tema presente en él.
@@ -428,21 +435,44 @@
     const contentTerms = (searchResult.parsed?.uniqueTerms || []).filter(t => !genericWords.has(t));
     if (S && ['resumen', 'critico', 'redaccion'].includes(mode) && !contentTerms.length && S.state.index.sentences.length) {
       const filters = searchResult.parsed?.filters;
-      const all = S.state.index.sentences.filter(sentence => R.passesFilters(sentence, filters) && !R.containsExcluded(sentence, filters));
+      const all = (searchResult.contextIndex || S.state.index).sentences.filter(sentence => R.passesFilters(sentence, filters) && !R.containsExcluded(sentence, filters));
       const count = Math.min(k, all.length);
       const hits = Array.from({ length: count }, (_, i) => ({ sentence: all[Math.floor(i * all.length / count)], score: 1 }));
       searchResult = { ...searchResult, hits, total: all.length, globalSample: true, neuralUsed: false, neuralOnly: false };
     }
 
-    const chunks = S ? R.buildContext(S.state.index, searchResult.hits, { window: window_, maxChars: MAX_CONTEXT_CHARS, maxChunks: k, filters: searchResult.parsed?.filters }) : [];
-    const graphNodes = relatedNodes(q, 8);
-    const facts = M.facts ? M.facts(q, 3) : [];
-    const vaultHits = M.vaultSearch ? M.vaultSearch(q, { limit: 4 }) : [];
-    const fewShots = M.fewShots ? M.fewShots(q, 2) : [];
+    const chunks = S ? R.buildContext(searchResult.contextIndex || S.state.index, searchResult.hits,
+      { window: window_, maxChars: MAX_CONTEXT_CHARS, maxChunks: k, filters: searchResult.parsed?.filters }) : [];
+    // El enjambre recibe los mismos candidatos filtrados y ordenados mientras se
+    // prepara la respuesta, no solo después de que esta ya esté terminada.
+    if (typeof o.onRetrieved === 'function') {
+      o.onRetrieved({ hits: searchResult.globalSample ? [] : searchResult.hits,
+        method: searchResult.neuralUsed ? 'minilm' : 'local', globalSample: !!searchResult.globalSample });
+    }
+    const filters = searchResult.parsed?.filters;
+    const filteredIndex = searchResult.contextIndex || S?.state.index;
+    const sourceRestricted = !!(filters?.docs?.length || filters?.pages?.length || filters?.phrases?.length);
+    const safeText = text => !R.containsExcluded({ text: text || '' }, filters);
+    const memoryQuery = searchResult.parsed?.cleaned || q;
+    const graphNodes = relatedNodes(memoryQuery, 8).filter(node => {
+      if (!safeText(`${node.label || ''} ${node.text || ''}`)) return false;
+      if (!searchResult.parsed?.hasFilters) return true;
+      return (node.sentenceIds || []).some(id => {
+        const pos = filteredIndex?.posById.get(id), sentence = pos == null ? null : filteredIndex.sentences[pos];
+        return sentence && R.passesFilters(sentence, filters) && !R.containsExcluded(sentence, filters);
+      });
+    });
+    // La memoria personal no tiene una página demostrable: no se mezcla con
+    // consultas restringidas a documento/página/frase y respeta exclusiones.
+    const facts = sourceRestricted || !M.facts ? [] : M.facts(memoryQuery, 3).filter(item => safeText(item.fact));
+    const vaultHits = sourceRestricted || !M.vaultSearch ? [] : M.vaultSearch(memoryQuery, { limit: 4 })
+      .filter(item => safeText(`${item.phrase || ''} ${item.detail || ''}`));
+    const fewShots = sourceRestricted || !M.fewShots ? [] : M.fewShots(memoryQuery, 2)
+      .filter(item => safeText(`${item.question || ''} ${item.answer || ''}`));
     const targetTerms = new Set(contentTerms);
     const contradictions = contradictionsForAll().filter(c => {
-      if (!targetTerms.size) return true;
-      return (c.sharedTerms || []).some(term => targetTerms.has(term));
+      if (![c.a, c.b].every(item => R.passesFilters(item, filters) && !R.containsExcluded(item, filters))) return false;
+      return !targetTerms.size || (c.sharedTerms || []).some(term => targetTerms.has(term));
     });
 
     const ctx = {
@@ -460,6 +490,8 @@
 
     // 3. Sin evidencia: respuesta honesta sin invocar LLM (evita alucinación)
     if (!chunks.length) {
+      ctx.suggestionSentences = (filteredIndex?.sentences || []).filter(sentence =>
+        R.passesFilters(sentence, filters) && !R.containsExcluded(sentence, filters)).slice(0, 400);
       const text = composeExtractive(ctx);
       return finalize({ question: q, text, provider: 'internal', model: 'kimi-core', mode, chunks, citations: null, intent, t0, S, search: searchResult });
     }
@@ -472,6 +504,7 @@
     } catch (e) {
       result = { text: '', provider: 'none', error: e.message };
     }
+    if (o.signal?.aborted || (S && (S.state.index !== searchedIndex || searchedIndex.sentences.length !== searchedLength))) throw abortError();
 
     let text = (result.text || '').trim();
     if (searchResult.neuralOnly && !searchResult.globalSample) {
@@ -519,6 +552,7 @@
       docName: c.docName,
       docId: c.docId,
       sentenceId: c.id || c.sentence?.id || null,
+      partIds: c.sentenceIds || (c.id ? [c.id] : []),
       score: c.score || 0
     }));
 
@@ -584,7 +618,7 @@
     const body = result.text || '';
     const sources = result.sources.length
       ? '\n\n---\n## Fuentes\n' + result.sources.map(s =>
-        `${s.n}. ${s.excerpt}${s.docName ? ' — *' + s.docName + '*' : ''}${s.pageNum ? ' (Pág ' + s.pageNum + ')' : ''}`
+        `${s.n}. ${s.excerpt}${s.docName ? ' — *' + s.docName + '*' : ''}${(s.sourcePage || s.pageNum) ? ' (Pág ' + (s.sourcePage || s.pageNum) + ')' : ''}`
       ).join('\n')
       : '';
     return head + body + sources + '\n';
@@ -594,6 +628,8 @@
     if (P.setInternalComposer) P.setInternalComposer(composeExtractive);
     const S = store();
     const cancel = () => activeCharacterJob?.abort();
+    const invalidateContradictions = () => { contradictionCache = { index: null, length: -1, value: [] }; };
+    ['doc:added', 'doc:removed', 'system:resetting', 'brain:importing'].forEach(event => S?.on(event, invalidateContradictions));
     ['system:resetting', 'brain:importing', 'doc:removed', 'chat:clearing'].forEach(event => S?.on(event, cancel));
     S?.on('settings:changed', ({ key }) => { if (['mode', 'characterDocId', 'characterName'].includes(key)) cancel(); });
     return api;

@@ -40,6 +40,8 @@
   let lastScrollX = 0, lastScrollY = 0, lastDocScroll = 0, lastLayout = null;
   let harvestWindow = { at: 0, count: 0 };
   let lastProgressEmit = 0;
+  // Cola efímera de la consulta más reciente; nunca es evidencia ni memoria.
+  let guidance = null, dispatchingGuidance = false;
 
   const store = () => root.NeuralStore;
 
@@ -127,6 +129,10 @@
     const content = document.getElementById('doc-content');
     return content ? Array.from(content.querySelectorAll('.sentence-block')).find(el => el.dataset.sid === id) : null;
   }
+  function chunkElements(sentence) {
+    const ids = Array.isArray(sentence?.parts) ? sentence.parts.map(part => part.id) : [sentence?.id];
+    return ids.map(sentenceElement).filter(Boolean);
+  }
   function firstWord(element) { return element?.querySelector('.word-span') || element; }
   function rectOf(element) {
     if (!element) return null;
@@ -159,11 +165,12 @@
     return spiders.some(other => other !== except && other.targetSentence &&
       (other.phase === 'IR_A_PALABRA' || other.phase === 'EXTRAER_DATOS'));
   }
-  function pickNextSentence(sp) {
+  function pickNextSentence(sp, topicId) {
     const S = store();
     if (!S) return null;
     const doc = S.getActiveDoc(), page = S.state.activePage;
-    const available = candidates().filter(s => !s.harvested && !S.state.claimedTargets.has(s.id));
+    const available = candidates().filter(s => !s.harvested && !S.state.claimedTargets.has(s.id) &&
+      (!topicId || (root.NCSemantic?.topicId(s.id) || 'SEM-PENDING') === topicId));
     if (!available.length) return null;
     const local = available.filter(s => doc && s.docId === doc.id && s.pageNum === page);
     const auto = document.getElementById('chk-auto-page');
@@ -171,7 +178,7 @@
     let pool;
     if (local.length) {
       const visible = local.filter(s => {
-        const el = sentenceElement(s.id);
+        const el = chunkElements(s)[0];
         return !el || isWordVisible(firstWord(el));
       });
       if (visible.length) pool = visible;
@@ -185,7 +192,7 @@
     const step = Math.max(1, Math.floor(pool.length / 40));
     for (let i = 0; i < pool.length; i += step) {
       const sentence = pool[i];
-      const score = scoreSentenceForSpider(sp, sentence.text, i) + Math.random() * .35;
+      const score = scoreSentenceForSpider(sp, sentence.contextText || sentence.text, i) + Math.random() * .35;
       if (score > bestScore) { bestScore = score; best = sentence; }
     }
     if (!best) return null;
@@ -194,6 +201,53 @@
     S.state.claimedTargets.add(best.id);
     sp.thought = `${sp.id} [${sp.role}]: analizando «${U.truncate(best.text, 34)}»`;
     return best;
+  }
+
+  function sourceSignature(sentence) {
+    return [sentence.docId, sentence.pageNum, sentence.sourcePage || '', sentence.contextText || sentence.text].join('\u0000');
+  }
+  function dispatchGuidedTargets(report) {
+    const S = store();
+    if (!guidance || !S || dispatchingGuidance) return;
+    if (Date.now() > guidance.expiresAt) { guidance = null; return; }
+    const current = guidance;
+    // Un pasaje ya reservado está siendo atendido: no lanzar una segunda araña.
+    current.targets = current.targets.filter(item => {
+      const live = S.getSentence(item.sentence.id);
+      return live && sourceSignature(live) === item.signature && !S.state.claimedTargets.has(item.sentence.id);
+    });
+    if (!current.targets.length) { guidance = null; return; }
+    if (paused || document.hidden) {
+      if (report) S.emit('spiders:queryGuidance', { method: current.method, sent: 0, pending: current.targets.length, paused: true });
+      return;
+    }
+    dispatchingGuidance = true;
+    const spiderIds = [];
+    try {
+      for (const sp of spiders.filter(candidate => candidate.phase === 'IDLE').slice(0, 3)) {
+        if (!current.targets.length) break;
+        const auto = document.getElementById('chk-auto-page');
+        const mayNavigate = (!auto || auto.checked) && Date.now() >= (S.state.autoNavigationPausedUntil || 0);
+        const local = item => item.sentence.docId === S.state.activeDocId && item.sentence.pageNum === S.state.activePage;
+        let item = current.targets[0];
+        if (!local(item) && (!mayNavigate || documentBusy(sp))) item = current.targets.find(local);
+        if (!item) break;
+        const sentence = item.sentence;
+        if (!local(item)) {
+          if (sentence.docId !== S.state.activeDocId) S.setActiveDoc(sentence.docId, sentence.pageNum);
+          else S.setActivePage(sentence.pageNum);
+        }
+        current.targets = current.targets.filter(target => target !== item);
+        S.state.claimedTargets.add(sentence.id);
+        assignTarget(sp, sentence, animationTime, current.id);
+        sp.thought = `${sp.id}: siguiendo ${current.method === 'minilm' ? 'similitud MiniLM' : 'la búsqueda local'} hacia «${U.truncate(sentence.sourceText || sentence.text, 34)}»`;
+        spiderIds.push(sp.id);
+      }
+    } finally { dispatchingGuidance = false; }
+    const pending = current.targets.length;
+    if (!pending) guidance = null;
+    if (spiderIds.length) S.emit('spiders:dispatched', { count: spiderIds.length, source: 'query', method: current.method, spiderIds });
+    if (report || spiderIds.length) S.emit('spiders:queryGuidance', { method: current.method, sent: spiderIds.length, pending, paused: false });
   }
 
   // El clic en la red solicita trabajo real: no interrumpe ni inventa cosechas.
@@ -212,7 +266,9 @@
     const spiderIds = [];
     for (const sp of idle.slice(0, 3)) {
       // pickNextSentence reserva el ID y respeta la página, el escáner y AUTO.
-      const sentence = pickNextSentence(sp);
+      // Un tema MiniLM filtra pasajes; no se confunde con el rol del agente.
+      const topicId = typeof cluster === 'string' && cluster.startsWith('SEM-') ? cluster : null;
+      const sentence = pickNextSentence(sp, topicId);
       if (!sentence) break;
       assignTarget(sp, sentence, animationTime);
       spiderIds.push(sp.id);
@@ -237,17 +293,17 @@
       legPhase: Math.random() * Math.PI * 2, idle: null, idleStarted: false, harvestedCount: 0
     });
   }
-  function assignTarget(sp, sentence, now) {
-    sp.targetSentence = sentence; sp.phase = 'IR_A_PALABRA'; sp.lastProgressAt = now;
+  function assignTarget(sp, sentence, now, queryId) {
+    sp.targetSentence = sentence; sp.queryId = queryId || null; sp.phase = 'IR_A_PALABRA'; sp.lastProgressAt = now;
     sp.route = null; sp.approach = 'pending';
   }
   function clearScan(sp) {
-    if (sp.scanElement) {
-      sp.scanElement.classList.remove('sentence-scanning');
-      sp.scanElement.style.removeProperty('--spider-scan-color');
-    }
+    (sp.scanElements || (sp.scanElement ? [sp.scanElement] : [])).forEach(element => {
+      element.classList.remove('sentence-scanning');
+      element.style.removeProperty('--spider-scan-color');
+    });
     (sp.scanWords || []).forEach(word => word.classList.remove('word-scanned', 'word-scanning'));
-    sp.scanWords = []; sp.scanElement = null; sp.scanIndex = -1; sp.scanHoldUntil = 0;
+    sp.scanWords = []; sp.scanElements = []; sp.scanElement = null; sp.scanIndex = -1; sp.scanHoldUntil = 0;
     if (scanOwner === sp) scanOwner = null;
   }
   function releaseClaim(sp) {
@@ -257,7 +313,7 @@
   function cancelTarget(sp) {
     clearScan(sp); releaseClaim(sp);
     if (sp.idle?.kind === 'weave') idleWebs = idleWebs.filter(web => web !== sp.idle.web);
-    sp.phase = 'IDLE'; sp.targetSentence = null; sp.extractedPattern = null; sp.cargo = null;
+    sp.phase = 'IDLE'; sp.targetSentence = null; sp.queryId = null; sp.extractedPattern = null; sp.cargo = null;
     sp.route = null; sp.routeSignature = ''; sp.approach = false; sp.idle = null;
     sp.lastProgressAt = animationTime; sp.nextPickAt = animationTime + 200;
   }
@@ -277,8 +333,8 @@
     if (S) S.emit('spiders:count', { count: spiders.length });
   }
   function extractPattern(sentence) {
-    const label = U.words3(sentence.text).replace(/[.,;:]$/, '');
-    return { cluster: null, label, text: U.truncate(sentence.text, 240), pageNum: sentence.pageNum,
+    const label = U.words3(sentence.sourceText || sentence.text).replace(/[.,;:]$/, '');
+    return { cluster: null, label, text: U.truncate(sentence.text, 1200), pageNum: sentence.pageNum,
       sentenceId: sentence.id, section: sentence.section || '' };
   }
   function layout() {
@@ -489,12 +545,16 @@
   }
   function beginScan(sp, element, now) {
     scanOwner = sp;
-    sp.scanElement = element;
-    sp.scanWords = Array.from(element.querySelectorAll('.word-span')).slice(0, 18);
+    sp.scanElements = chunkElements(sp.targetSentence);
+    if (!sp.scanElements.length) sp.scanElements = [element];
+    sp.scanElement = sp.scanElements[0];
+    sp.scanWords = sp.scanElements.flatMap(item => Array.from(item.querySelectorAll('.word-span'))).slice(0, 18);
     if (!sp.scanWords.length) sp.scanWords = [element];
     sp.scanIndex = -1;
-    element.classList.add('sentence-scanning');
-    element.style.setProperty('--spider-scan-color', sp.color);
+    sp.scanElements.forEach(item => {
+      item.classList.add('sentence-scanning');
+      item.style.setProperty('--spider-scan-color', sp.color);
+    });
     sp.phase = 'EXTRAER_DATOS'; sp.lastProgressAt = now; sp.route = null;
     store()?.emit('spider:scanStart', { spiderId: sp.id, sentenceId: sp.targetSentence.id });
   }
@@ -514,7 +574,7 @@
     store()?.emit('spider:extracted', { spiderId: sp.id, sentenceId: sp.targetSentence.id, label: pattern.label });
   }
   function updateScan(sp, now, dt) {
-    if (!sp.scanElement?.isConnected) { cancelTarget(sp); return; }
+    if (!sp.scanElement?.isConnected || (sp.scanElements || []).some(element => !element.isConnected)) { cancelTarget(sp); return; }
     const words = sp.scanWords;
     if (isReduced()) {
       // Sin recorrido prolongado: se procesa el mismo pasaje real y se libera
@@ -559,6 +619,8 @@
     if (sp.phase !== 'IDLE' && now - sp.lastProgressAt > 30000) { cancelTarget(sp); return; }
     if (sp.targetSentence && !S.getSentence(sp.targetSentence.id)) { cancelTarget(sp); return; }
     if (sp.phase === 'IDLE') {
+      // Una consulta pendiente tiene prioridad; espera sin desplazar otra lectura.
+      if (guidance?.targets.length) return;
       // El trabajo real tiene prioridad sobre el paseo; no recorrer el corpus 60 veces/s.
       if (now < sp.nextPickAt) return;
       sp.nextPickAt = now + 300;
@@ -571,7 +633,7 @@
     if (sp.phase === 'IR_A_PALABRA') {
       // Si el usuario cambia de página, no se usa la posición obsoleta de otro texto.
       if (S.state.activeDocId !== sp.targetSentence.docId || S.state.activePage !== sp.targetSentence.pageNum) { cancelTarget(sp); return; }
-      const element = sentenceElement(sp.targetSentence.id), word = firstWord(element);
+      const element = chunkElements(sp.targetSentence)[0], word = firstWord(element);
       if (!element || !word) return; // El visor puede estar esperando su siguiente render.
       if (!isWordVisible(word) && scanOwner && scanOwner !== sp) return;
       const pos = wordPosition(word, !scanOwner || scanOwner === sp);
@@ -581,7 +643,8 @@
     }
     if (sp.phase === 'EXTRAER_DATOS') { updateScan(sp, now, dt); return; }
     if (sp.phase === 'ARRASTRAR_A_RED') {
-      const hub = root.NeuralGraph.getHubScreenPos(sp.cluster);
+      const destination = root.NCSemantic?.topicId(sp.targetSentence.id) || sp.cluster;
+      const hub = root.NeuralGraph.getHubScreenPos(destination);
       if (travel(sp, hub, false, dt)) { sp.phase = 'ALIMENTAR_NODO'; sp.lastProgressAt = now; sp.route = null; }
       return;
     }
@@ -589,14 +652,16 @@
       if (sp.extractedPattern) {
         const p = sp.extractedPattern;
         // Un clic sobre un pasaje ya cosechado puede repetirse visualmente sin duplicar el aprendizaje.
-        const fresh = !sp.targetSentence.harvested;
+        const canonical = S.getSentence(sp.targetSentence.id) || sp.targetSentence;
+        const fresh = !canonical.harvested;
+        canonical.harvested = true;
         sp.targetSentence.harvested = true;
         sentenceElement(sp.targetSentence.id)?.classList.add('sentence-harvested');
         if (fresh) {
           S.addPattern({ cluster: p.cluster, label: p.label, text: p.text, pageNum: p.pageNum,
             sentenceId: p.sentenceId, color: p.color, section: p.section });
-          learnFromPattern(sp, p.text + ' ' + p.label, 1);
-          root.KimiAuxModel?.trainOnPattern(p.text, 1);
+          learnFromPattern(sp, p.section + ' ' + p.text + ' ' + p.label, 1);
+          root.KimiAuxModel?.trainOnPattern(p.section + ' ' + p.text, 1);
           root.NCMemory?.vaultAdd({ phrase: p.label, detail: p.text, cluster: p.cluster,
             pageNum: p.pageNum, sentenceId: p.sentenceId, docName: sp.targetSentence.docName });
           sp.harvestedCount++; harvestWindow.count++;
@@ -713,6 +778,7 @@
     syncViewport(frame); syncDocumentScroll();
     const running = !paused && !document.hidden, reduced = isReduced();
     if (running) {
+      dispatchGuidedTargets(false);
       spiders.forEach(sp => { sp.scanAdvanced = false; });
       // En equipos lentos se recupera hasta 150 ms en pasos pequeños: evita
       // ralentizar todo el trabajo sin saltar esquinas ni omitir palabras.
@@ -806,8 +872,9 @@
       if (!sentence || S.state.claimedTargets.has(sentence.id)) return;
       const sp = spiders.find(candidate => candidate.phase === 'IDLE');
       if (!sp) { root.DocViewer?.toast('Las arañas están ocupadas; vuelve a intentarlo en un momento.'); return; }
-      assignTarget(sp, sentence, animationTime);
-      S.state.claimedTargets.add(sentence.id);
+      const target = S.getSentence(sentence.id) || sentence;
+      assignTarget(sp, target, animationTime);
+      S.state.claimedTargets.add(target.id);
       S.emit('spiders:dispatched', { count: 1, source: 'sentence', spiderIds: [sp.id] });
     });
 
@@ -823,16 +890,42 @@
     });
     S.on('brain:imported', () => { spiders.forEach(cancelTarget); emitProgress(animationTime, true); });
 
-    S.on('spider:queryVisual', ({ nodeIds }) => {
-      const sp = spiders[spiders.length - 1] || spiders[0];
-      if (!sp) return;
-      if (!isReduced() && !paused) shockwaves.push({ x: sp.x, y: sp.y, r: 6, maxR: 54, color: '#fbbf24', alpha: 1 });
-      // Una consulta solo destaca el recorrido: no fuerza un giro brusco ni
-      // interrumpe el paso de una araña que ya está trabajando o pausada.
-      if (nodeIds && nodeIds.length) root.NeuralGraph.highlightPath(nodeIds);
+    S.on('spider:queryStart', () => { guidance = null; });
+    S.on('spider:queryCancelled', ({ requestId } = {}) => {
+      if (guidance?.id === requestId) guidance = null;
+      spiders.forEach(sp => { if (sp.queryId && sp.queryId === requestId) cancelTarget(sp); });
     });
+    S.on('chat:clearing', () => {
+      guidance = null;
+      spiders.forEach(sp => { if (sp.queryId) cancelTarget(sp); });
+    });
+    S.on('spider:queryVisual', ({ nodeIds, hits, method, requestId } = {}) => {
+      const sp = spiders[spiders.length - 1] || spiders[0];
+      if (sp && !isReduced() && !paused) shockwaves.push({ x: sp.x, y: sp.y, r: 6, maxR: 54, color: '#fbbf24', alpha: 1 });
+      if (nodeIds?.length) root.NeuralGraph?.highlightPath(nodeIds);
+      if (!Array.isArray(hits)) return;
+      const seen = new Set(), targets = [];
+      for (const hit of hits) {
+        const sentence = hit?.sentence, live = sentence && S.getSentence(sentence.id);
+        if (!live || seen.has(sentence.id) || sentence.docId !== live.docId || sentence.pageNum !== live.pageNum) continue;
+        if (method === 'minilm' && !(hit.neural >= .42)) continue;
+        // Una proyección por exclusión solo puede contener partes auténticas.
+        if (Array.isArray(sentence.parts) && Array.isArray(live.parts) && sentence.parts.some(part =>
+          !live.parts.some(original => original.id === part.id && original.text === part.text))) continue;
+        seen.add(sentence.id); targets.push({ sentence, signature: sourceSignature(live) });
+      }
+      root.NeuralGraph?.highlightSources?.(targets.map(item => item.sentence.id));
+      guidance = targets.length ? { id: requestId, method: method === 'minilm' ? 'minilm' : 'local',
+        targets, expiresAt: Date.now() + 45000 } : null;
+      if (guidance) dispatchGuidedTargets(true);
+      else S.emit('spiders:queryGuidance', { method: method === 'minilm' ? 'minilm' : 'local', sent: 0, pending: 0 });
+    });
+    S.on('model:status', info => { if (!info.enabled && guidance?.method === 'minilm') guidance = null; });
+    S.on('settings:changed', ({ key, value }) => { if (key === 'embedEnabled' && !value && guidance?.method === 'minilm') guidance = null; });
+    ['brain:importing', 'system:resetting'].forEach(event => S.on(event, () => { guidance = null; spiders.forEach(cancelTarget); }));
 
     S.on('system:reset', () => {
+      guidance = null;
       spiders.forEach(cancelTarget); spiders = []; shockwaves = []; idleWebs = []; idleTime = 0; scanOwner = null;
       resetMicroBrains(); setSpiderCount(1); setPaused(false); emitProgress(animationTime, true);
     });

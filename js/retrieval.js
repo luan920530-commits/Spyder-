@@ -192,6 +192,40 @@
     return filters.exclude.some(x => hay.includes(U.normalize(x)));
   }
 
+  /**
+   * Proyecta ventanas sin los componentes excluidos. El ancla también debe
+   * pasar el filtro; de lo contrario su cita llevaría al texto excluido.
+   * Devuelve el índice original si ninguna ventana necesita cambiar.
+   */
+  function projectExclusions(index, filters) {
+    if (!filters?.exclude?.length) return index;
+    let changed = false;
+    const sentences = [];
+    for (const sentence of index.sentences) {
+      if (!containsExcluded(sentence, filters)) { sentences.push(sentence); continue; }
+      changed = true;
+      if (!Array.isArray(sentence.parts) || containsExcluded({ text: sentence.sourceText || '' }, filters)) continue;
+      const parts = sentence.parts.filter(part => !containsExcluded(part, filters));
+      if (!parts.some(part => part.id === sentence.id)) continue;
+      const text = parts.map(part => part.text).join(' ');
+      sentences.push({ ...sentence, parts, text, contextText: sentence.section ? `${sentence.section}\n${text}` : text });
+    }
+    if (!changed) return index;
+    const projected = rebuildFrom(sentences);
+    // La proyección determinista depende solo del cuerpo. Reutilizar vectores
+    // intactos evita recalcular todo el corpus al excluir una oración vecina.
+    projected.concepts = [];
+    projected.sentences.forEach((sentence, pos) => {
+      const oldPos = index.posById.get(sentence.id);
+      if (oldPos == null || index.sentences[oldPos].text !== sentence.text) return;
+      if (index.vectors.has(oldPos) && index.concepts?.[oldPos]) {
+        projected.vectors.set(pos, index.vectors.get(oldPos));
+        projected.concepts[pos] = index.concepts[oldPos];
+      }
+    });
+    return projected;
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Búsqueda léxica: BM25+ con coordinación y bigramas
   // ─────────────────────────────────────────────────────────────────────────
@@ -337,7 +371,10 @@
       const fuzzy = o.fuzzy ? U.trigramSim(parsed.cleaned || parsed.raw, sentence.text) : 0;
       // RRF favorece acuerdos entre rankings sin mezclar escalas incompatibles.
       const rrf = (item.lexRank ? 1 / (60 + item.lexRank) : 0) + (item.denseRank ? 1 / (60 + item.denseRank) : 0) + (item.neuralRank ? 1 / (60 + item.neuralRank) : 0);
-      return { ...item, sentence, fuzzy, score: rrf + fuzzy * 0.001 };
+      const adjustment = typeof o.scoreFactor === 'function' ? Number(o.scoreFactor(sentence)) : 1;
+      const factor = Number.isFinite(adjustment) ? Math.max(.35, Math.min(1.65, adjustment)) : 1;
+      // Solo se reordenan candidatos con evidencia; el feedback no crea hits.
+      return { ...item, sentence, fuzzy, score: (rrf + fuzzy * 0.001) * factor };
     }).sort((a, b) => b.score - a.score || a.pos - b.pos);
 
     const deduped = [];
@@ -380,8 +417,7 @@
   // ─────────────────────────────────────────────────────────────────────────
   function buildContext(index, hits, opts) {
     const o = Object.assign({ window: 1, maxChars: 7000, maxChunks: 6 }, opts || {});
-    const used = new Set();
-    const chunks = [];
+    const usedParts = new Set(), chunks = [];
     let chars = 0;
 
     for (const hit of hits || []) {
@@ -389,28 +425,50 @@
       const pos = index.posById.get(hit.sentence.id);
       if (pos == null) continue;
       const base = index.sentences[pos];
-      const ids = [];
-      const parts = [];
+      if (usedParts.has(base.id) || !passesFilters(base, o.filters) || containsExcluded(base, o.filters)) continue;
+      const parts = new Map();
       for (let d = -o.window; d <= o.window; d++) {
-        const p = pos + d;
-        const s = index.sentences[p];
-        if (!s) continue;
-        if (s.docId !== base.docId || s.pageNum !== base.pageNum) continue;
-        // La ventana de contexto no debe reintroducir términos excluidos.
-        if (containsExcluded(s, o.filters)) continue;
-        ids.push(s.id);
-        parts.push(s.text);
+        const s = index.sentences[pos + d];
+        if (!s || s.docId !== base.docId || s.pageNum !== base.pageNum ||
+            (s.sourcePage || null) !== (base.sourcePage || null) || (s.section || '') !== (base.section || '')) continue;
+        // Las partes se identifican por ID, no por el texto: evita repetir las
+        // ventanas solapadas, sin fusionar dos oraciones iguales del original.
+        const components = Array.isArray(s.parts) ? s.parts : [{ id: s.id, text: s.text }];
+        for (const part of components) {
+          if (!usedParts.has(part.id) && !containsExcluded(part, o.filters) && !parts.has(part.id)) parts.set(part.id, part);
+        }
       }
-      const key = ids.join('|');
-      if (used.has(key)) continue;
-      const text = parts.join(' ');
+      if (!parts.has(base.id)) continue;
+      const ordered = [...parts.values()].sort((a, b) => (index.posById.get(a.id) ?? pos) - (index.posById.get(b.id) ?? pos));
+      let selected = ordered, text = ordered.map(part => part.text).join(' ');
       if (chars + text.length > o.maxChars && chunks.length > 0) break;
-      used.add(key);
+      if (text.length > o.maxChars) {
+        if (o.maxChars <= 0) break;
+        // Si el primer contexto excede el límite, la cita debe seguir
+        // conteniendo su propia ancla, no solo una vecina larga anterior.
+        const anchorIndex = ordered.findIndex(part => part.id === base.id);
+        const anchor = ordered[anchorIndex];
+        const keep = new Set([base.id]);
+        let size = anchor.text.length;
+        if (size <= o.maxChars) {
+          for (let distance = 1; distance < ordered.length; distance++) {
+            for (const i of [anchorIndex - distance, anchorIndex + distance]) {
+              const part = ordered[i];
+              if (part && size + 1 + part.text.length <= o.maxChars) { keep.add(part.id); size += 1 + part.text.length; }
+            }
+          }
+        }
+        selected = ordered.filter(part => keep.has(part.id));
+        text = selected.map(part => part.id === base.id ? U.truncate(part.text, o.maxChars) : part.text).join(' ');
+      }
+      if (!text) continue;
+      selected.forEach(part => usedParts.add(part.id));
       chars += text.length;
       chunks.push({
         index: chunks.length + 1,
         id: base.id,
         sentence: base,
+        sentenceIds: selected.map(part => part.id),
         text,
         pageNum: base.pageNum,
         sourcePage: base.sourcePage || null,
@@ -469,7 +527,7 @@
   return {
     SCHEMA,
     createIndex, addSentence, addSentences, rebuildFrom, removeDoc, stats,
-    parseQuery, passesFilters, containsExcluded,
+    parseQuery, passesFilters, containsExcluded, projectExclusions,
     bm25Scores, fuzzyExpand, vectorScores, search,
     buildContext, verifyCitations, expandQuery
   };

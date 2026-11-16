@@ -94,6 +94,18 @@ test('los fragmentos largos conservan el término buscado y el texto del documen
   assert.ok(text.includes(excerpt.replace(/^…|…$/g, '')));
 });
 
+test('una cita de personaje al final de una oración enorme está incluida en su fuente limitada', () => {
+  const text = 'Luna camina. ' + 'bosque '.repeat(1400) + 'La llave luminosa está en la torre. ' + 'nubes '.repeat(100);
+  const doc = { id: 'book', name: 'libro.pdf', pages: [{ pageNum: 1, sourcePage: 7, sentences: [{ id: 'long', text }] }] };
+  const chunks = require('../js/chunks').fromDocument(doc);
+  const result = C.respond({ question: '¿Qué pasó con la llave?', doc, name: 'Luna', index: R.rebuildFrom(chunks) });
+  assert.equal(result.chunks[0].id, 'long');
+  assert.equal(result.chunks[0].sourcePage, 7);
+  assert.match(result.chunks[0].text, /llave luminosa/);
+  assert.deepEqual(result.chunks[0].sentenceIds, ['long']);
+  assert.equal(result.citations.allSupported, true);
+});
+
 test('una lectura cancelada no vuelve a agregar un libro después de un reset', async () => {
   const previous = global.NeuralStore;
   const added = [];

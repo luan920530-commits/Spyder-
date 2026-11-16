@@ -93,8 +93,11 @@ test('migración v2, persistencia, feedback, respaldo e importación validada', 
 
 test('el feedback modifica el orden de pasajes de la misma consulta', async () => {
   const S = global.NeuralStore, M = global.NCMemory;
+  // Páginas distintas: dos ventanas de la misma página con dos oraciones
+  // serían idénticas y se deduplican antes de valorar las fuentes.
   const pages = [{ pageNum: 1, text: '', sentences: [
-    { id: 'first', text: 'La sinapsis neuronal transmite señales eléctricas entre células especializadas.' },
+    { id: 'first', text: 'La sinapsis neuronal transmite señales eléctricas entre células especializadas.' }
+  ] }, { pageNum: 2, text: '', sentences: [
     { id: 'second', text: 'La sinapsis neuronal comunica señales químicas entre células del cerebro.' }
   ] }];
   S.addDocument({ id: 'd', name: 'd.txt', pages });

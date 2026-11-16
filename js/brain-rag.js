@@ -3,7 +3,7 @@
   'use strict';
   const U = root.NCUtil;
   const S = () => root.NeuralStore;
-  let busy = false, currentSend = null;
+  let busy = false, currentSend = null, nextQueryId = 0;
 
   function element(tag, className, text) {
     const node = document.createElement(tag);
@@ -108,17 +108,24 @@
       const up = element('button', 'btn-mini', 'SÍ'); up.type = 'button'; up.setAttribute('aria-label', 'Respuesta útil');
       const down = element('button', 'btn-mini', 'NO'); down.type = 'button'; down.setAttribute('aria-label', 'Respuesta poco útil');
       function rate(rating) {
-        const first = sources[0];
-        root.NCMemory.recordFeedback({
+        const used = Array.isArray(result.citations?.used) ? result.citations.used : [];
+        const rated = used.length ? sources.filter((_, i) => used.includes(i + 1)) : sources;
+        // El historial puede conservar citas de un documento ya eliminado; no
+        // atribuir una valoración nueva a IDs que ya no representan su fuente.
+        const sentenceIds = [...new Set(rated.filter(source => {
+          const live = source.sentenceId && S().getSentence(source.sentenceId);
+          return live && live.docId === source.docId;
+        }).map(source => source.sentenceId))];
+        const nodeIds = S().state.nodes.filter(node => !node.isHub && (node.sentenceIds || []).some(id => sentenceIds.includes(id))).map(node => node.id);
+        const record = root.NCMemory.recordFeedback({
           question: result.question, answer: result.text, rating,
           provider: result.provider || 'internal', mode: result.mode,
-          citations: result.citations?.used || [], nodeIds: result.nodeIds || [], vaultIds: result.vaultIds || [],
-          sentenceIds: first && first.sentenceId ? [first.sentenceId] : []
+          citations: used, nodeIds, vaultIds: result.vaultIds || [], sentenceIds
         });
-        if (rating < 0) root.KimiAuxModel?.recordNegativeEpisode(result.text || '');
+        if (rating < 0) root.KimiAuxModel?.recordNegativeEpisode(result.text || '', { sentenceIds, question: result.question, feedbackId: record.id });
         else root.KimiAuxModel?.trainOnPattern(result.text || '', 1.5);
         up.disabled = down.disabled = true;
-        meta.textContent = first ? 'Valoración guardada; se ajustó la prioridad del primer pasaje.' : 'Valoración guardada.';
+        meta.textContent = sentenceIds.length ? 'Valoración guardada para las fuentes y, si MiniLM está activo, sus temas.' : 'Valoración guardada.';
       }
       up.addEventListener('click', () => rate(1));
       down.addEventListener('click', () => rate(-1));
@@ -143,22 +150,25 @@
     const usingQwen = selectedMode === 'conversacion' && root.NCQwenModel?.info().enabled;
     const stop = document.getElementById('btn-stop-generation');
     const controller = new AbortController(); currentSend = controller;
+    const requestId = `query-${++nextQueryId}`;
+    S().emit('spider:queryStart', { requestId });
+    controller.signal.addEventListener('abort', () => S().emit('spider:queryCancelled', { requestId }), { once: true });
     if (stop) stop.classList.toggle('hidden', !usingQwen || !!target);
     const pending = !target ? message('system', usingQwen ? 'Qwen está preparando la respuesta local…' : selectedMode === 'conversacion' ? 'Buscando en el libro elegido…' : 'Buscando en tus documentos…') : null;
     try {
-      const result = await root.NCRag.ask(q, { mode: selectedMode, signal: controller.signal, onToken(text) {
-        if (!pending || controller.signal.aborted) return;
-        const clean = root.NCQwenPrompt?.cleanOutput(text);
-        if (clean) { pending.textContent = `Qwen: ${clean}`; out.scrollTop = out.scrollHeight; }
-      } });
+      const result = await root.NCRag.ask(q, { mode: selectedMode, signal: controller.signal,
+        onRetrieved(detail) {
+          if (!controller.signal.aborted) S().emit('spider:queryVisual', { ...detail, query: q, requestId });
+        },
+        onToken(text) {
+          if (!pending || controller.signal.aborted) return;
+          const clean = root.NCQwenPrompt?.cleanOutput(text);
+          if (clean) { pending.textContent = `Qwen: ${clean}`; out.scrollTop = out.scrollHeight; }
+        } });
       if (controller.signal.aborted) throw new DOMException('Cancelado', 'AbortError');
       pending?.remove();
       if (target) target.replaceChildren();
       renderAnswer(result, { container: out });
-      if (result.nodeIds?.length) {
-        root.NeuralGraph?.highlightPath(result.nodeIds);
-        S().emit('spider:queryVisual', { query: q, nodeIds: result.nodeIds });
-      }
       return result;
     } catch (error) {
       pending?.remove();
@@ -276,6 +286,11 @@
     sync();
   }
   function init() {
+    // Una recuperación pendiente no debe escribir ni despachar tras cambiar el corpus.
+    ['doc:added', 'doc:removed', 'system:resetting', 'brain:importing'].forEach(event => S().on(event, () => currentSend?.abort()));
+    S().on('settings:changed', ({ key }) => {
+      if (['mode', 'characterDocId', 'characterName'].includes(key)) currentSend?.abort();
+    });
     const form = document.getElementById('chat-form');
     const input = document.getElementById('chat-input');
     restoreChat();

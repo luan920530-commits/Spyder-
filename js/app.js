@@ -253,6 +253,7 @@
       root.NCRag.init();
       root.DocParsers.init();
       root.DocViewer.init();
+      root.NCSemantic.init();
       root.NeuralGraph.init();
       root.SpiderEngine.init();
       setupTabs(); setupSettings(); setupActions(); setupDashboard(); setupModel();

@@ -115,7 +115,7 @@
         span.className = 'word-span';
         span.textContent = w;
         span.addEventListener('click', () => {
-          S.emit('spider:dispatchToSentence', { sentence: sent });
+          S.emit('spider:dispatchToSentence', { sentence: S.getSentence(sent.id) || sent });
         });
         block.appendChild(span);
       });

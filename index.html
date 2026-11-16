@@ -19,8 +19,10 @@
   <script defer src="js/srs.js"></script>
   <script defer src="js/db.js"></script>
   <script defer src="js/embeddings.js"></script>
+  <script defer src="js/chunks.js"></script>
   <script defer src="js/store.js"></script>
   <script defer src="js/local-model.js"></script>
+  <script defer src="js/semantic-clusters.js"></script>
   <script defer src="js/qwen-config.js"></script>
   <script defer src="js/qwen-prompt.js"></script>
   <script defer src="js/qwen-model.js"></script>
@@ -111,12 +113,15 @@
         <div id="graph-fallback" class="graph-fallback hidden"></div>
         <div class="arena-corner top-left"></div><div class="arena-corner top-right"></div><div class="arena-corner bottom-left"></div><div class="arena-corner bottom-right"></div>
         <div class="arena-tools" aria-label="Filtrar conceptos">
-          <button class="cluster-pill c-def" data-cluster="AGT-01" aria-pressed="false" title="Filtrar definiciones" aria-label="Filtrar definiciones">DEF</button>
-          <button class="cluster-pill c-causal" data-cluster="AGT-02" aria-pressed="false" title="Filtrar relaciones causales" aria-label="Filtrar relaciones causales">CAUSAL</button>
-          <button class="cluster-pill c-quant" data-cluster="AGT-03" aria-pressed="false" title="Filtrar métricas" aria-label="Filtrar métricas">QUANT</button>
-          <button class="cluster-pill c-synth" data-cluster="AGT-04" aria-pressed="false" title="Filtrar síntesis" aria-label="Filtrar síntesis">SYNTH</button>
+          <div id="cluster-filters" class="cluster-filters">
+            <button class="cluster-pill c-def" data-cluster="AGT-01" aria-pressed="false" title="Filtrar definiciones" aria-label="Filtrar definiciones">DEF</button>
+            <button class="cluster-pill c-causal" data-cluster="AGT-02" aria-pressed="false" title="Filtrar relaciones causales" aria-label="Filtrar relaciones causales">CAUSAL</button>
+            <button class="cluster-pill c-quant" data-cluster="AGT-03" aria-pressed="false" title="Filtrar métricas" aria-label="Filtrar métricas">QUANT</button>
+            <button class="cluster-pill c-synth" data-cluster="AGT-04" aria-pressed="false" title="Filtrar síntesis" aria-label="Filtrar síntesis">SYNTH</button>
+          </div>
           <button class="btn-mini" id="btn-center-net" aria-label="Centrar red" title="Centrar red">◎</button>
         </div>
+        <div id="graph-grouping" class="graph-grouping" role="status">POR AGENTE · ACTIVA MINILM PARA AGRUPAR POR TEMA</div>
         <div class="orbit-label label-def"><span class="orbit-name">AGT-01 · DEFINICIONES</span><span class="orbit-state" data-orbit="AGT-01">EN ESPERA</span></div>
         <div class="orbit-icon icon-def" aria-hidden="true">✳</div>
         <div class="orbit-icon icon-causal" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M20 4 37 34H3Z"/><path d="M9 28h22"/></svg></div>

@@ -14,10 +14,11 @@
   const U = (typeof require === 'function' && typeof module !== 'undefined') ? require('./util.js') : (root.NCUtil || {});
   const R = (typeof require === 'function' && typeof module !== 'undefined') ? require('./retrieval.js') : (root.NCRetrieval || {});
   const DB = (typeof require === 'function' && typeof module !== 'undefined') ? require('./db.js') : (root.NCDB || {});
-  const api = factory(U, R, DB);
+  const C = (typeof require === 'function' && typeof module !== 'undefined') ? require('./chunks.js') : root.NCChunks;
+  const api = factory(U, R, DB, C);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.NeuralStore = Object.assign(root.NeuralStore || {}, api);
-})(typeof window !== 'undefined' ? window : globalThis, function (U, R, DB) {
+})(typeof window !== 'undefined' ? window : globalThis, function (U, R, DB, C) {
   'use strict';
 
   const DEFAULT_SETTINGS = {
@@ -78,7 +79,17 @@
   };
 
   const listeners = Object.create(null);
-  let synonymsCache = null;
+  let synonymsCache = null, exclusionCache = null;
+  // Apunta a los fragmentos canónicos (el índice contiene copias). Así la
+  // animación, las citas y la invalidación son O(1) por ID en corpus grandes.
+  let sentenceById = new Map();
+  function rememberSentences(sentences) {
+    for (const sentence of sentences) if (!sentenceById.has(sentence.id)) sentenceById.set(sentence.id, sentence);
+  }
+  function rebuildSentenceLookup() {
+    sentenceById = new Map();
+    rememberSentences(state.allSentences);
+  }
 
   function on(event, cb) {
     (listeners[event] || (listeners[event] = [])).push(cb);
@@ -131,7 +142,7 @@
   function serializeNodes() {
     return state.nodes.filter(n => !n.isHub).map(n => ({
       id: n.id, cluster: n.cluster, label: n.label, text: n.text, color: n.color,
-      weight: n.weight || 1, pageNums: n.pageNums || [], sentenceIds: n.sentenceIds || []
+      weight: n.weight || 1, pageNums: n.pageNums || [], sentenceIds: n.sentenceIds || [], section: n.section || ''
     }));
   }
 
@@ -197,6 +208,18 @@
     const E = embeddings();
     if (E && state.index && getSetting('embedEnabled', true)) E.indexAll(state.index);
   }
+  function exclusionIndex(filters) {
+    const base = state.index, exclusions = filters?.exclude || [];
+    if (!exclusions.length) return base;
+    const key = [...new Set(exclusions.map(U.normalize))].sort().join('\u0000');
+    if (exclusionCache?.base === base && exclusionCache.length === base.sentences.length && exclusionCache.key === key)
+      return exclusionCache.index;
+    const index = R.projectExclusions(base, filters);
+    // Solo se retiene la proyección más reciente; los demás filtros no alteran
+    // la proyección y se evalúan durante la recuperación.
+    exclusionCache = { base, length: base.sentences.length, key, index };
+    return index;
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   // Documentos e índice
@@ -216,17 +239,14 @@
     normalized.year = new Date().getFullYear();
 
     state.docs.push(normalized);
-    let added = 0;
-    normalized.pages.forEach(page => {
-      (page.sentences || []).forEach(s => {
-        s.docId = normalized.id;
-        s.docName = normalized.name;
-        s.pageNum = page.pageNum;
-        if (s.section === undefined) s.section = page.section || '';
-        state.allSentences.push(s);
-        if (state.index) { R.addSentence(state.index, s); added++; }
-      });
-    });
+    exclusionCache = null; state.lastSearch = null;
+    // Las oraciones originales quedan en el documento. El índice y el enjambre
+    // consumen ventanas solapadas con los mismos IDs de ancla de versiones previas.
+    const chunks = C.fromDocument(normalized);
+    // Evita exceder el límite de argumentos de push en libros muy grandes.
+    for (const chunk of chunks) state.allSentences.push(chunk);
+    rememberSentences(chunks);
+    const added = state.index ? R.addSentences(state.index, chunks) : 0;
 
     indexVectors();
     state.activeDocId = normalized.id;
@@ -244,8 +264,10 @@
     if (!doc) return;
     const removed = new Set(state.allSentences.filter(s => s.docId === docId).map(s => s.id));
     state.docs = state.docs.filter(d => d.id !== docId);
+    exclusionCache = null; state.lastSearch = null;
     if (state.settings.characterDocId === docId) state.settings.characterDocId = '';
     state.allSentences = state.allSentences.filter(s => s.docId !== docId);
+    rebuildSentenceLookup();
     state.patterns = state.patterns.filter(p => !removed.has(p.sentenceId));
     state.visitedPatternHashes = new Set(state.patterns.map(p => p.hash));
     const removedNodes = new Set();
@@ -260,6 +282,8 @@
       !removedNodes.has(typeof l.target === 'object' ? l.target.id : l.target));
     state.cards = state.cards.filter(c => !removed.has(c.sentenceId));
     state.vault.forEach(v => { v.sources = (v.sources || []).filter(src => !removed.has(src.sentenceId)); });
+    // Las preferencias no deben reaparecer si se vuelve a utilizar un ID borrado.
+    state.feedback.forEach(f => { if (Array.isArray(f.sentenceIds)) f.sentenceIds = f.sentenceIds.filter(id => !removed.has(id)); });
     if (doc.mediaUrl && typeof URL !== 'undefined' && URL.revokeObjectURL) URL.revokeObjectURL(doc.mediaUrl);
     if (state.activeDocId === docId) {
       state.activeDocId = state.docs[0] ? state.docs[0].id : null;
@@ -298,7 +322,7 @@
   }
 
   function getSentence(id) {
-    return state.allSentences.find(s => s.id === id) || null;
+    return sentenceById.get(id) || null;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -320,7 +344,10 @@
     if (!label || !text) return null;
     const norm = U.normalize(label).trim();
     const hash = U.hash(text);
-    const existing = state.nodes.find(n => !n.isHub && U.normalize(n.label).trim() === norm);
+    // La misma etiqueta genérica puede aparecer en temas distintos. Solo se
+    // fusiona otra cosecha del mismo ancla; las etiquetas ya no definen temas.
+    const existing = state.nodes.find(n => !n.isHub && U.normalize(n.label).trim() === norm &&
+      (sentenceId ? (n.sentenceIds || []).includes(sentenceId) : !(n.sentenceIds || []).length));
 
     let node;
     const isNew = !existing;
@@ -352,7 +379,7 @@
     }
 
     if (!state.patterns.some(p => p.hash === hash)) {
-      state.patterns.push({ hash, cluster, label: node.label, text, pageNum, sentenceId, color, ts: Date.now() });
+      state.patterns.push({ hash, cluster, label: node.label, text, pageNum, sentenceId, color, section: section || '', ts: Date.now() });
     }
 
     emit('node:added', { node, isNew, hash, pattern: { cluster, label: node.label, text, pageNum, sentenceId, color } });
@@ -401,9 +428,8 @@
       diversify: true
     }, opts || {});
     if (!state.index) return { hits: [], tookMs: 0, total: 0 };
-    const searchOpts = Object.assign({}, o);
+    const searchOpts = Object.assign({}, o), parsed = R.parseQuery(query);
     if (o.expand !== false) {
-      const parsed = R.parseQuery(query);
       const syn = Object.assign(Object.create(null), synonyms());
       // Términos asociados aprendidos por el modelo auxiliar (co-ocurrencia local)
       const aux = (typeof window !== 'undefined') ? window.KimiAuxModel : null;
@@ -416,26 +442,43 @@
       searchOpts.parsed = R.expandQuery(parsed, syn);
     }
     const E = embeddings();
-    state.index.queryVectorCache = Object.create(null);
-    if (getSetting('embedEnabled', true) && E && state.index.vectors.size) {
-      const parsed = R.parseQuery(query);
-      if (!state.index.queryVectorCache) state.index.queryVectorCache = Object.create(null);
-      state.index.queryVectorCache[query] = E.embedOne(parsed.cleaned);
+    const index = exclusionIndex(parsed.filters);
+    // Un vector calculado con texto o título excluido no puede aportar
+    // evidencia a la proyección, incluso si el cuerpo no necesitó recorte.
+    if (parsed.filters.exclude.length && o.neuralScores) {
+      const safe = new Map();
+      for (const [id, score] of o.neuralScores) {
+        const a = state.index.posById.get(id), b = index.posById.get(id);
+        if (a == null || b == null) continue;
+        const original = state.index.sentences[a].contextText || state.index.sentences[a].text;
+        const projected = index.sentences[b].contextText || index.sentences[b].text;
+        if (original === projected && !R.containsExcluded({ text: projected }, parsed.filters)) safe.set(id, score);
+      }
+      searchOpts.neuralScores = safe;
+    }
+    if (index !== state.index && getSetting('embedEnabled', true) && E) E.indexAll(index);
+    index.queryVectorCache = Object.create(null);
+    if (getSetting('embedEnabled', true) && E && index.vectors.size) {
+      index.queryVectorCache[query] = E.embedOne(parsed.cleaned);
       searchOpts.queryConcepts = E.concepts(parsed.cleaned);
     }
-    const result = R.search(state.index, query, searchOpts);
-    // La valoración de respuestas previas afecta a los pasajes de la misma consulta.
-    const queryTerms = new Set(U.tokens(query));
-    const feedbackScores = new Map();
+    // Ajuste acotado ANTES de deduplicar, diversificar y cortar el top-k.
+    const queryTerms = new Set(U.tokens(query)), feedbackScores = new Map();
     (state.feedback || []).forEach(f => {
       const other = new Set(U.tokens(f.question));
       if (U.jaccard(queryTerms, other) < 0.35) return;
-      (f.sentenceIds || []).forEach(id => feedbackScores.set(id, (feedbackScores.get(id) || 0) + Number(f.rating || 0)));
+      (Array.isArray(f.sentenceIds) ? f.sentenceIds : []).slice(0, 100).forEach(id =>
+        feedbackScores.set(id, (feedbackScores.get(id) || 0) + Math.sign(Number(f.rating) || 0)));
     });
-    if (feedbackScores.size) {
-      result.hits.forEach(h => { h.score *= 1 + Math.max(-0.6, Math.min(0.6, (feedbackScores.get(h.sentence.id) || 0) * 0.35)); });
-      result.hits.sort((a, b) => b.score - a.score).forEach((h, i) => { h.rank = i + 1; });
-    }
+    const semantic = typeof window !== 'undefined' ? window.NCSemantic : globalThis.NCSemantic;
+    const weights = semantic?.preferenceWeights(state.feedback);
+    searchOpts.scoreFactor = sentence => {
+      const exact = Math.max(-.45, Math.min(.45, (feedbackScores.get(sentence.id) || 0) * .3));
+      const topic = semantic?.preferenceFor(sentence.id, weights) || 0;
+      return 1 + exact + topic;
+    };
+    const result = R.search(index, query, searchOpts);
+    result.contextIndex = index;
     state.lastSearch = result;
     emit('retrieve:done', result);
     return result;
@@ -482,18 +525,10 @@
       console.warn('[Store] Error restaurando:', e);
     }
 
-    // Reconstruir índice de recuperación
-    state.allSentences = [];
-    state.docs.forEach(doc => {
-      (doc.pages || []).forEach(page => {
-        (page.sentences || []).forEach(s => {
-          s.docId = doc.id;
-          s.docName = doc.name;
-          s.pageNum = page.pageNum;
-          state.allSentences.push(s);
-        });
-      });
-    });
+    // También migra respaldos anteriores: las citas históricas mantienen su ID.
+    exclusionCache = null; state.lastSearch = null;
+    state.allSentences = state.docs.flatMap(doc => C.fromDocument(doc));
+    rebuildSentenceLookup();
     state.index = R.rebuildFrom(state.allSentences);
     indexVectors();
     state.persistence = Object.assign(state.persistence, DB.status());
@@ -530,6 +565,8 @@
     state.activePage = 1;
     state.autoNavigationPausedUntil = 0;
     state.allSentences = [];
+    exclusionCache = null; state.lastSearch = null;
+    sentenceById.clear();
     state.index = R.createIndex();
     state.nodes = [];
     state.links = [];
@@ -540,6 +577,7 @@
     state.quizRuns = [];
     state.evalRuns = [];
     if (!o.keepMemory) { state.vault = []; state.consolidatedMemory = []; state.cards = []; state.feedback = []; }
+    else state.feedback.forEach(f => { if (Array.isArray(f.sentenceIds)) f.sentenceIds = []; });
     if (!o.keepSettings) state.settings = Object.assign({}, DEFAULT_SETTINGS);
     // El personaje y su libro son datos del usuario, no preferencias de interfaz.
     state.settings.characterDocId = '';

@@ -18,6 +18,9 @@
     'novela historia acerca cosa cosas hecho hiciste eres soy tuyo tuya ustedes '
   ));
   let cached = null;
+  // El modo lectura conserva el avance por oración, aun si el índice utiliza
+  // ventanas solapadas alrededor de cada ancla.
+  const sourceText = sentence => sentence?.sourceText ?? sentence?.text ?? '';
 
   function normalizedWords(text) {
     return U.normalize(text).replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim();
@@ -34,7 +37,7 @@
     if (cached && cached.index === index && cached.length === index.sentences.length && cached.docId === docId && cached.key === key) return cached.value;
     const anchors = [];
     index.sentences.forEach((sentence, pos) => {
-      if (sentence.docId === docId && mentions(sentence.text, name)) anchors.push(pos);
+      if (sentence.docId === docId && mentions(sourceText(sentence), name)) anchors.push(pos);
     });
     const nearby = new Map();
     anchors.forEach(pos => {
@@ -124,7 +127,15 @@
     const sentence = index.sentences[pos];
     const chunks = R.buildContext(index, [{ sentence, score: 1 }], { window: 0, maxChunks: 1 });
     if (!chunks.length) return makeReply('No pude abrir ese pasaje del libro. Prueba otra pregunta.', { intent: 'no-evidence' });
-    const quotation = excerpt(sentence.text, terms);
+    const quotation = excerpt(sourceText(sentence), terms);
+    // Para una oración mayor que el límite de contexto, la cita centrada en el
+    // término puede quedar fuera del comienzo truncado. Mostrar exactamente el
+    // fragmento citado y no atribuirle vecinas que ya no aparecen.
+    const plainQuote = quotation.replace(/^…|…$/g, '');
+    if (plainQuote && !chunks[0].text.replace(/\s+/g, ' ').includes(plainQuote)) {
+      chunks[0].text = quotation;
+      chunks[0].sentenceIds = [sentence.id];
+    }
     // Los corchetes que pertenecen al libro no son citas generadas por la app.
     const citationText = quotation.replace(/\[\d{1,2}\]/g, '') + ' [1]';
     const citations = R.verifyCitations(citationText, chunks);
@@ -196,7 +207,7 @@
 
     let best = null;
     for (const [pos, distance] of found.nearby) {
-      const stems = index.stems[pos] || new Set(U.tokens(index.sentences[pos].text));
+      const stems = new Set(U.tokens(sourceText(index.sentences[pos])));
       const matches = terms.reduce((sum, term) => sum + (stems.has(term) ? 1 : 0), 0);
       if (!matches) continue;
       const score = matches * 10 + (2 - distance);

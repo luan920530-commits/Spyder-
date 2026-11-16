@@ -5,7 +5,7 @@ const path = require('node:path');
 const { JSDOM, VirtualConsole } = require('jsdom');
 const { IDBFactory } = require('fake-indexeddb');
 const root = path.join(__dirname, '..');
-const scripts = ['util', 'retrieval', 'analysis', 'srs', 'db', 'embeddings', 'store', 'local-model', 'qwen-config', 'qwen-prompt', 'qwen-model', 'parsers', 'memory', 'providers', 'character', 'rag', 'kimi-aux-model', 'viewer', 'spider-visual', 'neural-graph', 'spider-paths', 'spider-motion', 'spiders', 'eval', 'brain-rag', 'study-bots', 'app'];
+const scripts = ['util', 'retrieval', 'analysis', 'srs', 'db', 'embeddings', 'chunks', 'store', 'local-model', 'semantic-clusters', 'qwen-config', 'qwen-prompt', 'qwen-model', 'parsers', 'memory', 'providers', 'character', 'rag', 'kimi-aux-model', 'viewer', 'spider-visual', 'neural-graph', 'spider-paths', 'spider-motion', 'spiders', 'eval', 'brain-rag', 'study-bots', 'app'];
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(fn, timeout = 4000) {
   const end = Date.now() + timeout;
@@ -291,6 +291,7 @@ test('los errores de ingesta y avisos parciales se leen completos sin ejecutar c
     assert.match(w.document.getElementById('ticker-list').textContent, /\[Pág 3\]/, 'el registro muestra la página física citada');
     const answer = await w.NCRag.ask('tercera =pag:3');
     assert.ok(answer.sources.some(source => source.sentenceId === 'pdf-s1' && source.sourcePage === 3 && source.pageNum === 1));
+    assert.match(w.NCRag.toMarkdown(answer), /Pág 3/, 'la exportación también usa la página PDF física');
     S.setActivePage(1);
     await until(() => notice.textContent.includes('Lectura parcial'));
     assert.deepEqual(errors, []);
@@ -646,6 +647,336 @@ test('un error al generar con Qwen informa del fallo y conserva la respuesta y l
     const rendered = [...w.document.querySelectorAll('.msg-ai')].at(-1);
     assert.match(rendered.textContent, /Continúo con reglas locales/);
     assert.ok(rendered.querySelector('.character-excerpt .cite-ref'));
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+function installSemanticVectors(w, vectors) {
+  const S = w.NeuralStore;
+  let enabled = true;
+  w.NCLocalModel.info = () => ({ enabled, status: enabled ? 'ready' : 'inactive', indexed: enabled ? vectors.size : 0 });
+  w.NCLocalModel.vectorSnapshot = ids => [...(ids || vectors.keys())]
+    .filter(id => vectors.has(id) && S.state.index.posById.has(id))
+    .map(id => ({ id, vector: new w.Float32Array(vectors.get(id)) }));
+  S.emit('model:status', { enabled: true, status: 'ready' });
+  S.emit('model:vectorsChanged', { added: [...vectors.keys()] });
+  return {
+    disable() { enabled = false; S.emit('model:status', { enabled: false, status: 'inactive' }); },
+    enable() { enabled = true; S.emit('model:status', { enabled: true, status: 'ready' }); S.emit('settings:changed', { key: 'embedEnabled', value: true }); }
+  };
+}
+
+test('D3 agrupa por vectores, separa nodos históricos mezclados y vuelve a roles sin MiniLM', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory(), true);
+  try {
+    const S = w.NeuralStore;
+    S.setSetting('autoHarvest', false);
+    S.addDocument({ id: 'doc', name: 'temas.txt', pages: [
+      { pageNum: 1, sentences: [{ id: 'cat1', text: 'Los gatos descansan sobre el sofá.' }] },
+      { pageNum: 2, sentences: [{ id: 'cat2', text: 'Los felinos duermen durante el día.' }] },
+      { pageNum: 3, sentences: [{ id: 'star', text: 'Las galaxias contienen estrellas distantes.' }] }
+    ] });
+    const a = S.addPattern({ cluster: 'AGT-01', label: 'Concepto', text: 'Gatos', pageNum: 1, sentenceId: 'cat1' });
+    const b = S.addPattern({ cluster: 'AGT-01', label: 'Concepto', text: 'Estrellas', pageNum: 3, sentenceId: 'star' });
+    assert.notEqual(a.id, b.id, 'una etiqueta igual no debe fusionar fuentes distintas');
+    const legacy = { id: 'legacy-node', cluster: 'AGT-01', label: 'Antiguo', text: 'Gatos', weight: 2,
+      color: '#00f0ff', pageNums: [1, 3], sentenceIds: ['cat1', 'star'] };
+    S.state.nodes.push(legacy);
+    S.emit('node:added', { node: legacy, isNew: true, pattern: { cluster: 'AGT-01', text: 'Gatos', pageNum: 1, sentenceId: 'cat1' } });
+    const fake = installSemanticVectors(w, new Map([['cat1', [1, 0, 0]], ['cat2', [.98, .03, 0]], ['star', [0, 1, 0]]]));
+    await until(() => w.NCSemantic.info().indexed === 3 && w.document.getElementById('graph-grouping').textContent.includes('TEMAS MINILM'));
+    const groups = () => [...w.document.querySelectorAll('g.node-group')];
+    const nodeA = groups().find(el => el.__data__.id === a.id), nodeB = groups().find(el => el.__data__.id === b.id);
+    assert.ok(nodeA && nodeB);
+    assert.equal(nodeA.__data__.cluster, 'AGT-01'); assert.equal(nodeB.__data__.cluster, 'AGT-01');
+    assert.notEqual(nodeA.__data__.topicId, nodeB.__data__.topicId);
+    const semanticLinks = [...w.document.querySelectorAll('line.graph-link')];
+    const linkA = semanticLinks.find(el => el.__data__.target.id === a.id);
+    assert.equal(linkA.getAttribute('stroke'), nodeA.__data__.color, 'el enlace usa el color de su tema');
+    const split = groups().filter(el => el.__data__.originId === 'legacy-node');
+    assert.equal(split.length, 2);
+    assert.deepEqual(split.map(el => [...el.__data__.sentenceIds]).sort(), [['cat1'], ['star']]);
+    const stars = split.find(el => el.__data__.sentenceIds.includes('star'));
+    assert.match(stars.__data__.text, /galaxias/);
+    stars.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    assert.match(w.document.getElementById('insp-cluster').textContent, /Tema .*AGT-01/);
+    assert.match(w.document.getElementById('insp-text').textContent, /galaxias/);
+    w.document.querySelector('#insp-citations button').click();
+    assert.equal(S.state.activePage, 3);
+    w.document.querySelector(`[data-cluster="${nodeA.__data__.topicId}"]`).click();
+    assert.equal(nodeA.querySelector('.node-circle').getAttribute('opacity'), '1');
+    assert.equal(nodeB.querySelector('.node-circle').getAttribute('opacity'), '0.18');
+    assert.equal(linkA.getAttribute('opacity'), '1');
+    assert.equal(semanticLinks.find(el => el.__data__.target.id === b.id).getAttribute('opacity'), '0.15');
+    S.setSetting('embedEnabled', false);
+    await until(() => w.document.getElementById('graph-grouping').textContent.includes('VECTORES EN AJUSTES'));
+    S.setSetting('embedEnabled', true);
+    await until(() => w.document.getElementById('graph-grouping').textContent.includes('TEMAS MINILM'));
+    fake.disable();
+    await until(() => w.document.getElementById('graph-grouping').textContent.includes('POR AGENTE'));
+    assert.ok(w.document.querySelector('.cluster-pill[data-cluster="AGT-01"]'));
+    assert.ok(!groups().some(el => el.__data__.isSemantic));
+    assert.equal(groups().filter(el => el.__data__.id === 'legacy-node').length, 1);
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('un episodio negativo cambia el peso de otros pasajes del tema y sobrevive al respaldo sin revivir fuentes borradas', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory(), true);
+  try {
+    const S = w.NeuralStore;
+    S.setSetting('autoHarvest', false);
+    S.addDocument({ id: 'rated', name: 'rated.txt', pages: [{ pageNum: 1, sentences: [
+      { id: 'rated-id', text: 'Una fuente sobre memoria y conexiones.' }
+    ] }] });
+    S.addDocument({ id: 'search', name: 'search.txt', pages: [
+      { pageNum: 1, sentences: [{ id: 'similar', text: 'La señal de memoria y redes describe el informe alfa especial.' }] },
+      { pageNum: 2, sentences: [{ id: 'different', text: 'La señal de memoria y redes describe el informe beta especial.' }] }
+    ] });
+    const fake = installSemanticVectors(w, new Map([['rated-id', [1, 0, 0]], ['similar', [.99, .04, 0]], ['different', [0, 1, 0]]]));
+    await until(() => w.NCSemantic.info().indexed === 3);
+    const query = '=doc:search señal memoria redes informe';
+    const rank = () => S.search(query, { k: 1, fuzzy: false, diversify: false, expand: false,
+      neuralScores: new w.Map([['similar', .9], ['different', .89]]) }).hits[0]?.sentence.id;
+    assert.equal(rank(), 'similar');
+    const before = S.state.feedback.length;
+    w.KimiAuxModel.recordNegativeEpisode('Respuesta equivocada sin fuentes');
+    assert.equal(S.state.feedback.length, before, 'sin IDs no se adivina una fuente');
+    w.KimiAuxModel.recordNegativeEpisode('Respuesta equivocada', { question: 'otra consulta distinta', sentenceIds: ['rated-id'] });
+    assert.equal(S.state.feedback.length, before + 1);
+    let weights = w.NCSemantic.preferenceWeights(S.state.feedback);
+    assert.ok(w.NCSemantic.preferenceFor('similar', weights) < 0);
+    assert.equal(w.NCSemantic.preferenceFor('different', weights), 0);
+    assert.equal(rank(), 'different', 'el ajuste actúa antes de cortar el top-1 y también sobre otra fuente del tema');
+    const backup = JSON.parse(JSON.stringify(await S.exportBrain()));
+    await S.resetAll({ keepSettings: false });
+    assert.equal(S.state.feedback.length, 0);
+    if (!w.SpiderEngine.getStatus().paused) w.document.getElementById('btn-toggle-spiders').click();
+    await S.importBrain(backup);
+    await until(() => w.NCSemantic.info().indexed === 3);
+    assert.equal(S.state.feedback.length, 1);
+    assert.equal(rank(), 'different', 'la preferencia se reconstruye a partir de IDs persistidos');
+    fake.disable();
+    assert.equal(rank(), 'similar', 'sin MiniLM no se inventa agrupación temática');
+    fake.enable();
+    await until(() => w.NCSemantic.info().indexed === 3);
+    assert.equal(rank(), 'different');
+    S.removeDocument('rated');
+    await until(() => w.NCSemantic.info().indexed === 2);
+    weights = w.NCSemantic.preferenceWeights(S.state.feedback);
+    assert.equal(w.NCSemantic.preferenceFor('similar', weights), 0);
+    assert.deepEqual([...S.state.feedback[0].sentenceIds], []);
+    assert.equal(rank(), 'similar');
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('el botón NO registra todas las fuentes citadas una sola vez y no atribuye temas sin fuente', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const S = w.NeuralStore;
+    S.setSetting('autoHarvest', false);
+    S.addDocument({ id: 'rated', name: 'rated.txt', pages: [
+      { pageNum: 1, sentences: [{ id: 'a', text: 'Gatos en un sillón.' }] },
+      { pageNum: 2, sentences: [{ id: 'b', text: 'Aves en el bosque.' }] },
+      { pageNum: 3, sentences: [{ id: 'c', text: 'Estrellas en el espacio.' }] }
+    ] });
+    installSemanticVectors(w, new Map([['a', [1, 0, 0]], ['b', [0, 1, 0]], ['c', [0, 0, 1]]]));
+    await until(() => w.NCSemantic.info().indexed === 3);
+    const sources = ['a', 'b', 'c'].map((id, i) => ({ sentenceId: id, docId: 'rated', docName: 'rated.txt', pageNum: i + 1, text: id }));
+    const answer = { question: 'Una pregunta', text: 'Respuesta incorrecta [1] y [3].', mode: 'examen', provider: 'internal',
+      sources, citations: { used: [1, 3], weak: [], unverified: [] }, nodeIds: [], vaultIds: [] };
+    const article = w.BrainRAG.renderAnswer(answer);
+    article.querySelector('[aria-label="Respuesta poco útil"]').click();
+    assert.equal(S.state.feedback.length, 1, 'el episodio auxiliar no duplica el feedback del botón');
+    assert.deepEqual([...S.state.feedback[0].sentenceIds], ['a', 'c']);
+    const weights = w.NCSemantic.preferenceWeights(S.state.feedback);
+    assert.ok(w.NCSemantic.preferenceFor('a', weights) < 0);
+    assert.equal(w.NCSemantic.preferenceFor('b', weights), 0);
+    assert.ok(w.NCSemantic.preferenceFor('c', weights) < 0);
+    assert.equal(w.KimiAuxModel.isPenalized('Respuesta incorrecta [1] y [3].'), true);
+    article.querySelector('[aria-label="Respuesta poco útil"]').click();
+    assert.equal(S.state.feedback.length, 1);
+    S.removeDocument('rated');
+    const oldAnswer = w.BrainRAG.renderAnswer(answer);
+    oldAnswer.querySelector('[aria-label="Respuesta útil"]').click();
+    assert.deepEqual([...S.state.feedback.at(-1).sentenceIds], [], 'el historial no puede valorar una fuente eliminada');
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('excluir una vecina invalida su vector original para evitar evidencia neural contaminada', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const S = w.NeuralStore;
+    S.setSetting('autoHarvest', false);
+    S.addDocument({ id: 'doc', name: 'd.txt', pages: [{ pageNum: 1, sentences: [
+      { id: 'safe', text: 'La biología estudia a los seres vivos.' },
+      { id: 'excluded', text: 'La biología marina estudia los océanos.' }
+    ] }] });
+    const scores = new w.Map([['safe', .99], ['excluded', .98]]);
+    const phantom = S.search('palabrainexistente -marina', { fuzzy: false, expand: false, neuralScores: scores });
+    assert.equal(phantom.hits.length, 0, 'no se reutiliza un vector que incluía marina');
+    const lexical = S.search('biología -marina', { fuzzy: false, expand: false, neuralScores: scores });
+    assert.equal(lexical.contextIndex, phantom.contextIndex, 'se reutiliza la misma proyección mientras no cambia el corpus');
+    assert.equal(lexical.hits[0].sentence.id, 'safe');
+    assert.equal(lexical.hits[0].neural, 0);
+    assert.doesNotMatch(lexical.hits[0].sentence.text, /marina/);
+    S.addDocument({ id: 'heading', name: 'heading.txt', pages: [{ pageNum: 1, section: 'Biología marina',
+      sentences: [{ id: 'heading-id', text: 'Un texto sin el término descartado.' }] }] });
+    const titleOnly = S.search('palabrainexistente -marina', { fuzzy: false, expand: false,
+      neuralScores: new w.Map([['heading-id', .99]]) });
+    assert.notEqual(titleOnly.contextIndex, lexical.contextIndex, 'un documento nuevo invalida la proyección');
+    assert.equal(titleOnly.hits.length, 0, 'el título también entró al vector y puede contaminarlo');
+    const answer = await w.NCRag.ask('¿Qué estudia la biología? -marina');
+    assert.ok(answer.sources.length);
+    assert.ok(answer.sources.every(source => !source.text.includes('marina')));
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('reset durante la inferencia pendiente cancela respuesta y despachos tardíos', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const S = w.NeuralStore;
+    S.setSetting('autoHarvest', false);
+    S.addDocument({ id: 'doc', name: 'd.txt', pages: [{ pageNum: 1, sentences: [{ id: 's', text: 'Texto real sobre galaxias.' }] }] });
+    let release;
+    w.NCLocalModel.info = () => ({ enabled: true, status: 'ready' });
+    w.NCLocalModel.scores = () => new Promise(resolve => { release = resolve; });
+    const events = [];
+    S.on('spiders:dispatched', event => events.push(event));
+    const pending = w.BrainRAG.send('Consulta galáctica');
+    await until(() => !!release);
+    await S.resetAll({ keepSettings: false });
+    release(new w.Map([['s', .99]]));
+    assert.equal(await pending, null);
+    assert.equal(S.state.chat.length, 0);
+    assert.equal(S.state.claimedTargets.size, 0);
+    assert.equal(events.filter(event => event.source === 'query').length, 0);
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('el chat dirige a los hits filtrados con guía local explícita cuando MiniLM falla', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory(), true);
+  try {
+    const S = w.NeuralStore;
+    S.setSetting('autoHarvest', false);
+    S.addDocument({ id: 'doc', name: 'd.txt', pages: [{ pageNum: 1, sentences: [
+      { id: 'safe', text: 'La biología estudia a los seres vivos.' },
+      { id: 'excluded', text: 'La biología marina estudia peces y océanos.' }
+    ] }] });
+    w.NCLocalModel.info = () => ({ enabled: true, status: 'ready' });
+    w.NCLocalModel.scores = async () => { throw new Error('modelo interrumpido'); };
+    const visual = [], dispatches = [], notices = [];
+    S.on('spider:queryVisual', event => visual.push(event));
+    S.on('spiders:dispatched', event => dispatches.push({ ...event,
+      targets: Array.from(w.SpiderEngine.getStatus().spiders, spider => spider.sentenceId) }));
+    S.on('spiders:queryGuidance', event => notices.push(event));
+    const answer = await w.BrainRAG.send('¿Qué estudia biología? -marina');
+    assert.ok(answer.sources.length);
+    assert.ok(visual[0].hits.length);
+    assert.equal(visual[0].method, 'local');
+    assert.ok(visual[0].hits.every(hit => hit.sentence.id === 'safe' && !hit.sentence.text.includes('marina')));
+    assert.ok(notices.some(event => event.method === 'local' && event.paused));
+    assert.match(w.document.getElementById('swarm-feedback').textContent, /Guía local/);
+    assert.equal(S.state.claimedTargets.size, 0);
+    w.document.getElementById('btn-toggle-spiders').click();
+    await until(() => dispatches.some(event => event.source === 'query'));
+    const dispatched = dispatches.find(event => event.source === 'query');
+    assert.equal(dispatched.method, 'local');
+    assert.equal(dispatched.targets[0], 'safe', 'se comprueba el destino en el momento del despacho');
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('borrar el chat cancela una guía ya despachada y la respuesta del proveedor pendiente', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const S = w.NeuralStore;
+    S.setSetting('autoHarvest', false);
+    S.addDocument({ id: 'doc', name: 'd.txt', pages: [{ pageNum: 1, sentences: [{ id: 's', text: 'La memoria conecta señales neuronales.' }] }] });
+    S.getSentence('s').harvested = true;
+    w.document.getElementById('btn-toggle-spiders').click();
+    let release;
+    w.NCProviders.register({ id: 'slow-test', complete: () => new Promise(resolve => { release = resolve; }) });
+    S.setSetting('provider', 'slow-test');
+    const pending = w.BrainRAG.send('¿Cómo funciona la memoria?');
+    await until(() => !!release);
+    assert.equal(S.state.claimedTargets.has('s'), true, 'la lectura se despacha antes de terminar la respuesta');
+    assert.equal(w.SpiderEngine.getStatus().spiders[0].sentenceId, 's');
+    w.document.getElementById('btn-clear-chat').click();
+    assert.equal(S.state.claimedTargets.size, 0);
+    assert.equal(w.SpiderEngine.getStatus().spiders[0].phase, 'IDLE');
+    release({ text: 'Una respuesta tardía [1]' });
+    assert.equal(await pending, null);
+    assert.equal(S.state.chat.length, 0);
+    assert.equal(S.state.patterns.length, 0);
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('exclusiones y filtros también se aplican a contradicciones, memorias y sugerencias', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const S = w.NeuralStore;
+    S.setSetting('autoHarvest', false);
+    S.addDocument({ id: 'uno', name: 'uno.pdf', pages: [{ pageNum: 1, sourcePage: 4, sentences: [
+      { id: 'a', text: 'La latencia de consulta del sistema es de 12 milisegundos.' },
+      { id: 'b', text: 'La explicación de esta medición es local.' }
+    ] }] });
+    S.addDocument({ id: 'dos', name: 'dos.pdf', pages: [{ pageNum: 1, sourcePage: 7, sentences: [
+      { id: 'c', text: 'La latencia de consulta del sistema marina es de 40 milisegundos.' }
+    ] }] });
+    w.NCMemory.addFact('La latencia marina secreta se anotó en la memoria personal.');
+    const all = await w.NCRag.ask('Critica la latencia de consulta');
+    assert.match(all.text, /Contradicciones entre fuentes/);
+    assert.match(all.text, /Pág 4/);
+    assert.match(all.text, /Pág 7/);
+    const excluded = await w.NCRag.ask('Critica la latencia de consulta -marina');
+    assert.doesNotMatch(excluded.text, /marina|40 milisegundos/i);
+    assert.doesNotMatch(excluded.text, /Contradicciones entre fuentes/);
+    assert.ok(excluded.sources.every(source => !source.text.includes('marina')));
+    const limited = await w.NCRag.ask('Critica la latencia de consulta =doc:uno');
+    assert.doesNotMatch(limited.text, /marina|40 milisegundos/i);
+    assert.doesNotMatch(limited.text, /Recuerdo guardado por ti/);
+    const noResult = await w.NCRag.ask('palabrainexistente =doc:uno -marina');
+    assert.equal(noResult.sources.length, 0);
+    assert.doesNotMatch(noResult.text.split('Términos que sí aparecen en el corpus:')[1] || '', /marina/i);
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('los compositores nunca recuperan texto descartado del objeto ancla', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const chunk = { index: 1, id: 'safe', text: 'La evidencia conservada es local.', sentence: { text: 'TEXTO DESCARTADO Y AJENO.' },
+      pageNum: 1, docName: 'd.txt' };
+    for (const mode of ['examen', 'redaccion', 'socratico']) {
+      const output = w.NCRag.composeExtractive({ mode, question: 'Explica la evidencia', chunks: [chunk] });
+      assert.doesNotMatch(output, /DESCARTADO/);
+      assert.match(output, /evidencia/i);
+    }
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('la vista de texto sin D3 se actualiza con nodos, temas y eliminación', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const S = w.NeuralStore, fallback = w.document.getElementById('graph-fallback');
+    S.setSetting('autoHarvest', false);
+    S.addDocument({ id: 'd', name: 'd.txt', pages: [{ pageNum: 1,
+      sentences: [{ id: 's', text: 'Un fragmento real sobre planetas.' }] }] });
+    S.addPattern({ cluster: 'AGT-01', label: 'Planetas', text: 'Un fragmento real sobre planetas.', pageNum: 1, sentenceId: 's' });
+    assert.match(fallback.textContent, /AGT-01.*Planetas/);
+    installSemanticVectors(w, new Map([['s', [1, 0]]]));
+    await until(() => /Tema 1/.test(fallback.textContent));
+    assert.match(fallback.textContent, /Tema 1.*Planetas/);
+    S.removeDocument('d');
+    await until(() => !fallback.textContent.includes('Planetas'));
+    assert.match(fallback.textContent, /D3 no disponible/);
     assert.deepEqual(errors, []);
   } finally { dom.window.close(); }
 });

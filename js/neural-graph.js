@@ -27,6 +27,9 @@
   let activeCluster = null;
   let graphNodes = [];
   let graphLinks = [];
+  let semanticMode = false, displayedTopics = [];
+  const TOPIC_POSITIONS = [ { px: .36, py: .30 }, { px: .67, py: .31 },
+    { px: .66, py: .66 }, { px: .37, py: .66 } ];
   let visible = true;
   let initialized = false;
 
@@ -390,6 +393,13 @@
         lines: [status.paused ? `Pausada · ${states[spider.phase] || spider.phase}` : (states[spider.phase] || spider.phase),
           sentence ? `${sentence.docName || 'Documento'} · pág. ${sentence.sourcePage || sentence.pageNum}` : 'Disponible para textos reales'] };
     }
+    if (semanticMode) {
+      const hub = graphNodes.filter(node => node.isSemantic).map(node => ({ node, distance: Math.hypot(x - node.x, y - node.y) }))
+        .filter(item => item.distance < size * .12).sort((a, b) => a.distance - b.distance)[0]?.node;
+      if (!hub) return null;
+      return { title: hub.label, color: hub.color,
+        lines: [`${hub.count || 0} fragmentos · similitud MiniLM aproximada`, 'Clic: enviar arañas libres a este grupo'] };
+    }
     const nearby = constellations.map(cluster => ({ cluster, distance: Math.hypot(x - cluster.x * rect.width, y - cluster.y * rect.height) }))
       .filter(item => item.distance < item.cluster.r * size * .95).sort((a, b) => a.distance - b.distance)[0];
     if (!nearby) return null;
@@ -435,7 +445,10 @@
     const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
     const y = Math.max(0, Math.min(rect.height, clientY - rect.top));
     burstAt(x, y, rect);
-    const nearest = nearestCluster(x, y, rect.width, rect.height)?.cluster;
+    const nearest = semanticMode
+      ? graphNodes.filter(node => node.isSemantic).map(node => ({ node, distance: Math.hypot(node.x - x, node.y - y) }))
+        .sort((a, b) => a.distance - b.distance)[0]?.node
+      : nearestCluster(x, y, rect.width, rect.height)?.cluster;
     const cluster = clusterOverride || activeCluster || (nearest?.id === 'core' ? null : nearest?.id);
     const result = root.SpiderEngine?.dispatchFromNetwork({ x: rect.left + x, y: rect.top + y, cluster }) || { sent: 0, reason: 'unavailable' };
     const messages = {
@@ -517,18 +530,110 @@
     const S = store();
     if (!S) return;
     const previous = new Map(graphNodes.map(n => [n.id, n]));
-    graphNodes = S.state.nodes.map(n => {
+    const copy = n => {
       const old = previous.get(n.id);
       return Object.assign({}, old ? { x: old.x, y: old.y, vx: old.vx, vy: old.vy } : {}, n);
+    };
+    const semantic = root.NCSemantic;
+    semanticMode = !!semantic?.info().active;
+    displayedTopics = semanticMode ? semantic.topics() : [];
+    if (!semanticMode) {
+      graphNodes = S.state.nodes.map(copy);
+      const byId = new Map(graphNodes.map(n => [n.id, n]));
+      graphLinks = [];
+      (S.state.links || []).forEach(l => {
+        const s = typeof l.source === 'object' ? l.source.id : l.source;
+        const t = typeof l.target === 'object' ? l.target.id : l.target;
+        if (!byId.has(s) || !byId.has(t)) return;
+        graphLinks.push({ key: l.key || s + '>' + t, source: byId.get(s), target: byId.get(t), kind: l.kind || 'hierarchy' });
+      });
+    } else {
+      // Un nodo histórico podía fusionar una etiqueta de varios documentos.
+      // Se separa visualmente por tema sin destruir las citas ni el respaldo.
+      const groups = [];
+      let hasPending = false;
+      for (const node of S.state.nodes.filter(n => !n.isHub)) {
+        const buckets = new Map();
+        for (const id of node.sentenceIds || []) {
+          const topic = semantic.topicId(id) || 'SEM-PENDING';
+          if (!buckets.has(topic)) buckets.set(topic, []);
+          buckets.get(topic).push(id);
+        }
+        if (!buckets.size) buckets.set('SEM-PENDING', []);
+        if (buckets.has('SEM-PENDING')) hasPending = true;
+        for (const [topicId, ids] of buckets) {
+          groups.push({ node, topicId, ids, split: buckets.size > 1 });
+        }
+      }
+      if (hasPending) displayedTopics.push({ id: 'SEM-PENDING', label: 'Sin vector todavía', color: '#778699', count: 0 });
+      const weights = semantic.preferenceWeights(S.state.feedback);
+      const hubs = displayedTopics.map(topic => {
+        const position = topic.number ? TOPIC_POSITIONS[(topic.number - 1) % TOPIC_POSITIONS.length] :
+          topic.id === 'SEM-PENDING' ? { px: .53, py: .78 } : { px: .53, py: .50 };
+        return copy({ ...topic, isHub: true, isSemantic: true, weight: 1,
+          preference: weights.get(topic.id) || 0, px: position.px, py: position.py,
+          x: width * position.px, y: height * position.py, fx: width * position.px, fy: height * position.py });
+      });
+      const hubsById = new Map(hubs.map(hub => [hub.id, hub]));
+      const nodes = groups.map(({ node, topicId, ids, split }) => {
+        const hub = hubsById.get(topicId);
+        return copy({ ...node, id: split ? `${node.id}::${topicId}` : node.id, originId: node.id,
+          topicId, topicLabel: hub?.label || 'Sin vector todavía', sentenceIds: ids,
+          text: split && ids.length ? (S.getSentence(ids[0])?.text || node.text) : node.text,
+          color: hub?.color || '#778699' });
+      });
+      graphNodes = hubs.concat(nodes);
+      graphLinks = nodes.map(node => ({ key: `topic:${node.topicId}>${node.id}`,
+        source: hubsById.get(node.topicId), target: node, kind: 'semantic' })).filter(link => link.source);
+    }
+    updateGroupingControls();
+  }
+
+  function updateGroupingControls() {
+    const S = store(), semantic = root.NCSemantic, info = semantic?.info() || {};
+    const status = document.getElementById('graph-grouping');
+    const stage = document.getElementById('arena-stage');
+    stage?.classList.toggle('semantic-mode', semanticMode);
+    if (status) {
+      status.textContent = semanticMode
+        ? `TEMAS MINILM · ${info.indexed}/${info.total} VECTORES${info.indexing ? ' · INDEXANDO' : ''}`
+        : info.modelEnabled && !S.getSetting('embedEnabled', true)
+          ? 'POR AGENTE · ACTIVA VECTORES EN AJUSTES'
+          : info.modelEnabled && !info.total
+            ? 'MINILM ACTIVO · CARGA UN DOCUMENTO'
+            : info.modelEnabled
+              ? 'MINILM · PREPARANDO VECTORES; VISTA POR AGENTE'
+              : 'POR AGENTE · ACTIVA MINILM PARA AGRUPAR POR TEMA';
+      status.title = semanticMode ? 'Agrupación aproximada por coseno; los nombres son palabras frecuentes y pueden ser imprecisos.' :
+        'Los roles DEF, CAUSAL, QUANT y SYNTH no son temas semánticos.';
+    }
+    const filters = document.getElementById('cluster-filters');
+    if (!filters) return;
+    const roles = [
+      { id: 'AGT-01', short: 'DEF', label: 'definiciones', className: 'c-def' },
+      { id: 'AGT-02', short: 'CAUSAL', label: 'relaciones causales', className: 'c-causal' },
+      { id: 'AGT-03', short: 'QUANT', label: 'métricas', className: 'c-quant' },
+      { id: 'AGT-04', short: 'SYNTH', label: 'síntesis', className: 'c-synth' }
+    ];
+    const weights = semanticMode ? semantic.preferenceWeights(S.state.feedback) : new Map();
+    const options = semanticMode ? displayedTopics.map(topic => ({ ...topic,
+      short: topic.number ? `T${topic.number}` : topic.id === 'SEM-PENDING' ? '…' : 'OTROS' })) : roles;
+    if (activeCluster && !options.some(option => option.id === activeCluster)) activeCluster = null;
+    const old = new Map([...filters.querySelectorAll('.cluster-pill')].map(button => [button.dataset.cluster, button]));
+    options.forEach((option, i) => {
+      const button = old.get(option.id) || document.createElement('button');
+      old.delete(option.id);
+      button.type = 'button'; button.className = `cluster-pill ${option.className || ''}`.trim();
+      button.dataset.cluster = option.id; button.textContent = option.short;
+      button.style.color = option.color || ''; button.style.borderColor = option.color || '';
+      const preference = weights.get(option.id) || 0;
+      const label = semanticMode ? `${option.label}${preference ? ` · preferencia ${preference > 0 ? '+' : ''}${Math.round(preference * 100)}%` : ''}` : option.label;
+      button.title = `Filtrar ${label}`; button.setAttribute('aria-label', `Filtrar ${label}`);
+      button.classList.toggle('active', activeCluster === option.id);
+      button.setAttribute('aria-pressed', String(activeCluster === option.id));
+      if (filters.children[i] !== button) filters.insertBefore(button, filters.children[i] || null);
     });
-    const byId = new Map(graphNodes.map(n => [n.id, n]));
-    graphLinks = [];
-    (S.state.links || []).forEach(l => {
-      const s = typeof l.source === 'object' ? l.source.id : l.source;
-      const t = typeof l.target === 'object' ? l.target.id : l.target;
-      if (!byId.has(s) || !byId.has(t)) return;
-      graphLinks.push({ key: l.key || s + '>' + t, source: byId.get(s), target: byId.get(t), kind: l.kind || 'hierarchy' });
-    });
+    old.forEach(button => button.remove());
   }
 
   function ensureD3() {
@@ -538,10 +643,10 @@
       if (fallback) {
         fallback.classList.remove('hidden');
         const S = store();
-        const nodes = S ? S.state.nodes.filter(n => !n.isHub).slice(0, 12) : [];
+        const nodes = (graphNodes.length ? graphNodes : S?.state.nodes || []).filter(n => !n.isHub).slice(0, 12);
         fallback.innerHTML = nodes.length
           ? `<div class="fallback-title">Grafo en modo texto (D3 no disponible)</div>` +
-            nodes.map(n => `<div class="fallback-node"><span>[${U.escapeHtml(n.cluster)}]</span> ${U.escapeHtml(n.label)} <em>×${U.escapeHtml(n.weight || 1)}</em></div>`).join('')
+            nodes.map(n => `<div class="fallback-node"><span>[${U.escapeHtml(semanticMode ? n.topicLabel : n.cluster)}]</span> ${U.escapeHtml(n.label)} <em>×${U.escapeHtml(n.weight || 1)}</em></div>`).join('')
           : `<div class="fallback-title">D3 no disponible: usa el ticker y el inspector.</div>`;
       }
       if (stage) stage.classList.add('no-d3');
@@ -562,7 +667,7 @@
   }
 
   function render(full) {
-    if (!root.d3 || !gNodes) return;
+    if (!root.d3 || !gNodes) { if (!root.d3) ensureD3(); return; }
     const d3 = root.d3;
 
     const linkSel = gLinks.selectAll('line').data(graphLinks, d => d.key);
@@ -573,7 +678,16 @@
       .attr('stroke-width', d => (d.kind === 'synaptic' ? 1.4 : 1))
       .attr('stroke-dasharray', d => (d.kind === 'synaptic' ? '3,3' : null))
       .attr('opacity', d => d.source.isHub && d.target.isHub ? 0 : 1);
-    const allLinks = linkEnter.merge(linkSel);
+    const allLinks = linkEnter.merge(linkSel)
+      .attr('stroke', d => d.kind === 'semantic' ? d.target.color :
+        d.kind === 'synaptic' ? 'rgba(245,170,60,.32)' : 'rgba(56,220,255,.15)')
+      .attr('stroke-opacity', d => d.kind === 'semantic' ? .38 : 1)
+      .attr('opacity', d => {
+        if (d.source.isHub && d.target.isHub) return 0;
+        if (!activeCluster) return 1;
+        return [d.source, d.target].some(node => node.id === activeCluster ||
+          (semanticMode ? node.topicId : node.cluster) === activeCluster) ? 1 : .15;
+      });
 
     const nodeSel = gNodes.selectAll('g.node-group').data(graphNodes, d => d.id);
     nodeSel.exit().remove();
@@ -597,7 +711,8 @@
         } else openInspector(d);
       })
       .on('mouseenter', function(ev, d) { showTooltip(ev, d); if (!d.isHub) d3.select(this).select('.node-label').attr('opacity', 1); })
-      .on('mouseleave', function(ev, d) { hideTooltip(); d3.select(this).select('.node-label').attr('opacity', highlighted.has(d.id) ? 1 : 0); });
+      .on('mouseleave', function(ev, d) { hideTooltip(); d3.select(this).select('.node-label')
+        .attr('opacity', highlighted.has(d.id) || highlighted.has(d.originId) || d.isSemantic ? 1 : 0); });
 
     // Área táctil sin alterar el tamaño visual de los nodos reales.
     nodeEnter.append('circle').attr('r', d => d.isHub ? 14 : 10).attr('fill', 'transparent').attr('pointer-events', 'all');
@@ -614,19 +729,26 @@
       .attr('font-family', 'monospace')
       .text(d => d.label);
 
-    const allNodes = nodeEnter.merge(nodeSel);
+    const allNodes = nodeEnter.merge(nodeSel)
+      .attr('aria-label', d => d.isHub ? 'Enviar arañas desde ' + d.label : 'Inspeccionar ' + d.label);
 
+    const isHighlighted = d => highlighted.has(d.id) || (d.originId && highlighted.has(d.originId));
     allNodes.select('.node-circle')
-      .attr('r', d => (d.isHub ? 2.5 : Math.min(7, 2.5 + Math.log2(d.weight || 1))))
-      .attr('stroke-width', d => (highlighted.has(d.id) ? 2 : d.isHub ? 0.5 : 0.8))
-      .attr('stroke', d => (highlighted.has(d.id) ? '#fbbf24' : d.color || '#00f0ff'))
+      .attr('r', d => (d.isHub ? (d.isSemantic ? 5 : 2.5) : Math.min(7, 2.5 + Math.log2(d.weight || 1))))
+      .attr('fill', d => d.color || '#00f0ff')
+      .attr('stroke-width', d => (isHighlighted(d) ? 2 : d.isHub ? 0.5 : 0.8))
+      .attr('stroke', d => (isHighlighted(d) ? '#fbbf24' : d.color || '#00f0ff'))
       .attr('opacity', d => dimmed(d) ? 0.18 : 1);
 
+    // La distancia horizontal entre hubs se reduce en móvil; acotar los
+    // rótulos visibles evita que se solapen. El nombre completo queda en el
+    // filtro, el tooltip y la etiqueta accesible del hub.
+    const topicLabelLimit = Math.max(10, Math.min(28, Math.floor(width * .28 / 5.4)));
     allNodes.select('.node-label')
       .attr('font-size', d => (d.isHub ? '9px' : '8.5px'))
-      .attr('fill', d => (highlighted.has(d.id) ? '#fbbf24' : '#e2e8f0'))
-      .attr('opacity', d => highlighted.has(d.id) ? 1 : 0)
-      .text(d => (d.weight > 1 && !d.isHub ? `${d.label} ×${d.weight}` : d.label));
+      .attr('fill', d => (isHighlighted(d) ? '#fbbf24' : '#e2e8f0'))
+      .attr('opacity', d => (isHighlighted(d) || d.isSemantic ? 1 : 0))
+      .text(d => (d.isSemantic ? U.truncate(d.label, topicLabelLimit) : d.weight > 1 && !d.isHub ? `${d.label} ×${d.weight}` : d.label));
 
     if (full || !simulation) {
       if (simulation) simulation.stop();
@@ -641,6 +763,12 @@
       simulation.force('link').links(graphLinks);
       simulation.alpha(0.5).restart();
     }
+    const topicHubs = new Map(graphNodes.filter(n => n.isSemantic).map(n => [n.id, n]));
+    // Las fuerzas temáticas no dependen del agente que cosechó cada nodo.
+    simulation.force('topic-x', d3.forceX(d => topicHubs.get(d.topicId)?.fx ?? width / 2)
+      .strength(d => semanticMode && !d.isHub ? .22 : 0));
+    simulation.force('topic-y', d3.forceY(d => topicHubs.get(d.topicId)?.fy ?? height / 2)
+      .strength(d => semanticMode && !d.isHub ? .22 : 0));
 
     const placeGraph = () => {
       allLinks
@@ -664,16 +792,16 @@
   function dimmed(d) {
     if (!activeCluster) return false;
     if (d.isHub) return d.id !== activeCluster;
-    return d.cluster !== activeCluster;
+    return (semanticMode ? d.topicId : d.cluster) !== activeCluster;
   }
 
   function showTooltip(ev, d) {
     const tip = document.getElementById('node-tooltip');
     if (!tip) return;
     tip.innerHTML = d.isHub
-      ? `<strong>${U.escapeHtml(d.label)}</strong><div class="tip-meta">Enviar arañas libres a pasajes reales</div>`
-      : `<strong>[${U.escapeHtml(d.cluster || 'KIMI')}]</strong> ${U.escapeHtml(d.label)}
-        <div class="tip-meta">peso ×${U.escapeHtml(d.weight || 1)} · ${(d.pageNums || []).length} cita(s)</div>
+      ? `<strong>${U.escapeHtml(d.label)}</strong><div class="tip-meta">${d.isSemantic ? `${d.count || 0} fragmentos · ` : ''}Enviar arañas libres a pasajes reales</div>`
+      : `<strong>[${U.escapeHtml(semanticMode ? d.topicLabel : d.cluster || 'KIMI')}]</strong> ${U.escapeHtml(d.label)}
+        <div class="tip-meta">agente ${U.escapeHtml(d.cluster || 'KIMI')} · peso ×${U.escapeHtml(d.weight || 1)} · ${(d.sentenceIds || []).length} cita(s)</div>
         ${d.text ? `<div class="tip-text">${U.escapeHtml(U.truncate(d.text, 180))}</div>` : ''}`;
     tip.classList.remove('hidden');
     const rect = tip.getBoundingClientRect();
@@ -691,7 +819,7 @@
     if (!node || node.isHub) return;
     const insp = document.getElementById('node-inspector');
     if (!insp) return;
-    document.getElementById('insp-cluster').textContent = node.cluster || 'KIMI';
+    document.getElementById('insp-cluster').textContent = semanticMode ? `${node.topicLabel} · ${node.cluster || 'KIMI'}` : node.cluster || 'KIMI';
     document.getElementById('insp-weight').textContent = `×${node.weight || 1}`;
     document.getElementById('insp-label').textContent = node.label;
     document.getElementById('insp-text').textContent = node.text || '';
@@ -785,6 +913,7 @@
         if (n) { n.x = n.fx = w * hub.px; n.y = n.fy = h * hub.py; }
       });
     });
+    graphNodes.filter(n => n.isSemantic).forEach(n => { n.x = n.fx = w * n.px; n.y = n.fy = h * n.py; });
     probe.inside = false; document.getElementById('swarm-tip')?.classList.add('hidden');
     resetVisualEffects(); redrawIfStill();
     if (!simulation) return;
@@ -802,10 +931,16 @@
     render(false);
   }
 
+  let highlightTimer = null;
   function highlightPath(nodeIds) {
     highlighted = new Set(nodeIds || []);
     render(false);
-    setTimeout(() => { highlighted.clear(); render(false); }, 4500);
+    clearTimeout(highlightTimer);
+    highlightTimer = setTimeout(() => { highlighted.clear(); render(false); }, 4500);
+  }
+  function highlightSources(sentenceIds) {
+    const ids = new Set(sentenceIds || []);
+    highlightPath(graphNodes.filter(node => !node.isHub && (node.sentenceIds || []).some(id => ids.has(id))).map(node => node.id));
   }
 
   function getHubScreenPos(clusterId) {
@@ -842,22 +977,18 @@
     });
     document.getElementById('btn-center-net')?.addEventListener('click', recenter);
 
-    document.querySelectorAll('.cluster-pill').forEach(pill => {
-      pill.addEventListener('click', () => setClusterFilter(pill.dataset.cluster));
+    document.getElementById('cluster-filters')?.addEventListener('click', event => {
+      const pill = event.target.closest('.cluster-pill');
+      if (pill) setClusterFilter(pill.dataset.cluster);
     });
 
-    S.on('node:added', ({ node, isNew, pattern }) => {
-      if (isNew) {
-        graphNodes.push(Object.assign({}, node));
-        buildGraphData();
-        render(false);
-      } else {
-        const g = graphNodes.find(n => n.id === node.id);
-        if (g) { g.weight = node.weight; g.pageNums = node.pageNums; g.sentenceIds = node.sentenceIds; }
-        render(false);
-      }
+    S.on('node:added', ({ pattern }) => {
+      buildGraphData(); render(false);
       appendTickerRow(pattern);
       updateTelemetry();
+    });
+    S.on('semantic:updated', () => {
+      buildGraphData(); render(false);
     });
 
     S.on('node:removed', () => { buildGraphData(); render(true); updateTelemetry(); });
@@ -896,6 +1027,15 @@
         deliveryPackets.push({ progress: 0, color });
       }
       redrawIfStill();
+    });
+    S.on('spiders:queryGuidance', detail => {
+      const feedback = document.getElementById('swarm-feedback');
+      if (!feedback) return;
+      const label = detail.method === 'minilm' ? 'Guía MiniLM' : 'Guía local (sin señal MiniLM)';
+      feedback.textContent = detail.sent ? `${label}: ${detail.sent} ${detail.sent === 1 ? 'araña enviada' : 'arañas enviadas'}${detail.pending ? ` · ${detail.pending} en espera` : ''}.` :
+        detail.pending ? `${label}: ${detail.paused ? 'enjambre pausado' : 'esperando arañas o navegación AUTO'}.` : `${label}: sin pasajes disponibles para dirigir.`;
+      clearTimeout(feedbackTimer);
+      feedbackTimer = setTimeout(() => { feedback.textContent = ''; }, 6000);
     });
     S.on('spiders:dispatched', detail => {
       if (detail?.count > 0 && !document.hidden && visible && !motionStopped()) {
@@ -954,5 +1094,5 @@
     return function () { clearTimeout(t); t = setTimeout(fn, ms); };
   }
 
-  root.NeuralGraph = { init, getHubScreenPos, highlightPath, recenter, setClusterFilter, scrollToSentence, updateTelemetry, ensureHubs };
+  root.NeuralGraph = { init, getHubScreenPos, highlightPath, highlightSources, recenter, setClusterFilter, scrollToSentence, updateTelemetry, ensureHubs };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -182,13 +182,29 @@
     worker = null;
     pending.forEach(job => job.reject(abortError())); pending.clear();
   }
-  // Los vectores solo viven en memoria y se invalidan si cambia el texto o el corpus.
+  // Los vectores solo viven en memoria; el título forma parte de la entrada
+  // del modelo pero no se añade a una cita como si fuera texto del pasaje.
+  const modelText = sentence => sentence.contextText || sentence.text;
   function pruneVectors() {
     const index = S().state.index;
+    let changed = false;
     for (const [id, entry] of vectors) {
       const pos = index?.posById.get(id);
-      if (pos == null || index.sentences[pos].text !== entry.text) vectors.delete(id);
+      if (pos == null || modelText(index.sentences[pos]) !== entry.text) { vectors.delete(id); changed = true; }
     }
+    if (changed) S()?.emit('model:vectorsChanged', { reset: true });
+  }
+  // Copias de solo lectura lógica: ningún consumidor puede mutar el índice del modelo.
+  function vectorSnapshot(ids) {
+    if (!state.enabled || !S()?.getSetting('embedEnabled', true)) return [];
+    const index = S().state.index, out = [];
+    const keys = ids || vectors.keys();
+    for (const id of keys) {
+      const entry = vectors.get(id), pos = index?.posById.get(id);
+      if (!entry || pos == null || modelText(index.sentences[pos]) !== entry.text) continue;
+      out.push({ id, vector: new Float32Array(entry.vector) });
+    }
+    return out;
   }
   function indexCorpus() {
     if (!worker || !state.enabled) return Promise.resolve();
@@ -199,24 +215,27 @@
         rerun = false;
         pruneVectors();
         const sentences = S().state.index.sentences.slice();
-        const missing = sentences.filter(s => vectors.get(s.id)?.text !== s.text);
+        const missing = sentences.filter(s => vectors.get(s.id)?.text !== modelText(s));
         update({ status: 'indexing', total: sentences.length, message: `Indexando pasajes: ${sentences.length - missing.length}/${sentences.length}…` });
         for (let i = 0; i < missing.length;) {
           if (cancelled(token)) return;
           // Reducir el lote cuando hay pasajes largos limita memoria en móviles.
           const batch = []; let chars = 0;
           while (i < missing.length && batch.length < 8) {
-            const next = missing[i], estimate = Math.min(1100, next.text.length);
+            const next = missing[i], estimate = Math.min(1100, modelText(next).length);
             if (batch.length && chars + estimate > 2200) break;
             batch.push(next); chars += estimate; i++;
           }
-          const result = await send('embed', { texts: batch.map(s => s.text) });
+          const result = await send('embed', { texts: batch.map(modelText) });
           if (cancelled(token)) return;
-          const currentIndex = S().state.index;
+          const currentIndex = S().state.index, added = [];
           batch.forEach((sentence, j) => {
-            const pos = currentIndex.posById.get(sentence.id);
-            if (pos != null && currentIndex.sentences[pos].text === sentence.text) vectors.set(sentence.id, { text: sentence.text, vector: result[j] });
+            const pos = currentIndex.posById.get(sentence.id), text = modelText(sentence);
+            if (pos != null && modelText(currentIndex.sentences[pos]) === text && result[j]) {
+              vectors.set(sentence.id, { text, vector: result[j] }); added.push(sentence.id);
+            }
           });
+          if (added.length) S()?.emit('model:vectorsChanged', { added });
           update({ status: 'indexing', total: currentIndex.sentences.length,
             message: `Indexando pasajes: ${vectors.size}/${currentIndex.sentences.length}…` });
         }
@@ -302,7 +321,7 @@
     const queryVector = result[0], out = new Map(), index = S().state.index;
     for (const [id, entry] of vectors) {
       const pos = index.posById.get(id);
-      if (pos != null && index.sentences[pos].text === entry.text) out.set(id, root.NCUtil.cosine(queryVector, entry.vector));
+      if (pos != null && modelText(index.sentences[pos]) === entry.text) out.set(id, root.NCUtil.cosine(queryVector, entry.vector));
     }
     return out;
   }
@@ -328,5 +347,5 @@
     if (cached.installed && store.getSetting('onnxEnabled', false)) void activate({ onlyCached: true });
     else if (!cached.installed && store.getSetting('onnxEnabled', false)) store.setSetting('onnxEnabled', false);
   }
-  root.NCLocalModel = { init, activate, deactivate, removeDownload, scores, reindex: indexCorpus, info, isDownloaded };
+  root.NCLocalModel = { init, activate, deactivate, removeDownload, scores, vectorSnapshot, reindex: indexCorpus, info, isDownloaded };
 })(typeof window !== 'undefined' ? window : globalThis);

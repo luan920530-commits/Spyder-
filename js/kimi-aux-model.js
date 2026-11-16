@@ -184,12 +184,23 @@
   }
 
   // ── Memoria negativa ─────────────────────────────────────────────────────
-  function recordNegativeEpisode(text) {
+  function recordNegativeEpisode(text, context) {
     const clean = U.normalize(text).slice(0, 160);
-    if (!clean) return;
-    if (!brain.negativeEpisodes.includes(clean)) brain.negativeEpisodes.push(clean);
-    if (brain.negativeEpisodes.length > 40) brain.negativeEpisodes.shift();
-    save();
+    if (clean) {
+      if (!brain.negativeEpisodes.includes(clean)) brain.negativeEpisodes.push(clean);
+      if (brain.negativeEpisodes.length > 40) brain.negativeEpisodes.shift();
+      save();
+    }
+    // Un episodio solo puede modificar la preferencia de temas si identifica
+    // fuentes reales. El botón NO ya registra feedback: no contarlo dos veces.
+    const S = root.NeuralStore;
+    const ids = [...new Set((Array.isArray(context?.sentenceIds) ? context.sentenceIds : [])
+      .slice(0, 100).filter(id => typeof id === 'string' && S?.getSentence(id)))];
+    const recorded = context?.feedbackId && S?.state.feedback.some(entry => entry.id === context.feedbackId);
+    if (ids.length && !recorded) root.NCMemory?.recordFeedback({
+      question: String(context?.question || ''), answer: String(text || ''), rating: -1, sentenceIds: ids,
+      provider: 'internal', mode: 'negative-episode'
+    });
   }
 
   /** ¿Se parece a algo que el usuario penalizó? (umbral de trigramas) */

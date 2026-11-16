@@ -715,3 +715,110 @@ test('un escáner bloqueado libera su reserva y la araña que espera puede conti
     assert.equal(h.w.document.querySelectorAll('.word-scanning,.sentence-scanning').length, 0);
   } finally { h.dom.window.close(); }
 });
+
+test('un fragmento solapado escanea sus oraciones originales sin duplicar el visor', () => {
+  const h = makeHarness();
+  try {
+    const first = h.sentences[0], second = h.sentences[1];
+    first.sourceText = first.text;
+    first.parts = [{ id: first.id, text: first.text }, { id: second.id, text: second.text }];
+    first.text = first.parts.map(part => part.text).join(' ');
+    first.contextText = 'Sección\n' + first.text; first.section = 'Sección';
+    h.store.state.allSentences = [first];
+    h.store.emit('spider:dispatchToSentence', { sentence: first });
+    h.tick();
+    assert.equal(h.w.document.querySelectorAll('.sentence-scanning').length, 2);
+    assert.equal(h.w.SpiderEngine.getStatus().spiders[0].phase, 'EXTRAER_DATOS');
+    h.tick();
+    assert.equal(h.w.document.querySelectorAll('.sentence-scanning,.word-scanned,.word-scanning').length, 0);
+    h.tick(2);
+    assert.equal(h.store.state.patterns[0].text, 'Una frase real. Otra frase.');
+    assert.equal(h.store.state.patterns[0].section, 'Sección');
+    assert.equal(h.store.state.claimedTargets.size, 0);
+  } finally { h.dom.window.close(); }
+});
+
+test('la guía vectorial espera en pausa, prioriza el primer hit y puede cancelarse sin reservas', () => {
+  const h = makeHarness();
+  try {
+    h.sentences.forEach(sentence => { sentence.harvested = true; });
+    h.w.document.getElementById('btn-toggle-spiders').click();
+    h.store.emit('spider:queryStart', { requestId: 'q1' });
+    h.store.emit('spider:queryVisual', { requestId: 'q1', method: 'minilm', hits: [
+      { sentence: h.sentences[1], neural: .91 }, { sentence: h.sentences[0], neural: .75 }
+    ] });
+    assert.equal(h.store.state.claimedTargets.size, 0);
+    assert.equal(h.w.SpiderEngine.getStatus().spiders[0].phase, 'IDLE');
+    assert.ok(h.events.some(e => e.type === 'spiders:queryGuidance' && e.payload.paused && e.payload.pending === 2));
+    h.tick(5);
+    h.w.document.getElementById('btn-toggle-spiders').click();
+    h.tick();
+    const sp = h.w.SpiderEngine.getStatus().spiders[0];
+    assert.equal(sp.sentenceId, 's2');
+    assert.ok(h.events.some(e => e.type === 'spiders:dispatched' && e.payload.source === 'query' && e.payload.method === 'minilm'));
+    h.store.emit('spider:queryCancelled', { requestId: 'q1' });
+    assert.equal(h.w.SpiderEngine.getStatus().spiders[0].phase, 'IDLE');
+    assert.equal(h.store.state.claimedTargets.size, 0);
+    assert.equal(h.w.document.querySelectorAll('.sentence-scanning,.word-scanning').length, 0);
+    assert.equal(h.store.state.patterns.length, 0);
+  } finally { h.dom.window.close(); }
+});
+
+test('una consulta no interrumpe otra lectura ni salta AUTO para buscar un candidato remoto', () => {
+  const h = makeHarness();
+  try {
+    h.w.SpiderEngine.setSpiderCount(2);
+    h.w.document.getElementById('chk-auto-page').checked = false;
+    h.store.emit('spider:dispatchToSentence', { sentence: h.sentences[0] });
+    const remote = { id: 'remote', docId: 'd2', docName: 'otro.txt', pageNum: 1, text: 'Un pasaje lejano.' };
+    h.store.state.allSentences.push(remote);
+    h.store.emit('spider:queryVisual', { requestId: 'q2', method: 'minilm', hits: [
+      { sentence: remote, neural: .95 }, { sentence: h.sentences[1], neural: .8 }
+    ] });
+    const spiders = h.w.SpiderEngine.getStatus().spiders;
+    assert.equal(spiders[0].sentenceId, 's1');
+    assert.equal(spiders[1].sentenceId, 's2');
+    assert.equal(h.store.state.activeDocId, 'd1');
+    assert.equal(h.store.state.claimedTargets.has('remote'), false);
+    h.store.emit('spider:queryCancelled', { requestId: 'q2' });
+    assert.equal(h.w.SpiderEngine.getStatus().spiders[0].sentenceId, 's1');
+    assert.equal(h.w.SpiderEngine.getStatus().spiders[1].phase, 'IDLE');
+    assert.deepEqual([...h.store.state.claimedTargets], ['s1']);
+  } finally { h.dom.window.close(); }
+});
+
+test('al seleccionar un tema semántico, el despacho filtra por tema y no por rol AGT', () => {
+  const h = makeHarness();
+  try {
+    h.w.NCSemantic = { topicId: id => id === 's1' ? 'SEM-1' : 'SEM-2' };
+    const destinations = [];
+    h.w.NeuralGraph.getHubScreenPos = id => { destinations.push(id); return { x: 580, y: 245 }; };
+    const result = h.w.SpiderEngine.dispatchFromNetwork({ cluster: 'SEM-2' });
+    assert.equal(result.sent, 1);
+    assert.equal(h.w.SpiderEngine.getStatus().spiders[0].sentenceId, 's2');
+    assert.equal(h.w.SpiderEngine.getStatus().spiders[0].cluster, 'AGT-01');
+    h.tick(4);
+    assert.ok(destinations.includes('SEM-2'));
+    assert.equal(h.store.state.patterns[0].sentenceId, 's2');
+  } finally { h.dom.window.close(); }
+});
+
+test('borrar el chat libera la guía incluso después de responder, sin interrumpir una lectura manual', () => {
+  const h = makeHarness();
+  try {
+    h.w.SpiderEngine.setSpiderCount(2);
+    h.store.emit('spider:dispatchToSentence', { sentence: h.sentences[0] });
+    h.store.emit('spider:queryVisual', { requestId: 'ya-respondida', method: 'local', hits: [
+      { sentence: h.sentences[1], neural: 0 }
+    ] });
+    assert.deepEqual(Array.from(h.w.SpiderEngine.getStatus().spiders, s => s.sentenceId), ['s1', 's2']);
+    h.store.emit('chat:clearing');
+    const spiders = h.w.SpiderEngine.getStatus().spiders;
+    assert.equal(spiders[0].sentenceId, 's1');
+    assert.equal(spiders[1].phase, 'IDLE');
+    assert.deepEqual([...h.store.state.claimedTargets], ['s1']);
+    h.tick(4);
+    assert.equal(h.store.state.patterns[0].sentenceId, 's1');
+    assert.ok(!h.store.state.patterns.some(p => p.sentenceId === 's2'));
+  } finally { h.dom.window.close(); }
+});

@@ -212,8 +212,10 @@
               results.push({
                 type: 'numeric',
                 severity: diff > 0.5 ? 'alta' : 'media',
-                a: { text: a.text, value: na.value, unit: na.unit, pageNum: a.pageNum, docName: a.docName },
-                b: { text: b.text, value: nb.value, unit: nb.unit, pageNum: b.pageNum, docName: b.docName },
+                a: { id: a.id, text: a.text, value: na.value, unit: na.unit, pageNum: a.pageNum,
+                  sourcePage: a.sentence?.sourcePage || null, docId: a.docId, docName: a.docName },
+                b: { id: b.id, text: b.text, value: nb.value, unit: nb.unit, pageNum: b.pageNum,
+                  sourcePage: b.sentence?.sourcePage || null, docId: b.docId, docName: b.docName },
                 sharedTerms: shared.slice(0, 5),
                 diff: Number(diff.toFixed(2)),
                 reason: `${na.value}${na.unit === 'pct' ? '%' : ' ' + na.unit} frente a ${nb.value}${nb.unit === 'pct' ? '%' : ' ' + nb.unit} sobre ${shared.slice(0, 3).join(', ')}`
@@ -226,8 +228,10 @@
           results.push({
             type: 'polarity',
             severity: 'media',
-            a: { text: a.text, polarity: a.polarity, pageNum: a.pageNum, docName: a.docName },
-            b: { text: b.text, polarity: b.polarity, pageNum: b.pageNum, docName: b.docName },
+            a: { id: a.id, text: a.text, polarity: a.polarity, pageNum: a.pageNum,
+              sourcePage: a.sentence?.sourcePage || null, docId: a.docId, docName: a.docName },
+            b: { id: b.id, text: b.text, polarity: b.polarity, pageNum: b.pageNum,
+              sourcePage: b.sentence?.sourcePage || null, docId: b.docId, docName: b.docName },
             sharedTerms: shared.slice(0, 5),
             reason: `tendencia opuesta (${a.polarity > 0 ? 'aumenta' : 'reduce'} vs ${b.polarity > 0 ? 'aumenta' : 'reduce'}) sobre ${shared.slice(0, 3).join(', ')}`
           });
@@ -283,7 +287,7 @@
       push(`¿Qué relación causal existe entre «${keyTerms[0].term}» y «${keyTerms[1].term}»? ¿Correlación o causalidad?`, 'Distingue mecanismo de coincidencia');
     }
     (chunks || []).slice(0, 3).forEach((c, i) => {
-      push(`Si eliminas «${U.words3(c.sentence ? c.sentence.text : c.text)}», ¿qué parte del argumento se cae? (fuente [${c.index || i + 1}])`, 'Evalúa la estructura argumental');
+      push(`Si eliminas «${U.words3(c.text)}», ¿qué parte del argumento se cae? (fuente [${c.index || i + 1}])`, 'Evalúa la estructura argumental');
     });
     const hasNumbers = (claims || []).some(c => c.numbers.length);
     if (!hasNumbers) push('El material no aporta métricas: ¿qué evidencia cuantitativa necesitarías para validar la tesis?', 'Detecta vacíos de evidencia');
