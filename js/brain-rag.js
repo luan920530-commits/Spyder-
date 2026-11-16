@@ -310,6 +310,8 @@
       micBtn.title = 'Reconocimiento de voz no soportado en este navegador';
       micBtn.disabled = true;
     }
+
+    document.querySelectorAll('.btn-chip').forEach(btn => {
       btn.addEventListener('click', () => {
         const p = btn.dataset.prompt || '';
         if (p.endsWith(' ')) {
