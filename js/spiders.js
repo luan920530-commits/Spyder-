@@ -309,40 +309,59 @@
 
     ctx.rotate(sp.angle);
 
-    // 8 patas articuladas (cinemática inversa visual)
+    // 8 patas articuladas modernas (2 segmentos con nodos de energía)
     ctx.strokeStyle = sp.color;
-    ctx.lineWidth = 1.3;
+    ctx.lineWidth = 1.6;
+    ctx.shadowColor = sp.color;
+    ctx.shadowBlur = 6;
     for (let side of [-1, 1]) {
       for (let i = 0; i < 4; i++) {
-        const baseAngle = side * (0.45 + i * 0.38);
-        const swing = Math.sin(sp.legPhase + i * 1.3 + (side > 0 ? 0 : Math.PI)) * 0.22;
-        const kx = Math.cos(baseAngle + swing) * 9;
-        const ky = Math.sin(baseAngle + swing) * 9;
-        const fx = Math.cos(baseAngle + swing * 1.4) * 15;
-        const fy = Math.sin(baseAngle + swing * 1.4) * 15;
+        const baseAngle = side * (0.42 + i * 0.36);
+        const swing = Math.sin(sp.legPhase + i * 1.4 + (side > 0 ? 0 : Math.PI)) * 0.26;
+        const kx = Math.cos(baseAngle + swing) * 10;
+        const ky = Math.sin(baseAngle + swing) * 10;
+        const fx = Math.cos(baseAngle + swing * 1.45) * 17;
+        const fy = Math.sin(baseAngle + swing * 1.45) * 17;
         ctx.beginPath();
         ctx.moveTo(0, 0);
         ctx.lineTo(kx, ky);
         ctx.lineTo(fx, fy);
         ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(kx, ky, 1.1, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
 
-    // Cuerpo cyberpunk
-    ctx.fillStyle = '#05080f';
+    // Chasis hexagonal moderno + núcleo pulsante
+    ctx.fillStyle = '#070c18';
     ctx.strokeStyle = sp.color;
-    ctx.lineWidth = 1.6;
+    ctx.lineWidth = 1.8;
     ctx.beginPath();
-    ctx.ellipse(0, 0, 6, 4.5, 0, 0, Math.PI * 2);
+    ctx.moveTo(8, 0);
+    ctx.lineTo(3, -5.5);
+    ctx.lineTo(-6, -4.5);
+    ctx.lineTo(-9, 0);
+    ctx.lineTo(-6, 4.5);
+    ctx.lineTo(3, 5.5);
+    ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
-    // Ojos neón
+    // Núcleo energético
     ctx.fillStyle = sp.color;
     ctx.beginPath();
-    ctx.arc(4, -1.5, 1.2, 0, Math.PI * 2);
-    ctx.arc(4, 1.5, 1.2, 0, Math.PI * 2);
+    ctx.arc(-1, 0, 2.3, 0, Math.PI * 2);
     ctx.fill();
+
+    // Visor frontal neón
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(5, -1.6, 1.1, 0, Math.PI * 2);
+    ctx.arc(5, 1.6, 1.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
 
     ctx.restore();
   }

@@ -286,6 +286,39 @@
       const badge = document.getElementById('hud-mode-badge');
       if (badge) badge.textContent = text.slice(0, 38) + (text.length > 38 ? '…' : '');
     });
+
+    // Redacción colaborativa del enjambre (5 arañas interviniendo según su IA)
+    document.getElementById('btn-run-writer')?.addEventListener('click', () => {
+      const promptEl = document.getElementById('writer-prompt');
+      const outEl = document.getElementById('writer-output');
+      if (!promptEl || !outEl) return;
+      const topic = promptEl.value.trim() || 'el documento indexado';
+      const nodes = window.NeuralStore.state.nodes.filter(n => !n.isHub);
+
+      const pick = (cluster, fallback) => {
+        const found = nodes.filter(n => n.cluster === cluster);
+        return found.length ? found.map(n => n.text).join(' ') : fallback;
+      };
+
+      const sections = [
+        { id: 'SPDR-01 [DEF-AI]', color: '#00f0ff', text: `En relación con ${topic}, se establece como marco conceptual: ${pick('AGT-01', 'la definición fundamental de los nodos semánticos y su estructura ontológica.')}` },
+        { id: 'SPDR-02 [CAUSAL-AI]', color: '#a855f7', text: `Desde la perspectiva causal y operativa: ${pick('AGT-02', 'los mecanismos de propagación y reglas de decisión conectan cada etapa del proceso.')}` },
+        { id: 'SPDR-03 [QUANT-AI]', color: '#f59e0b', text: `La evidencia cuantitativa respalda este análisis: ${pick('AGT-03', 'las métricas de rendimiento y latencia confirman la eficiencia del sistema.')}` },
+        { id: 'SPDR-04 [SYNTH-AI]', color: '#10b981', text: `En síntesis: ${pick('AGT-04', 'la integración de estos factores permite consolidar una conclusión sólida y verificable.')}` },
+        { id: 'SPDR-05 [CORE-AI]', color: '#f43f5e', text: `Cierre KIMI-CORE: ${nodes.length} nodos neuronales han sido articulados para responder a "${topic}".` }
+      ];
+
+      outEl.innerHTML = '';
+      sections.forEach((sec, idx) => {
+        setTimeout(() => {
+          const block = document.createElement('div');
+          block.style.marginBottom = '10px';
+          block.innerHTML = `<span style="color:${sec.color}; font-weight:700; font-size:10.5px;">[${sec.id}]</span><br/>${sec.text}`;
+          outEl.appendChild(block);
+          outEl.scrollTop = outEl.scrollHeight;
+        }, idx * 450);
+      });
+    });
   }
 
   window.BrainRAG = { init, processQuery };
