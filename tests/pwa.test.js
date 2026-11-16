@@ -21,11 +21,14 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
     }
     return buckets.get(name);
   }
+  const network = [];
+  const qwen = require('../js/qwen-config');
   const context = {
     self: { location: { origin: 'https://local.test', href: swUrl }, addEventListener: (type, cb) => { listeners[type] = cb; },
       skipWaiting: async () => {}, clients: { claim: async () => {} } },
     caches: { open: async name => cacheFor(name), keys: async () => [...buckets.keys(), 'neural-spider-os-v3', 'other-app'], delete: async key => { removed.push(key); buckets.delete(key); } },
-    fetch: async () => { throw new Error('offline'); }, URL, Response, console
+    importScripts: () => { context.self.NCQwenConfig = qwen; },
+    fetch: async request => { network.push(request.url); if (request.url === qwen.url) return new Response('modelo'); throw new Error('offline'); }, URL, Response, console
   };
   vm.runInNewContext(fs.readFileSync(path.join(root, 'sw.js'), 'utf8') + '\nglobalThis.assets = ASSETS;', context);
   const assets = Array.from(context.assets);
@@ -49,15 +52,22 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
   assert.ok(assets.includes('./js/spider-visual.js'), 'la silueta compartida debe estar disponible sin conexión');
   assert.ok(assets.includes('./js/character.js'), 'el modo personaje debe estar disponible sin conexión');
   assert.ok(assets.includes('./js/onnx-worker.js'));
-  assert.ok(!assets.some(asset => asset.startsWith('./models/minilm/') || asset.startsWith('./vendor/transformers/')), 'los pesos no deben descargarse al instalar el shell');
+  assert.ok(!assets.some(asset => asset.startsWith('./models/minilm/') || asset.startsWith('./vendor/transformers/') || asset.startsWith('./vendor/wllama/') || asset.endsWith('.gguf')), 'los pesos y motores opcionales no deben descargarse al instalar el shell');
+  assert.ok(assets.includes('./js/qwen-download-worker.js'));
+  assert.ok(assets.includes('./js/qwen-inference-worker.js'));
+  assert.ok(assets.includes('./vendor/sha256/sha256.min.js'));
   for (const font of ['jetbrains-mono-latin-400-normal.woff2', 'jetbrains-mono-latin-600-normal.woff2', 'chakra-petch-latin-500-normal.woff2', 'chakra-petch-latin-700-normal.woff2']) assert.ok(assets.includes('./vendor/fonts/' + font));
   let pending;
   listeners.install({ waitUntil: p => { pending = p; } }); await pending;
   const modelCache = await context.caches.open('neural-spider-model-v1');
   await modelCache.put('https://local.test/app/models/minilm/onnx/model_quantized.onnx', new Response('pesos opcionales'));
+  const qwenCache = await context.caches.open(qwen.cache);
+  await qwenCache.put('https://local.test/app/vendor/wllama/wllama.wasm', new Response('runtime qwen'));
+  await qwenCache.put('https://local.test/app/' + qwen.modelPath, new Response('pesos qwen'));
   listeners.activate({ waitUntil: p => { pending = p; } }); await pending;
   assert.deepEqual(removed, ['neural-spider-os-v3']);
-  assert.ok(buckets.has('neural-spider-model-v1'), 'actualizar el shell no debe borrar el modelo');
+  assert.ok(buckets.has('neural-spider-model-v1'), 'actualizar el shell no debe borrar MiniLM');
+  assert.ok(buckets.has(qwen.cache), 'actualizar el shell no debe borrar Qwen');
   let response;
   listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/js/rag.js', mode: 'cors' }, respondWith: p => { response = p; } });
   assert.match(await (await response).text(), /cached:.*js\/rag/);
@@ -65,8 +75,18 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
   assert.match(await (await response).text(), /cached:.*UniJIS-UCS2-H\.bcmap/);
   listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/models/minilm/onnx/model_quantized.onnx', mode: 'cors' }, respondWith: p => { response = p; } });
   assert.equal(await (await response).text(), 'pesos opcionales');
+  listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/vendor/wllama/wllama.wasm', mode: 'cors' }, respondWith: p => { response = p; } });
+  assert.equal(await (await response).text(), 'runtime qwen');
+  assert.equal(await (await qwenCache.match('https://local.test/app/' + qwen.modelPath)).text(), 'pesos qwen');
   listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/unknown', mode: 'navigate' }, respondWith: p => { response = p; } });
   assert.match(await (await response).text(), /cached:.*index/);
   listeners.fetch({ request: { method: 'GET', url: 'https://external.test/track', mode: 'cors' }, respondWith: p => { response = p; } });
   assert.equal((await response).status, 403);
+  listeners.fetch({ request: { method: 'GET', url: qwen.url, mode: 'cors' }, respondWith: p => { response = p; } });
+  assert.equal(await (await response).text(), 'modelo');
+  listeners.fetch({ request: { method: 'POST', url: qwen.url, mode: 'cors' }, respondWith: p => { response = p; } });
+  assert.equal((await response).status, 403);
+  listeners.fetch({ request: { method: 'GET', url: qwen.url + '?prompt=secreto', mode: 'cors' }, respondWith: p => { response = p; } });
+  assert.equal((await response).status, 403);
+  assert.equal(network.filter(url => url === qwen.url).length, 1, 'solo el GET exacto puede salir');
 });

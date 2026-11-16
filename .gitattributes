@@ -5,6 +5,9 @@ models/minilm/tokenizer.json -diff
 models/minilm/onnx/*.onnx binary
 vendor/transformers/transformers.min.js -text -diff
 vendor/transformers/*.wasm binary
+# Runtime Qwen: los hashes cubren exactamente estos bytes.
+vendor/wllama/wllama.mjs -text -diff
+vendor/wllama/*.wasm binary
 # Los mapas y fuentes binarios de PDF.js deben conservarse sin conversión de línea.
 vendor/pdfjs/cmaps/*.bcmap binary
 vendor/pdfjs/standard_fonts/*.pfb binary

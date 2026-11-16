@@ -8,7 +8,7 @@
  *  · Persistir todo en IndexedDB (NCDB) y restaurarlo al arrancar.
  *  · Emitir eventos para que los módulos de UI no se acoplen entre sí.
  *
- * 100 % local: los documentos no se envían; el encoder opcional se gestiona por separado.
+ * Procesamiento local: los documentos no se envían; los modelos opcionales se gestionan por separado.
  */
 (function (root, factory) {
   const U = (typeof require === 'function' && typeof module !== 'undefined') ? require('./util.js') : (root.NCUtil || {});
@@ -26,6 +26,7 @@
     mode: 'auto',
     characterDocId: '',
     characterName: '',
+    qwenEnabled: false,
     topK: 6,
     window: 1,
     fuzzy: true,

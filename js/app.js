@@ -1,4 +1,4 @@
-/** Arranque coordinado, navegación y ajustes. No se realizan llamadas externas. */
+/** Arranque coordinado y ajustes. Qwen solo descarga su archivo externo a petición. */
 (function (root) {
   'use strict';
   const S = root.NeuralStore;
@@ -121,7 +121,17 @@
     const disable = document.getElementById('btn-disable-model');
     const retry = document.getElementById('btn-retry-index');
     const remove = document.getElementById('btn-delete-model');
+    const qwenInstall = document.getElementById('btn-install-qwen');
+    const qwenDisable = document.getElementById('btn-disable-qwen');
+    const qwenRemove = document.getElementById('btn-delete-qwen');
+    const qwenFile = document.getElementById('qwen-file');
+    const qwenImport = document.getElementById('qwen-import-label');
     function close() { modal.classList.add('hidden'); trigger.setAttribute('aria-expanded', 'false'); trigger.focus(); }
+    function renderTrigger() {
+      const encoder = root.NCLocalModel.info().enabled, qwen = root.NCQwenModel.info().enabled;
+      trigger.classList.toggle('is-active', encoder || qwen);
+      trigger.title = qwen && encoder ? 'Qwen y modelo semántico activos' : qwen ? 'Qwen local activo' : encoder ? 'Modelo semántico local activo' : 'Modelos locales opcionales';
+    }
     function render(info) {
       const removing = info.status === 'removing';
       const busy = info.status === 'downloading' || info.status === 'loading' || removing;
@@ -136,15 +146,41 @@
       disable.classList.toggle('hidden', removing || !(info.enabled || busy));
       disable.textContent = busy ? 'CANCELAR' : 'DESACTIVAR';
       remove.classList.toggle('hidden', !info.hasDownload || busy);
-      trigger.classList.toggle('is-active', info.enabled);
-      trigger.title = info.enabled ? 'Modelo semántico local activo' : 'Modelo semántico opcional';
+      renderTrigger();
     }
-    trigger.addEventListener('click', () => { render(root.NCLocalModel.info()); modal.classList.remove('hidden'); trigger.setAttribute('aria-expanded', 'true'); document.getElementById('btn-close-model').focus(); });
+    function renderQwen(info) {
+      const deleting = info.status === 'removing', cancelling = info.status === 'cancelling';
+      const busy = ['downloading', 'loading', 'removing', 'cancelling'].includes(info.status);
+      document.getElementById('qwen-status').textContent = info.message;
+      const percent = Math.round((info.progress || 0) * 100);
+      document.getElementById('qwen-progress').value = percent;
+      document.getElementById('qwen-percent').textContent = info.status === 'downloading' ? `${percent}%` : '';
+      qwenInstall.classList.toggle('hidden', info.enabled || busy);
+      qwenInstall.textContent = info.hasModel ? 'ACTIVAR QWEN' : 'DESCARGAR Y ACTIVAR QWEN';
+      qwenDisable.classList.toggle('hidden', deleting || cancelling || !(info.enabled || busy));
+      qwenDisable.textContent = busy ? 'CANCELAR' : 'DESACTIVAR QWEN';
+      qwenRemove.classList.toggle('hidden', !info.hasDownload || busy);
+      qwenFile.disabled = info.enabled || busy;
+      qwenImport.classList.toggle('is-busy', qwenFile.disabled);
+      renderTrigger();
+    }
+    trigger.addEventListener('click', () => { render(root.NCLocalModel.info()); renderQwen(root.NCQwenModel.info()); modal.classList.remove('hidden'); trigger.setAttribute('aria-expanded', 'true'); document.getElementById('btn-close-model').focus(); });
     document.getElementById('btn-close-model').addEventListener('click', close);
     install.addEventListener('click', () => { void root.NCLocalModel.activate(); });
     disable.addEventListener('click', () => root.NCLocalModel.deactivate());
     retry.addEventListener('click', () => { void root.NCLocalModel.reindex(); });
     remove.addEventListener('click', () => { if (confirm('¿Eliminar la descarga del modelo de este navegador? Tus documentos no se borrarán. Cierra las demás pestañas de la aplicación para evitar que vuelvan a descargarla.')) void root.NCLocalModel.removeDownload(); });
+    document.getElementById('btn-character-qwen').addEventListener('click', () => trigger.click());
+    qwenInstall.addEventListener('click', () => { void root.NCQwenModel.activate(); });
+    qwenDisable.addEventListener('click', () => root.NCQwenModel.deactivate());
+    qwenRemove.addEventListener('click', () => {
+      if (confirm('¿Eliminar Qwen de este navegador? No se borrarán los libros ni el otro modelo. Cierra las demás pestañas de Spyder antes de continuar.')) void root.NCQwenModel.removeDownload();
+    });
+    qwenFile.addEventListener('change', () => {
+      const file = qwenFile.files?.[0];
+      if (file) void root.NCQwenModel.activate({ file });
+      qwenFile.value = '';
+    });
     document.getElementById('btn-download-brain').addEventListener('click', async () => {
       try {
         root.BrainRAG.download('neural-command-respaldo.json', JSON.stringify(await S.exportBrain(), null, 2), 'application/json;charset=utf-8');
@@ -152,8 +188,10 @@
       } catch (error) { document.getElementById('model-status').textContent = `No se pudo guardar el respaldo: ${error.message}`; }
     });
     document.addEventListener('keydown', event => { if (event.key === 'Escape' && !modal.classList.contains('hidden')) close(); });
-    S.on('model:status', render); render(root.NCLocalModel.info());
+    S.on('model:status', render); S.on('qwen:status', renderQwen);
+    render(root.NCLocalModel.info()); renderQwen(root.NCQwenModel.info());
     root.NCLocalModel.init().catch(error => { document.getElementById('model-status').textContent = `Almacenamiento no disponible: ${error.message}`; });
+    root.NCQwenModel.init().catch(error => { document.getElementById('qwen-status').textContent = `Almacenamiento no disponible: ${error.message}`; });
   }
 
   function setupSettings() {

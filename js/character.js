@@ -1,4 +1,4 @@
-/** Conversación literaria pequeña: reglas y pasajes locales, sin modelo generativo. */
+/** Selección de pasajes y respuestas por reglas; Qwen es una ruta opcional separada. */
 (function (root, factory) {
   const U = (typeof require === 'function' && typeof module !== 'undefined') ? require('./util.js') : root.NCUtil;
   const R = (typeof require === 'function' && typeof module !== 'undefined') ? require('./retrieval.js') : root.NCRetrieval;

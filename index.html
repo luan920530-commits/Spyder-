@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#04070c">
   <meta name="description" content="Espacio de estudio privado con motor de recuperación independiente y local.">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://huggingface.co https://*.hf.co https://cdn-lfs.huggingface.co; img-src 'self' blob: data:; media-src 'self' blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>NEURAL COMMAND // AI SPIDER OS</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icons/icon-192.png" type="image/png">
@@ -21,6 +21,9 @@
   <script defer src="js/embeddings.js"></script>
   <script defer src="js/store.js"></script>
   <script defer src="js/local-model.js"></script>
+  <script defer src="js/qwen-config.js"></script>
+  <script defer src="js/qwen-prompt.js"></script>
+  <script defer src="js/qwen-model.js"></script>
   <script defer src="js/parsers.js"></script>
   <script defer src="js/memory.js"></script>
   <script defer src="js/providers.js"></script>
@@ -52,7 +55,7 @@
     <div class="top-status">
       <div class="status-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
       <div class="system-time"><span id="system-clock">--:--:--</span><span class="clock-divider"> / </span><span id="hud-mode-badge" title="Procesamiento en tu dispositivo">LOCAL</span></div>
-      <button class="model-trigger" id="btn-model" title="Modelo semántico opcional" aria-haspopup="dialog" aria-controls="model-modal" aria-expanded="false"><span aria-hidden="true">◇</span> MODELO</button>
+      <button class="model-trigger" id="btn-model" title="Modelos locales opcionales" aria-haspopup="dialog" aria-controls="model-modal" aria-expanded="false"><span aria-hidden="true">◇</span> MODELO</button>
       <button class="icon-button settings-button" id="btn-settings" aria-label="Abrir ajustes" title="Ajustes">⚙</button>
     </div>
   </header>
@@ -177,19 +180,20 @@
         <div id="tab-chat" class="tab-pane active" role="tabpanel">
           <div class="mode-bar"><label for="mode-select">MODO</label><select id="mode-select"></select><button class="btn-mini" id="btn-clear-chat" title="Borrar conversación">BORRAR</button></div>
           <section id="character-setup" class="character-setup hidden" aria-labelledby="character-title">
-            <div class="character-heading"><span id="character-title"><span aria-hidden="true">✧</span> PERSONAJE LOCAL</span><span class="character-badge">SIN LLM</span></div>
+            <div class="character-heading"><span id="character-title"><span aria-hidden="true">✧</span> PERSONAJE LOCAL</span><span id="character-engine-badge" class="character-badge">SIN LLM</span></div>
             <p class="character-intro">Elige o sube el PDF de un libro y escribe el personaje tal como aparece en él.</p>
             <label for="character-book">LIBRO</label>
             <div class="character-source-row"><select id="character-book" aria-describedby="character-status"><option value="">Selecciona un libro…</option></select><label class="btn-mini character-upload" for="character-file">+ SUBIR LIBRO<input id="character-file" class="sr-only" type="file" accept=".pdf,.epub,.txt,.md,.docx"></label></div>
             <label for="character-name">PERSONAJE</label>
             <input id="character-name" type="text" maxlength="80" autocomplete="off" placeholder="Ej. Alicia" aria-describedby="character-status character-limits">
             <p id="character-status" class="character-status" role="status"></p>
-            <details id="character-limits" class="character-limits"><summary>Respuestas por reglas · privacidad</summary><p>Usa reglas y fragmentos del libro: no es un modelo generativo y puede equivocarse o incluir spoilers. Los pasajes pueden ser narración o de otra persona. El historial y el libro se guardan en este navegador si el almacenamiento está disponible y se incluyen en los respaldos JSON. BORRAR elimina todo el chat, no el libro; quitar el libro no borra las citas guardadas en el chat.</p><p>El acompañamiento es básico y no reemplaza ayuda profesional ni servicios de emergencia. La detección de crisis es limitada.</p></details>
+            <button type="button" id="btn-character-qwen" class="btn-mini character-model-button">ACTIVAR QWEN PARA CONVERSAR</button>
+            <details id="character-limits" class="character-limits"><summary>Motor, límites y privacidad</summary><p>Sin Qwen usa reglas y fragmentos literales. Con Qwen genera una interpretación ficticia: puede inventar, equivocarse o incluir spoilers. Los fragmentos consultados pueden ser narración o de otra persona y no verifican lo generado.</p><p>El libro y las preguntas no se envían a Hugging Face. El historial y el libro se guardan en este navegador si el almacenamiento está disponible y se incluyen en respaldos JSON. BORRAR elimina todo el chat, no el libro; quitar el libro no borra las citas guardadas en el chat.</p><p>El acompañamiento es básico y no reemplaza ayuda profesional ni servicios de emergencia. La detección de crisis es limitada.</p></details>
           </section>
           <div id="chat-messages" class="chat-messages" aria-live="polite" aria-relevant="additions"></div>
           <div id="study-quick-actions" class="chat-quick-actions"><button class="btn-chip" data-prompt="Resume y analiza el documento completo">RESUMIR</button><button class="btn-chip" data-prompt="Detecta contradicciones en el documento">CONTRASTAR</button><button class="btn-chip" data-prompt="Aprende que ">ENSEÑAR</button></div>
           <div id="character-quick-actions" class="chat-quick-actions hidden"><button class="btn-chip" data-prompt="Háblame de ti">HÁBLAME DE TI</button><button class="btn-chip" data-prompt="¿Qué pasó después?">¿Y DESPUÉS?</button><button class="btn-chip" data-prompt="Necesito hablar">NECESITO HABLAR</button></div>
-          <form id="chat-form" class="chat-form"><label class="sr-only" for="chat-input">Pregunta</label><input type="text" id="chat-input" placeholder="Pregunta sobre tus documentos…" autocomplete="off"><button type="submit" id="btn-send" class="btn-hud btn-cyan">ENVIAR</button></form>
+          <form id="chat-form" class="chat-form"><label class="sr-only" for="chat-input">Pregunta</label><input type="text" id="chat-input" placeholder="Pregunta sobre tus documentos…" autocomplete="off"><button type="button" id="btn-stop-generation" class="btn-mini hidden">DETENER</button><button type="submit" id="btn-send" class="btn-hud btn-cyan">ENVIAR</button></form>
         </div>
         <div id="tab-writer" class="tab-pane" role="tabpanel">
           <div class="writer-bar"><label class="sr-only" for="writer-prompt">Tema de redacción</label><input type="text" id="writer-prompt" placeholder="Tema o instrucción de redacción…"><button class="btn-hud btn-cyan" id="btn-run-writer">REDACTAR</button></div>
@@ -215,19 +219,24 @@
   </div>
   <div id="model-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="model-heading">
     <div class="modal-card model-card">
-      <div class="modal-head"><span id="model-heading">MODELO SEMÁNTICO LOCAL</span><button id="btn-close-model" class="btn-mini" aria-label="Cerrar modelo local">✕</button></div>
-      <div class="model-detail"><span class="model-detail-icon" aria-hidden="true">◇</span><div><strong>all-MiniLM-L6-v2 · ONNX</strong><small>384 dimensiones · ejecución local en el navegador</small></div></div>
+      <div class="modal-head"><span id="model-heading">MODELOS LOCALES</span><button id="btn-close-model" class="btn-mini" aria-label="Cerrar modelos locales">✕</button></div>
+      <div class="model-detail"><span class="model-detail-icon" aria-hidden="true">✧</span><div><strong>Qwen3-0.6B · GGUF Q4_K_M</strong><small>Generación de texto · conversación por personaje</small></div></div>
+      <p class="muted small">Descarga opcional de <strong>397 MB</strong> desde Hugging Face, más 2,4 MB de motor desde esta instalación. Solo se solicita el archivo público: no se envían tus libros ni preguntas. Se verifica su SHA-256 y se guarda en este navegador.</p>
+      <p class="muted small">Tras descargarlo funciona sin conexión. Usa CPU de un hilo; puede tardar y necesita bastante más memoria que los 397 MB del archivo. Es una interpretación ficticia y puede inventar o equivocarse.</p>
+      <div class="model-progress"><div class="model-progress-head"><span id="qwen-status" role="status">Qwen opcional desactivado.</span><span id="qwen-percent"></span></div><progress id="qwen-progress" max="100" value="0" aria-label="Progreso de Qwen"></progress></div>
+      <div class="model-actions"><button id="btn-install-qwen" class="btn-hud btn-cyan">DESCARGAR Y ACTIVAR QWEN</button><button id="btn-disable-qwen" class="btn-hud btn-ghost hidden">DESACTIVAR QWEN</button><button id="btn-delete-qwen" class="btn-hud btn-ghost hidden">ELIMINAR QWEN</button><label id="qwen-import-label" class="btn-hud btn-ghost model-import">IMPORTAR GGUF<input id="qwen-file" type="file" class="sr-only" accept=".gguf,application/octet-stream"></label></div>
+      <div class="model-detail model-section"><span class="model-detail-icon" aria-hidden="true">◇</span><div><strong>all-MiniLM-L6-v2 · ONNX</strong><small>384 dimensiones · búsqueda semántica, no conversación</small></div></div>
       <p class="muted small">Descarga opcional de aproximadamente 42 MiB (44 MB) desde esta instalación. El modelo se guarda en este navegador y ayuda a buscar pasajes relacionados. No envía tus documentos a ningún servicio.</p>
       <p class="muted small">Es un modelo de búsqueda, <strong>no genera texto</strong>. Fue entrenado principalmente en inglés; su rendimiento en español puede variar. El motor extractivo funciona sin él.</p>
       <p class="muted small">Requiere HTTPS o localhost y almacenamiento local. Reindexa tus pasajes al abrir; para usarlo, mantén activada la búsqueda híbrida en Ajustes.</p>
       <div class="model-progress"><div class="model-progress-head"><span id="model-status" role="status">Modelo opcional desactivado.</span><span id="model-percent"></span></div><progress id="model-progress" max="100" value="0" aria-label="Progreso del modelo"></progress></div>
       <div class="model-actions"><button id="btn-install-model" class="btn-hud btn-cyan">DESCARGAR Y ACTIVAR</button><button id="btn-retry-index" class="btn-hud btn-cyan hidden">REINTENTAR ÍNDICE</button><button id="btn-disable-model" class="btn-hud btn-ghost hidden">DESACTIVAR</button><button id="btn-delete-model" class="btn-hud btn-ghost hidden">ELIMINAR DESCARGA</button></div>
-      <div class="model-backup"><strong>Tu conocimiento aprendido</strong><p class="muted small">Guarda tus documentos indexados, grafo y progreso en un respaldo JSON. No incluye los pesos ONNX.</p><button id="btn-download-brain" class="btn-mini">↓ DESCARGAR MI CEREBRO .JSON</button></div>
+      <div class="model-backup"><strong>Tu conocimiento aprendido</strong><p class="muted small">Guarda tus documentos indexados, grafo y progreso en un respaldo JSON. No incluye los modelos ONNX ni GGUF.</p><button id="btn-download-brain" class="btn-mini">↓ DESCARGAR MI CEREBRO .JSON</button></div>
     </div>
   </div>
   <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-heading">
     <div class="modal-card"><div class="modal-head"><span id="settings-heading">AJUSTES LOCALES</span><button id="btn-close-settings" class="btn-mini" aria-label="Cerrar ajustes">✕</button></div>
-      <p class="muted">Motor extractivo independiente, sin servidores de IA ni claves. El modelo ONNX opcional se ejecuta localmente y se activa desde MODELO.</p>
+      <p class="muted">Sin servidores de IA ni claves. MiniLM y Qwen son opcionales y se ejecutan localmente; se activan desde MODELO.</p>
       <label class="check-row"><input id="cfg-dense" type="checkbox"> Búsqueda híbrida vectorial</label><label class="check-row"><input id="cfg-fuzzy" type="checkbox"> Coincidencia difusa</label><label class="check-row"><input id="cfg-reduced" type="checkbox"> Reducir animaciones</label>
       <label for="cfg-topk">Máximo de fuentes</label><select id="cfg-topk"><option>3</option><option>4</option><option>5</option><option>6</option><option>8</option><option>10</option></select>
       <label for="cfg-window">Contexto vecino</label><select id="cfg-window"><option value="0">Solo el pasaje</option><option value="1">Una oración a cada lado</option><option value="2">Dos oraciones a cada lado</option></select>

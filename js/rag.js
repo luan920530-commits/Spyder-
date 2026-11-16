@@ -22,6 +22,8 @@
 
   const MAX_CONTEXT_CHARS = 7000;
   let contradictionCache = { key: '', value: [] };
+  let activeCharacterJob = null;
+  const abortError = () => new DOMException('Generación cancelada', 'AbortError');
 
   const store = () => (typeof window !== 'undefined' ? window.NeuralStore : (globalThis.NeuralStore || null));
 
@@ -294,6 +296,55 @@
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Generación opcional: evidencia local, historial aislado y cancelación.
+  // ─────────────────────────────────────────────────────────────────────────
+  async function askCharacterQwen({ q, name, doc, reply, qwen, promptBuilder, options, t0, S }) {
+    const index = S?.state.index;
+    let chunks = (reply.chunks || []).filter(chunk => chunk.docId === doc?.id).slice(0, 1);
+    const noEvidence = reply.intent === 'no-evidence' || (reply.intent === 'continuation' && !chunks.length);
+    // Solo un saludo recibe un fragmento de perfil. Si no se encuentra el tema,
+    // no mostramos una cita irrelevante como si respondiera a la pregunta.
+    if (!chunks.length && reply.intent === 'greeting' && doc && index) {
+      const pos = C.profile(index, doc.id, name).mentions[0];
+      if (pos != null) chunks = R.buildContext(index, [{ sentence: index.sentences[pos], score: 1 }], { window: 0, maxChunks: 1 });
+    }
+    // La selección por reglas centra la cita en la palabra buscada, incluso si
+    // la oración es muy larga. Es también el fragmento que recibe el modelo.
+    const excerpt = chunks.length ? (reply.reply?.excerpt || C.excerpt(chunks[0].sentence?.text || chunks[0].text, [])) : '';
+    const history = (S?.state.chat || []).filter(entry => entry.mode === 'conversacion' && entry.provider === 'qwen-local' &&
+      entry.character?.docId === doc?.id && U.normalize(entry.character?.name) === U.normalize(name))
+      .slice(-2).map(entry => ({ question: entry.question, answer: entry.characterReply?.lead || entry.text }));
+    const job = new AbortController(), abortFromCaller = () => job.abort();
+    if (options.signal?.aborted) throw abortError();
+    activeCharacterJob?.abort();
+    options.signal?.addEventListener('abort', abortFromCaller, { once: true });
+    activeCharacterJob = job;
+    try {
+      if (q.length > 1000) throw new Error('La pregunta supera 1.000 caracteres; prueba una más corta.');
+      const prompt = promptBuilder.build({ name, question: q, snippets: excerpt ? [excerpt] : [], history, noEvidence });
+      const output = await qwen.generate(prompt, { signal: job.signal, onToken: options.onToken });
+      if (job.signal.aborted) throw abortError();
+      const lead = promptBuilder.cleanOutput(output);
+      if (!lead) throw new Error('El modelo no devolvió una respuesta.');
+      const label = 'Fragmento consultado; no verifica lo generado y puede ser narración u otra voz:';
+      const closing = noEvidence ? 'No se encontró un fragmento para esta pregunta; la respuesta es ficticia y podría inventar hechos.' : '';
+      const characterReply = { lead, excerpt, excerptLabel: label, closing };
+      const text = lead + (excerpt ? `\n\n${label}\n«${excerpt}» [1]` : '') + (closing ? `\n\n${closing}` : '');
+      return finalize({ question: q, text, provider: 'qwen-local', model: 'Qwen3-0.6B Q4_K_M', mode: 'conversacion',
+        chunks, citations: null, intent: reply.intent, character: reply.character, characterReply, t0, S });
+    } catch (error) {
+      if (job.signal.aborted || error?.name === 'AbortError') throw abortError();
+      const notice = `Qwen no pudo generar (${error.message}). Continúo con reglas locales.\n\n`;
+      return finalize({ question: q, text: notice + reply.text, provider: 'internal', model: 'personaje por reglas',
+        mode: 'conversacion', chunks: reply.chunks, citations: reply.citations, intent: reply.intent, fallback: true,
+        character: reply.character, characterReply: { ...reply.reply, lead: notice + reply.reply.lead }, t0, S });
+    } finally {
+      options.signal?.removeEventListener('abort', abortFromCaller);
+      if (activeCharacterJob === job) activeCharacterJob = null;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Consulta principal
   // ─────────────────────────────────────────────────────────────────────────
   async function ask(question, opts) {
@@ -305,14 +356,22 @@
     const q = String(question || '').trim();
     if (!q) return emptyResult(q);
 
-    // El modo personaje no ejecuta comandos de memoria ni usa otros documentos
-    // o el encoder opcional: solo las reglas y el libro elegido explícitamente.
+    // No se ejecutan comandos de memoria ni se mezclan otros documentos o
+    // conversaciones: el contexto procede solo del libro y personaje elegidos.
     const requestedMode = o.mode || (S ? S.getSetting('mode', 'auto') : 'auto');
     if (requestedMode === 'conversacion') {
       const docId = o.characterDocId ?? (S ? S.getSetting('characterDocId', '') : '');
       const name = o.characterName ?? (S ? S.getSetting('characterName', '') : '');
       const doc = S?.state.docs.find(item => item.id === docId) || null;
       const reply = C.respond({ question: q, name, doc, index: S?.state.index, history: S?.state.chat || [] });
+      const qwen = typeof window !== 'undefined' ? window.NCQwenModel : null;
+      const promptBuilder = typeof window !== 'undefined' ? window.NCQwenPrompt : null;
+      // Las reglas básicas de crisis/acompañamiento y los errores de selección
+      // conservan prioridad: no se prometen detección ni seguridad completas.
+      const noContinuation = reply.intent === 'continuation' && !reply.chunks.length;
+      if (qwen?.info().enabled && promptBuilder && !noContinuation && !['crisis', 'emotional', 'setup', 'missing-character'].includes(reply.intent)) {
+        return await askCharacterQwen({ q, name, doc, reply, qwen, promptBuilder, options: o, t0, S });
+      }
       return finalize({ question: q, text: reply.text, provider: 'internal', model: 'personaje por reglas',
         mode: 'conversacion', chunks: reply.chunks, citations: reply.citations, intent: reply.intent,
         character: reply.character, characterReply: reply.reply, t0, S });
@@ -500,7 +559,7 @@
     if (S) {
       S.state.chat.push({
         id: U.uid('msg'), role: 'assistant', question: p.question, text: p.text,
-        mode: p.mode, provider: p.provider, citations: p.citations, sources, trace,
+        mode: p.mode, provider: p.provider, model: p.model, intent: p.intent, fallback: !!p.fallback, citations: p.citations, sources, trace,
         character: result.character, characterReply: result.characterReply,
         nodeIds: result.nodeIds, vaultIds: result.vaultIds, latencyMs: result.latencyMs, at: result.at
       });
@@ -533,6 +592,10 @@
 
   function init() {
     if (P.setInternalComposer) P.setInternalComposer(composeExtractive);
+    const S = store();
+    const cancel = () => activeCharacterJob?.abort();
+    ['system:resetting', 'brain:importing', 'doc:removed', 'chat:clearing'].forEach(event => S?.on(event, cancel));
+    S?.on('settings:changed', ({ key }) => { if (['mode', 'characterDocId', 'characterName'].includes(key)) cancel(); });
     return api;
   }
 

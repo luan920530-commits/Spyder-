@@ -5,7 +5,7 @@ const path = require('node:path');
 const { JSDOM, VirtualConsole } = require('jsdom');
 const { IDBFactory } = require('fake-indexeddb');
 const root = path.join(__dirname, '..');
-const scripts = ['util', 'retrieval', 'analysis', 'srs', 'db', 'embeddings', 'store', 'local-model', 'parsers', 'memory', 'providers', 'character', 'rag', 'kimi-aux-model', 'viewer', 'spider-visual', 'neural-graph', 'spider-paths', 'spiders', 'eval', 'brain-rag', 'study-bots', 'app'];
+const scripts = ['util', 'retrieval', 'analysis', 'srs', 'db', 'embeddings', 'store', 'local-model', 'qwen-config', 'qwen-prompt', 'qwen-model', 'parsers', 'memory', 'providers', 'character', 'rag', 'kimi-aux-model', 'viewer', 'spider-visual', 'neural-graph', 'spider-paths', 'spiders', 'eval', 'brain-rag', 'study-bots', 'app'];
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(fn, timeout = 4000) {
   const end = Date.now() + timeout;
@@ -528,6 +528,106 @@ test('la red anima a la reina y solo envía destellos a los destinatarios del de
     await wait(100);
     assert.equal(frames.at(-1).phase, reducedPhase);
     assert.equal(waves.length, reducedWaves);
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('Qwen usa solo el libro seleccionado, conserva historial aislado y etiqueta lo generado', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const S = w.NeuralStore, prompts = [];
+    const status = { status: 'ready', enabled: true, installed: true, hasModel: true, hasDownload: true, progress: 1, message: 'Qwen activo.' };
+    w.NCQwenModel.info = () => status;
+    w.NCQwenModel.generate = async (prompt, options) => {
+      prompts.push(prompt); options.onToken?.('Escribiendo');
+      return 'Encontré la llave. <img src=x onerror="window.pwned=1">';
+    };
+    S.addDocument({ id: 'libro-a', name: 'azul.txt', pages: [{ pageNum: 1, sentences: [
+      { id: 'a1', text: 'Luna guardó la llave azul en una caja.' },
+      { id: 'a2', text: 'Después abrió una puerta antigua.' }
+    ] }] });
+    S.addDocument({ id: 'libro-b', name: 'rojo.txt', pages: [{ pageNum: 1, sentences: [
+      { id: 'b1', text: 'Luna guardó la llave roja en Marte.' }
+    ] }] });
+    S.setSetting('mode', 'conversacion'); S.setSetting('characterDocId', 'libro-a'); S.setSetting('characterName', 'Luna');
+    S.emit('qwen:status', status);
+    assert.equal(w.document.getElementById('character-engine-badge').textContent, 'QWEN LOCAL');
+    let answer = await w.BrainRAG.send('¿Qué pasó con la llave azul?');
+    assert.equal(answer.provider, 'qwen-local'); assert.equal(answer.sources[0].docId, 'libro-a');
+    assert.match(prompts[0], /llave azul/); assert.doesNotMatch(prompts[0], /llave roja|Marte/);
+    assert.match(prompts[0], /\/no_think/); assert.ok(prompts[0].endsWith('<|im_start|>assistant\n<think>\n\n</think>\n\n'));
+    const rendered = [...w.document.querySelectorAll('.msg-ai')].at(-1);
+    assert.match(rendered.textContent, /Qwen local/); assert.match(rendered.textContent, /puede inventar/);
+    assert.match(rendered.textContent, /no verifica/); assert.equal(w.document.querySelectorAll('img[src="x"]').length, 0);
+    assert.equal(w.pwned, undefined); assert.ok(rendered.querySelector('.character-excerpt .cite-ref'));
+    answer = await w.BrainRAG.send('¿Y después?');
+    assert.equal(answer.provider, 'qwen-local'); assert.match(prompts[1], /Qué pasó con la llave azul/);
+    assert.equal(answer.sources[0].docId, 'libro-a');
+    const count = prompts.length;
+    answer = await w.BrainRAG.send('Me quiero morir');
+    assert.equal(answer.intent, 'crisis'); assert.equal(answer.provider, 'internal'); assert.equal(prompts.length, count);
+    S.setSetting('characterDocId', 'libro-b');
+    answer = await w.BrainRAG.send('¿Qué hizo con la llave roja?');
+    assert.equal(answer.sources[0].docId, 'libro-b'); assert.match(prompts.at(-1), /Marte/);
+    assert.doesNotMatch(prompts.at(-1), /llave azul/);
+    assert.ok(S.state.chat.some(entry => entry.provider === 'qwen-local' && entry.model === 'Qwen3-0.6B Q4_K_M'));
+    S.state.chat = [];
+    answer = await w.BrainRAG.send('¿Qué opinas de la estación espacial?');
+    assert.equal(answer.provider, 'qwen-local'); assert.equal(answer.sources.length, 0);
+    assert.match(answer.text, /No se encontró un fragmento/); assert.match(prompts.at(-1), /No hay fragmentos recuperados/);
+    const beforeContinuation = prompts.length;
+    answer = await w.BrainRAG.send('¿Y después?');
+    assert.equal(answer.provider, 'internal'); assert.match(answer.text, /Primero pregúntame/);
+    assert.equal(prompts.length, beforeContinuation);
+    const long = 'Luna ' + 'bosque '.repeat(90) + 'llave luminosa en la torre. ' + 'nubes '.repeat(50);
+    S.addDocument({ id: 'libro-c', name: 'largo.txt', pages: [{ pageNum: 1, sentences: [{ id: 'c1', text: long }] }] });
+    S.setSetting('characterDocId', 'libro-c');
+    answer = await w.BrainRAG.send('¿Qué hizo con la llave luminosa?');
+    assert.match(answer.characterReply.excerpt, /llave luminosa/); assert.match(prompts.at(-1), /llave luminosa en la torre/);
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('cambiar de personaje o borrar el chat cancela Qwen sin guardar respuestas tardías', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const S = w.NeuralStore;
+    w.NCQwenModel.info = () => ({ enabled: true, status: 'ready' });
+    let signal, release;
+    w.NCQwenModel.generate = (_prompt, opts) => new Promise(resolve => { signal = opts.signal; release = resolve; });
+    S.addDocument({ id: 'novela', name: 'novela.txt', pages: [{ pageNum: 1, sentences: [
+      { id: 'luna', text: 'Luna guardó una llave azul.' }
+    ] }] });
+    S.setSetting('mode', 'conversacion'); S.setSetting('characterDocId', 'novela'); S.setSetting('characterName', 'Luna');
+    let pending = w.BrainRAG.send('llave'); await until(() => !!signal);
+    S.setSetting('characterName', 'Otro'); assert.equal(signal.aborted, true);
+    release('Respuesta tardía'); assert.equal(await pending, null); assert.equal(S.state.chat.length, 0);
+    S.setSetting('characterName', 'Luna'); signal = null;
+    pending = w.BrainRAG.send('llave'); await until(() => !!signal);
+    w.document.getElementById('btn-clear-chat').click(); assert.equal(signal.aborted, true);
+    release('No debe reaparecer'); assert.equal(await pending, null); assert.equal(S.state.chat.length, 0);
+    assert.doesNotMatch(w.document.getElementById('chat-messages').textContent, /No debe reaparecer/);
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('un error al generar con Qwen informa del fallo y conserva la respuesta y la cita por reglas', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const S = w.NeuralStore;
+    w.NCQwenModel.info = () => ({ enabled: true, status: 'ready' });
+    w.NCQwenModel.generate = async () => { throw new Error('memoria insuficiente'); };
+    S.addDocument({ id: 'libro', name: 'libro.txt', pages: [{ pageNum: 1, sentences: [
+      { id: 's1', text: 'Luna guardó la llave en una caja.' }
+    ] }] });
+    S.setSetting('mode', 'conversacion'); S.setSetting('characterDocId', 'libro'); S.setSetting('characterName', 'Luna');
+    const answer = await w.BrainRAG.send('¿Dónde está la llave?');
+    assert.equal(answer.provider, 'internal'); assert.equal(answer.fallback, true);
+    assert.match(answer.text, /Qwen no pudo generar.*memoria insuficiente/i);
+    assert.match(answer.text, /llave en una caja/); assert.equal(answer.sources[0].docId, 'libro');
+    const rendered = [...w.document.querySelectorAll('.msg-ai')].at(-1);
+    assert.match(rendered.textContent, /Continúo con reglas locales/);
+    assert.ok(rendered.querySelector('.character-excerpt .cite-ref'));
     assert.deepEqual(errors, []);
   } finally { dom.window.close(); }
 });

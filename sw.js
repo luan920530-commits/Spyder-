@@ -1,6 +1,8 @@
 /* Shell y dependencias empaquetadas: instalación atómica, sin CDN. */
-const CACHE_NAME = 'neural-spider-os-v11-14';
+importScripts('./js/qwen-config.js');
+const CACHE_NAME = 'neural-spider-os-v11-15';
 const MODEL_CACHE = 'neural-spider-model-v1';
+const QWEN = self.NCQwenConfig;
 // Recursos de pdfjs-dist 4.2.67 incluidos en el shell: la lectura de CMaps y
 // fuentes debe funcionar también en la primera importación sin conexión.
 const PDF_CMAPS = `
@@ -42,6 +44,7 @@ const ASSETS = [
   './vendor/pdfjs/pdf.min.mjs', './vendor/pdfjs/pdf.worker.min.mjs', ...PDF_CMAPS, ...PDF_FONTS,
   './js/util.js', './js/retrieval.js', './js/analysis.js', './js/srs.js', './js/db.js',
   './js/embeddings.js', './js/store.js', './js/local-model.js', './js/onnx-worker.js', './js/parsers.js', './js/memory.js', './js/providers.js',
+  './js/qwen-config.js', './js/qwen-prompt.js', './js/qwen-model.js', './js/qwen-download-worker.js', './js/qwen-inference-worker.js', './vendor/sha256/sha256.min.js',
   './js/character.js', './js/rag.js', './js/kimi-aux-model.js', './js/viewer.js', './js/spider-visual.js', './js/neural-graph.js', './js/spiders.js',
   './js/spider-paths.js', './js/eval.js', './js/brain-rag.js', './js/study-bots.js', './js/app.js'
 ];
@@ -54,16 +57,21 @@ self.addEventListener('activate', event => {
     .map(key => caches.delete(key)))).then(() => self.clients.claim()));
 });
 self.addEventListener('fetch', event => {
-  if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) {
-    event.respondWith(Promise.resolve(new Response('Red externa bloqueada', { status: 403 })));
+    // Única excepción: GET al archivo público, fijo y versionado que el usuario
+    // pidió descargar. Nunca se envían consultas ni documentos a ese servidor.
+    event.respondWith(event.request.method === 'GET' && event.request.url === QWEN.url
+      ? fetch(event.request)
+      : Promise.resolve(new Response('Red externa bloqueada', { status: 403 })));
     return;
   }
+  if (event.request.method !== 'GET') return;
   event.respondWith((async () => {
     const optional = url.pathname.startsWith(new URL('./vendor/transformers/', self.location.href).pathname) ||
       url.pathname.startsWith(new URL('./models/minilm/', self.location.href).pathname);
-    const cache = await caches.open(optional ? MODEL_CACHE : CACHE_NAME);
+    const qwenRuntime = url.pathname.startsWith(new URL('./vendor/wllama/', self.location.href).pathname);
+    const cache = await caches.open(qwenRuntime ? QWEN.cache : optional ? MODEL_CACHE : CACHE_NAME);
     const cached = await cache.match(event.request);
     if (cached) return cached;
     try { return await fetch(event.request); }

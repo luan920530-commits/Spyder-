@@ -3,7 +3,7 @@
   'use strict';
   const U = root.NCUtil;
   const S = () => root.NeuralStore;
-  let busy = false;
+  let busy = false, currentSend = null;
 
   function element(tag, className, text) {
     const node = document.createElement(tag);
@@ -67,10 +67,14 @@
       });
     }
     div.appendChild(body);
+    if (result.mode === 'conversacion' && result.provider === 'qwen-local') {
+      div.appendChild(element('p', 'citation-warning', 'Interpretación generada localmente: puede inventar o equivocarse. Los fragmentos consultados no verifican la respuesta.'));
+    }
 
     if (sources.length) {
       const details = element('details', 'sources-details');
-      details.appendChild(element('summary', '', `Fuentes (${sources.length})`));
+      const sourceLabel = result.provider === 'qwen-local' ? 'Fragmentos consultados' : 'Fuentes';
+      details.appendChild(element('summary', '', `${sourceLabel} (${sources.length})`));
       const list = element('ol', 'source-list');
       sources.forEach((source, i) => {
         const li = element('li');
@@ -95,7 +99,7 @@
     }
     const actions = element('div', 'answer-actions');
     const isCharacter = result.mode === 'conversacion';
-    const modeLabel = isCharacter ? `${result.character?.name || 'Personaje'} · reglas locales` : `${result.mode || 'auto'} · motor local`;
+    const modeLabel = isCharacter ? `${result.character?.name || 'Personaje'} · ${result.provider === 'qwen-local' ? 'Qwen local' : 'reglas locales'}` : `${result.mode || 'auto'} · motor local`;
     const meta = element('span', 'muted', modeLabel + (Number.isFinite(result.latencyMs) ? ' · ' + U.formatMs(result.latencyMs) : ''));
     actions.appendChild(meta);
     // No copiar mensajes íntimos del modo personaje al registro de feedback ni
@@ -136,9 +140,18 @@
     if (!target) message('user', q);
     else out.replaceChildren(element('p', 'muted', 'Analizando las fuentes locales…'));
     const selectedMode = mode || S().getSetting('mode', 'auto');
-    const pending = !target ? message('system', selectedMode === 'conversacion' ? 'Buscando en el libro elegido…' : 'Buscando en tus documentos…') : null;
+    const usingQwen = selectedMode === 'conversacion' && root.NCQwenModel?.info().enabled;
+    const stop = document.getElementById('btn-stop-generation');
+    const controller = new AbortController(); currentSend = controller;
+    if (stop) stop.classList.toggle('hidden', !usingQwen || !!target);
+    const pending = !target ? message('system', usingQwen ? 'Qwen está preparando la respuesta local…' : selectedMode === 'conversacion' ? 'Buscando en el libro elegido…' : 'Buscando en tus documentos…') : null;
     try {
-      const result = await root.NCRag.ask(q, { mode: selectedMode });
+      const result = await root.NCRag.ask(q, { mode: selectedMode, signal: controller.signal, onToken(text) {
+        if (!pending || controller.signal.aborted) return;
+        const clean = root.NCQwenPrompt?.cleanOutput(text);
+        if (clean) { pending.textContent = `Qwen: ${clean}`; out.scrollTop = out.scrollHeight; }
+      } });
+      if (controller.signal.aborted) throw new DOMException('Cancelado', 'AbortError');
       pending?.remove();
       if (target) target.replaceChildren();
       renderAnswer(result, { container: out });
@@ -149,10 +162,14 @@
       return result;
     } catch (error) {
       pending?.remove();
-      if (target) target.replaceChildren(element('p', 'citation-warning', `No se pudo responder: ${error.message}`));
-      else message('system', `No se pudo responder: ${error.message}`);
+      if (error?.name !== 'AbortError') {
+        if (target) target.replaceChildren(element('p', 'citation-warning', `No se pudo responder: ${error.message}`));
+        else message('system', `No se pudo responder: ${error.message}`);
+      }
       return null;
     } finally {
+      if (currentSend === controller) currentSend = null;
+      stop?.classList.add('hidden');
       busy = false;
       if (formButton) formButton.disabled = false;
     }
@@ -161,7 +178,7 @@
     const box = document.getElementById('chat-messages');
     if (!box) return;
     box.replaceChildren();
-    message('system', 'Motor extractivo independiente, 100 % local. Carga un documento o usa Demo para empezar.');
+    message('system', 'Procesamiento local. Carga un documento o usa Demo; Qwen opcional se activa desde MODELO para conversar con personajes.');
     (S().state.chat || []).slice(-30).forEach(entry => {
       if (entry.role !== 'assistant') return;
       if (entry.question) message('user', entry.question);
@@ -182,7 +199,10 @@
 
     function sync() {
       const active = S().getSetting('mode', 'auto') === 'conversacion';
+      const qwen = !!root.NCQwenModel?.info().enabled;
       setup.classList.toggle('hidden', !active);
+      document.getElementById('character-engine-badge').textContent = qwen ? 'QWEN LOCAL' : 'SIN LLM';
+      document.getElementById('btn-character-qwen').classList.toggle('hidden', qwen);
       document.getElementById('study-quick-actions')?.classList.toggle('hidden', active);
       document.getElementById('character-quick-actions')?.classList.toggle('hidden', !active);
       const chat = document.getElementById('chat-input');
@@ -246,6 +266,7 @@
       }
     });
     S().on('settings:changed', ({ key }) => { if (['mode', 'characterDocId', 'characterName'].includes(key)) sync(); });
+    S().on('qwen:status', sync);
     S().on('doc:added', sync);
     S().on('doc:removed', () => { notice = ''; root.NCCharacter?.clearCache(); sync(); });
     const cancelUpload = () => { uploadController?.abort(); };
@@ -278,8 +299,10 @@
       root.KimiAuxModel?.learnStyle(topic);
       send(topic, 'redaccion', output);
     });
+    document.getElementById('btn-stop-generation')?.addEventListener('click', () => currentSend?.abort());
     document.getElementById('btn-clear-chat')?.addEventListener('click', () => {
       if (!confirm('¿Borrar el historial de conversación local?')) return;
+      currentSend?.abort(); S().emit('chat:clearing');
       S().state.chat = []; S().savePersistent(); restoreChat();
     });
     S().on('chat:askAbout', ({ node }) => {
