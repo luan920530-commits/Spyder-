@@ -306,6 +306,7 @@
       appendMessage('ai', res.html, res.trace);
       if (res.nodeIds?.length) {
         window.NeuralGraph.highlightPath(res.nodeIds);
+        window.NeuralStore.emit('spider:queryVisual', { query: q, nodeIds: res.nodeIds });
       }
     });
 

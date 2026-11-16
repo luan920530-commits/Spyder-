@@ -452,6 +452,16 @@
       sp.phaseStart = performance.now();
     });
 
+    // Búsqueda visual en vivo al hacer una consulta en el chat
+    window.NeuralStore.on('spider:queryVisual', () => {
+      const sp = spiders[spiders.length - 1] || spiders[0];
+      if (!sp) return;
+      shockwaves.push({ x: sp.x, y: sp.y, r: 6, maxR: 54, color: '#fbbf24', alpha: 1 });
+      const hubPos = window.NeuralGraph.getHubScreenPos(sp.cluster);
+      sp.targetPos = hubPos;
+      sp.angle = Math.atan2(hubPos.y - sp.y, hubPos.x - sp.x);
+    });
+
     requestAnimationFrame(loop);
   }
 
