@@ -4,11 +4,11 @@
  */
 (function () {
   const AGENT_SPECS = [
-    { id: 'SPDR-01', role: 'DEF-AI', cluster: 'AGT-01', color: '#00f0ff', seeds: ['definición', 'concepto', 'arquitectura', 'modelo', 'sistema', 'red'] },
-    { id: 'SPDR-02', role: 'CAUSAL-AI', cluster: 'AGT-02', color: '#a855f7', seeds: ['cuando', 'porque', 'entonces', 'protocolo', 'función', 'causa'] },
-    { id: 'SPDR-03', role: 'QUANT-AI', cluster: 'AGT-03', color: '#f59e0b', seeds: ['porcentaje', 'métrica', 'latencia', 'épocas', 'tasa', 'valor'] },
-    { id: 'SPDR-04', role: 'SYNTH-AI', cluster: 'AGT-04', color: '#10b981', seeds: ['resumen', 'conclusión', 'contraste', 'además', 'permite', 'embargo'] },
-    { id: 'SPDR-05', role: 'CORE-AI', cluster: 'AGT-01', color: '#f43f5e', seeds: ['sinapsis', 'grafo', 'conocimiento', 'núcleo', 'agente', 'memoria'] }
+    { id: 'SPDR-01', role: 'DEF-AI', persona: 'Kimi-Ontology', cluster: 'AGT-01', color: '#00f0ff', seeds: ['definición', 'concepto', 'arquitectura', 'modelo', 'sistema', 'red'] },
+    { id: 'SPDR-02', role: 'CAUSAL-AI', persona: 'DeepSeek-R1', cluster: 'AGT-02', color: '#a855f7', seeds: ['cuando', 'porque', 'entonces', 'protocolo', 'función', 'causa'] },
+    { id: 'SPDR-03', role: 'QUANT-AI', persona: 'GPT-Quant', cluster: 'AGT-03', color: '#f59e0b', seeds: ['porcentaje', 'métrica', 'latencia', 'épocas', 'tasa', 'valor'] },
+    { id: 'SPDR-04', role: 'SYNTH-AI', persona: 'Claude-Synth', cluster: 'AGT-04', color: '#10b981', seeds: ['resumen', 'conclusión', 'contraste', 'además', 'permite', 'embargo'] },
+    { id: 'SPDR-05', role: 'CORE-AI', persona: 'Codex-Core', cluster: 'AGT-01', color: '#f43f5e', seeds: ['sinapsis', 'grafo', 'conocimiento', 'núcleo', 'agente', 'memoria'] }
   ];
 
   const MICRO_AI_KEY = 'neural_spider_microai_v1';
