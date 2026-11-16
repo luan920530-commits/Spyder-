@@ -463,6 +463,13 @@
     });
 
     requestAnimationFrame(loop);
+
+    // Ciclo de Sueño automático en espera (cada 15s consolida episodios en memoria)
+    setInterval(() => {
+      if (!paused && spiders.every(s => s.phase === 'IDLE') && window.KimiAuxModel && window.NeuralStore.state.nodes.length > 4) {
+        window.KimiAuxModel.runSleepCycle(window.NeuralStore.state.nodes);
+      }
+    }, 15000);
   }
 
   window.SpiderEngine = { init, setSpiderCount };
