@@ -99,12 +99,23 @@
     queenPulse = 0; webVibration = 0; arcClock = 0;
   }
 
-  function drawWeb(ctx, qx, qy, size, time) {
+  function drawWeb(ctx, qx, qy, size, time, weavingLegs) {
     const spokes = 16, rings = 7, radius = size * .19, rows = [];
+    // Cada hilo se fija a un vértice real de la red. El tirón de su pata
+    // desplaza ligeramente ese radio y sus vecinos, no una red de datos.
+    const threads = weavingLegs.map(leg => ({
+      spoke: ((Math.round((leg.angle - .12) / (Math.PI * 2) * spokes) % spokes) + spokes) % spokes,
+      tension: leg.tension
+    }));
     for (let s = 0; s < spokes; s++) {
       const angle = s / spokes * Math.PI * 2 + .12, length = .82 + ((s * 7) % 5) / 22, row = [];
+      const pull = threads.reduce((sum, thread) => {
+        const gap = Math.min(Math.abs(thread.spoke - s), spokes - Math.abs(thread.spoke - s));
+        return sum + thread.tension * (gap === 0 ? 1 : gap === 1 ? .3 : 0);
+      }, 0);
       for (let r = 1; r <= rings; r++) {
-        const rr = radius * r / rings * length + Math.sin(time * 18 + r * 1.7 + s) * webVibration * 3 * r / rings;
+        const rr = radius * r / rings * length + Math.sin(time * 18 + r * 1.7 + s) * webVibration * 3 * r / rings
+          - size * .04 * .14 * pull * r / rings;
         row.push([qx + Math.cos(angle) * rr, qy + Math.sin(angle) * rr]);
       }
       rows.push(row);
@@ -123,6 +134,8 @@
         ctx.fillRect(point[0] - .9, point[1] - .9, 1.8, 1.8);
       }
     }));
+    return threads.map(thread => ({ x: rows[thread.spoke][rings - 2][0] - qx,
+      y: rows[thread.spoke][rings - 2][1] - qy }));
   }
 
   function randomParticle(cluster) {
@@ -204,7 +217,7 @@
     }
     const status = root.SpiderEngine?.getStatus() || { paused: false, spiders: [] };
     const moving = !isReducedMotion() && !status.paused;
-    const dt = moving && time && lastSphereTime ? Math.max(0, Math.min(.05, (time - lastSphereTime) / 1000)) : 0;
+    const dt = moving && time && lastSphereTime ? Math.max(0, Math.min(.15, (time - lastSphereTime) / 1000)) : 0;
     lastSphereTime = moving ? time : 0;
     visualTime += dt;
     const t = visualTime;
@@ -228,7 +241,9 @@
     ctx.globalCompositeOperation = 'lighter';
     const core = constellations[2], cx = core.x*w, cy = core.y*h;
     const qx = w * .19, qy = h * .46, qSize = size * .04, hx = w * .42, hy = h * .49;
-    drawWeb(ctx, qx, qy, size, t);
+    const queen = { size: qSize, queen: true, weaving: true, phase: t * 2.6, time: t };
+    const weavingLegs = root.NCSpiderVisual.pose(queen).legs.filter(leg => leg.index === 1 || leg.index === 2);
+    const threadAnchors = drawWeb(ctx, qx, qy, size, t, weavingLegs);
     constellations.forEach(cluster => {
       if (cluster.id === 'core') return;
       ctx.strokeStyle = `rgba(${cluster.color.join(',')},.13)`; ctx.lineWidth = 1; ctx.setLineDash([2,5]);
@@ -324,9 +339,10 @@
       root.NCSpiderVisual.drawCommandWave(ctx, { x: qx, y: qy, progress, maxRadius: size * .58, targets });
     });
     ctx.globalCompositeOperation = 'source-over';
-    // El tiempo visual se congela en pausa o movimiento reducido; la postura también.
-    root.NCSpiderVisual.draw(ctx, { x: qx, y: qy, angle: Math.sin(t * .6) * .18, size: qSize,
-      color: '#bee8ff', core: '#ff5ab4', queen: true, weaving: true, phase: t * 2.6, time: t });
+    // La reina permanece anclada; se mueve el cuerpo y cada pata tira del
+    // hilo por turnos. El tiempo visual se congela con pausa o movimiento reducido.
+    root.NCSpiderVisual.draw(ctx, { ...queen, x: qx, y: qy, angle: 0,
+      color: '#bee8ff', core: '#ff5ab4', threadAnchors });
     ctx.globalCompositeOperation = 'lighter';
     drawProbe(ctx, status, rect, t);
     waves.forEach(wave => {

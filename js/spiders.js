@@ -37,7 +37,7 @@
   let lastFrameTime = 0;
   let fpsCounter = 60;
   let animationTime = 0, scanOwner = null;
-  let lastScrollX = 0, lastScrollY = 0, lastLayout = null;
+  let lastScrollX = 0, lastScrollY = 0, lastDocScroll = 0, lastLayout = null;
   let harvestWindow = { at: 0, count: 0 };
   let lastProgressEmit = 0;
 
@@ -151,7 +151,7 @@
       if (r.top < z.top + 6) delta = r.top - z.top - 6;
       else if (r.bottom > z.bottom - 6) delta = r.bottom - z.bottom + 6;
       // Solo desplaza el interior del documento, nunca la ventana completa.
-      if (delta) { zone.scrollTop += delta; r = rectOf(word); }
+      if (delta) { zone.scrollTop += delta; syncDocumentScroll(); r = rectOf(word); }
     }
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   }
@@ -214,7 +214,7 @@
       // pickNextSentence reserva el ID y respeta la página, el escáner y AUTO.
       const sentence = pickNextSentence(sp);
       if (!sentence) break;
-      sp.targetSentence = sentence; sp.phase = 'IR_A_PALABRA'; sp.phaseStart = animationTime; sp.route = null;
+      assignTarget(sp, sentence, animationTime);
       spiderIds.push(sp.id);
     }
     const sent = spiderIds.length;
@@ -231,11 +231,15 @@
       // En móvil la arena puede estar fuera de la pantalla al arrancar.
       x: root.NCSpiderPaths.bound(arena.left + arena.width * .19 + Math.cos(angle) * size * .085, 16, Math.max(16, window.innerWidth - 16)),
       y: root.NCSpiderPaths.bound(arena.top + arena.height * .46 + Math.sin(angle) * size * .085, 16, Math.max(16, window.innerHeight - 16)),
-      angle: 0, phase: 'IDLE', phaseStart: animationTime,
-      targetSentence: null, extractedPattern: null, scanWords: [], scanIndex: -1,
-      route: null, routeSignature: '', lane: (index - 2) * 5, nextPickAt: animationTime,
+      angle: 0, speed: 0, motion: 0, motionActive: false, phase: 'IDLE', lastProgressAt: animationTime,
+      targetSentence: null, extractedPattern: null, cargo: null, scanWords: [], scanIndex: -1,
+      route: null, routeSignature: '', approach: false, lane: (index - 2) * 5, nextPickAt: animationTime,
       legPhase: Math.random() * Math.PI * 2, idle: null, idleStarted: false, harvestedCount: 0
     });
+  }
+  function assignTarget(sp, sentence, now) {
+    sp.targetSentence = sentence; sp.phase = 'IR_A_PALABRA'; sp.lastProgressAt = now;
+    sp.route = null; sp.approach = 'pending';
   }
   function clearScan(sp) {
     if (sp.scanElement) {
@@ -243,7 +247,7 @@
       sp.scanElement.style.removeProperty('--spider-scan-color');
     }
     (sp.scanWords || []).forEach(word => word.classList.remove('word-scanned', 'word-scanning'));
-    sp.scanWords = []; sp.scanElement = null; sp.scanIndex = -1;
+    sp.scanWords = []; sp.scanElement = null; sp.scanIndex = -1; sp.scanHoldUntil = 0;
     if (scanOwner === sp) scanOwner = null;
   }
   function releaseClaim(sp) {
@@ -253,8 +257,9 @@
   function cancelTarget(sp) {
     clearScan(sp); releaseClaim(sp);
     if (sp.idle?.kind === 'weave') idleWebs = idleWebs.filter(web => web !== sp.idle.web);
-    sp.phase = 'IDLE'; sp.targetSentence = null; sp.extractedPattern = null;
-    sp.route = null; sp.routeSignature = ''; sp.idle = null; sp.phaseStart = animationTime; sp.nextPickAt = animationTime + 200;
+    sp.phase = 'IDLE'; sp.targetSentence = null; sp.extractedPattern = null; sp.cargo = null;
+    sp.route = null; sp.routeSignature = ''; sp.approach = false; sp.idle = null;
+    sp.lastProgressAt = animationTime; sp.nextPickAt = animationTime + 200;
   }
   function setSpiderCount(count) {
     const S = store(), max = 5;
@@ -301,40 +306,94 @@
     const width = window.innerWidth || 1, height = window.innerHeight || 1;
     if (lastViewportWidth && (width !== lastViewportWidth || height !== lastViewportHeight)) {
       // Las decoraciones pertenecen a la pantalla, no a los paneles ni al documento.
-      spiders.filter(sp => sp.phase === 'IDLE').forEach(sp => {
-        sp.x = sp.x / lastViewportWidth * width; sp.y = sp.y / lastViewportHeight * height; sp.idle = null;
+      spiders.filter(sp => sp.phase === 'IDLE' || sp.approach).forEach(sp => {
+        sp.x = sp.x / lastViewportWidth * width; sp.y = sp.y / lastViewportHeight * height;
+        sp.idle = null; sp.speed = 0;
       });
       idleWebs = [];
     }
     if (dx || dy) {
-      // Solo las tareas reales permanecen ancladas a la página al desplazarse.
-      spiders.filter(sp => sp.phase !== 'IDLE').forEach(sp => { sp.x -= dx; sp.y -= dy; });
+      // Al entrar al panel, la tarea pasa del viewport a las coordenadas de la página.
+      spiders.filter(sp => sp.phase !== 'IDLE' && !sp.approach).forEach(sp => {
+        sp.x -= dx; sp.y -= dy;
+        if (sp.cargo) { sp.cargo.x -= dx; sp.cargo.y -= dy; }
+      });
       shockwaves.forEach(sw => { sw.x -= dx; sw.y -= dy; });
     } else if (frame && lastLayout && frame.signature !== lastLayout.signature) {
       // Al cambiar de columnas a filas, conserva la posición relativa en el panel.
-      spiders.filter(sp => sp.phase !== 'IDLE').forEach(sp => {
+      spiders.filter(sp => sp.phase !== 'IDLE' && !sp.approach).forEach(sp => {
         const useDoc = within(sp, lastLayout.doc) || (!within(sp, lastLayout.arena) &&
           distanceToRect(sp, lastLayout.doc) <= distanceToRect(sp, lastLayout.arena));
+        const before = { x: sp.x, y: sp.y };
         projectBetween(sp, useDoc ? lastLayout.doc : lastLayout.arena, useDoc ? frame.doc : frame.arena);
-        sp.route = null;
+        if (sp.cargo) { sp.cargo.x += sp.x - before.x; sp.cargo.y += sp.y - before.y; }
+        sp.route = null; sp.speed = 0;
       });
     }
     lastViewportWidth = width; lastViewportHeight = height;
     lastScrollX = x; lastScrollY = y; lastLayout = frame;
   }
+  function syncDocumentScroll() {
+    const zone = document.getElementById('doc-dropzone');
+    const current = zone?.scrollTop || 0, delta = current - lastDocScroll;
+    lastDocScroll = current;
+    if (!delta || !lastLayout) return;
+    // La lectura sigue el contenido, también cuando el usuario desplaza el
+    // visor o se revela una palabra de la siguiente línea.
+    spiders.forEach(sp => {
+      if (sp.phase === 'IDLE' || sp.approach || (sp.phase !== 'EXTRAER_DATOS' && !within(sp, lastLayout.doc))) return;
+      sp.y -= delta;
+      if (sp.cargo) sp.cargo.y -= delta;
+      if (sp.phase !== 'EXTRAER_DATOS') sp.route = null;
+    });
+  }
+  function spiderSize() {
+    const frame = lastLayout || layout();
+    return frame ? Math.max(6, Math.min(11, Math.min(frame.arena.width, frame.arena.height * 1.15) * .014)) : 8;
+  }
+  function walk(sp, waypoints, dt, maxSpeed, stopAtFirst = false) {
+    const result = root.NCSpiderMotion.step(sp, waypoints, dt, { maxSpeed, stopAtFirst });
+    const size = spiderSize();
+    // La fase sigue el recorrido real; el giro en el sitio también requiere
+    // pequeños pasos. Una araña detenida o esperando no camina en el aire.
+    const equivalentDistance = result.distance + result.turn * size * .8;
+    if (equivalentDistance > .0001) {
+      sp.legPhase += equivalentDistance * Math.PI * 2 / root.NCSpiderVisual.gaitCycleDistance(size);
+      sp.motionActive = true; sp.lastProgressAt = animationTime;
+    }
+    return result;
+  }
   function travel(sp, target, toDocument, dt) {
     const frame = layout();
     if (!frame) return false;
+    const portal = root.NCSpiderPaths.portals(frame.doc, frame.arena, target, sp.lane);
+    const inBridge = portal.bridge && within(sp, portal.bridge);
+    if (sp.approach) {
+      if (isReduced()) sp.approach = false;
+      else if (sp.approach === 'pending') {
+        if (within(sp, frame.doc) || within(sp, frame.arena) || inBridge) sp.approach = false;
+        else sp.approach = distanceToRect(sp, frame.doc) < distanceToRect(sp, frame.arena) ? 'doc' : 'arena';
+      }
+      if (sp.approach) {
+        // Si paseaba fuera de ambos paneles, vuelve caminando al más cercano
+        // antes de entrar al corredor; no desaparece al recibir una tarea.
+        const panel = frame[sp.approach];
+        const insetX = Math.min(18, panel.width / 2), insetY = Math.min(18, panel.height / 2);
+        const entry = { x: root.NCSpiderPaths.bound(sp.x, panel.left + insetX, panel.right - insetX),
+          y: root.NCSpiderPaths.bound(sp.y, panel.top + insetY, panel.bottom - insetY) };
+        if (walk(sp, [entry], dt, 190).done) { sp.approach = false; sp.route = null; }
+        return false;
+      }
+    }
     if (!sp.route || sp.routeSignature !== frame.signature || (!sp.route.length && Math.hypot(target.x - sp.x, target.y - sp.y) > 2)) {
       const alreadyThere = toDocument ? within(sp, frame.doc) : within(sp, frame.arena);
-      sp.route = alreadyThere ? [target] : root.NCSpiderPaths.route(frame.doc, frame.arena, target, toDocument, sp.lane);
+      if (alreadyThere) sp.route = [target];
+      else if (inBridge) sp.route = [toDocument ? portal.doc : portal.arena, target];
+      else sp.route = root.NCSpiderPaths.route(frame.doc, frame.arena, target, toDocument, sp.lane);
       sp.routeSignature = frame.signature;
     } else if (sp.route.length) sp.route[sp.route.length - 1] = target;
-    if (isReduced()) { sp.x = target.x; sp.y = target.y; sp.route = []; return true; }
-    const move = root.NCSpiderPaths.advance(sp, sp.route, 430 * dt);
-    if (!move.done) sp.angle = move.angle;
-    sp.legPhase += dt * 18;
-    return move.done;
+    if (isReduced()) { sp.x = target.x; sp.y = target.y; sp.speed = 0; sp.route = []; return true; }
+    return walk(sp, sp.route, dt, 190).done;
   }
   // ── Reposo visual ────────────────────────────────────────────────────────
   // El paseo usa coordenadas del viewport y un reloj propio. Ningún hilo o
@@ -388,42 +447,28 @@
     if (idleWebs.length > 8) idleWebs.shift();
     sp.idle = { kind: 'weave', web, steps, index: 0 };
   }
-  function moveIdle(sp, target, distance) {
-    const dx = target.x - sp.x, dy = target.y - sp.y, length = Math.hypot(dx, dy);
-    const moved = Math.min(length, distance);
-    if (length > .001) {
-      sp.angle = Math.atan2(dy, dx);
-      sp.x += dx / length * moved; sp.y += dy / length * moved;
-      sp.legPhase += moved * .12;
-    }
-    return { arrived: length - moved < .01, remaining: Math.max(0, distance - moved) };
-  }
   function updateIdle(sp, dt) {
-    let remaining = 160 * dt, guard = 0;
-    while (remaining > .001 && guard++ < 80) {
-      if (!sp.idle) chooseIdleDestination(sp);
-      const idle = sp.idle;
-      if (idle.kind === 'travel') {
-        const move = moveIdle(sp, idle.target, remaining); remaining = move.remaining;
-        if (!move.arrived) break;
-        beginIdleWeb(sp, idle.radius);
-      } else {
-        const step = idle.steps[idle.index];
-        if (!step) {
-          idle.web.expiresAt = idleTime + 20000;
-          sp.idle = null;
-          continue;
-        }
-        const move = moveIdle(sp, step, remaining); remaining = move.remaining;
-        if (step.stroke) {
-          const total = Math.hypot(step.stroke.x2 - step.stroke.x1, step.stroke.y2 - step.stroke.y1);
-          const left = Math.hypot(step.stroke.x2 - sp.x, step.stroke.y2 - sp.y);
-          step.stroke.progress = total ? Math.max(0, Math.min(1, 1 - left / total)) : 1;
-        }
-        if (!move.arrived) break;
-        if (step.stroke) step.stroke.progress = 1;
-        idle.index++;
-      }
+    if (!sp.idle) chooseIdleDestination(sp);
+    const idle = sp.idle;
+    if (idle.kind === 'travel') {
+      if (walk(sp, [idle.target], dt, 115).done) beginIdleWeb(sp, idle.radius);
+      return;
+    }
+    const step = idle.steps[idle.index];
+    if (!step) {
+      idle.web.expiresAt = idleTime + 20000;
+      sp.idle = null;
+      return;
+    }
+    const result = walk(sp, [step], dt, 90);
+    if (step.stroke) {
+      const total = Math.hypot(step.stroke.x2 - step.stroke.x1, step.stroke.y2 - step.stroke.y1);
+      const left = Math.hypot(step.stroke.x2 - sp.x, step.stroke.y2 - sp.y);
+      step.stroke.progress = total ? Math.max(0, Math.min(1, 1 - left / total)) : 1;
+    }
+    if (result.done) {
+      if (step.stroke) step.stroke.progress = 1;
+      idle.index++;
     }
   }
   function drawIdleWebs() {
@@ -450,43 +495,68 @@
     sp.scanIndex = -1;
     element.classList.add('sentence-scanning');
     element.style.setProperty('--spider-scan-color', sp.color);
-    sp.phase = 'EXTRAER_DATOS'; sp.phaseStart = now; sp.route = null;
+    sp.phase = 'EXTRAER_DATOS'; sp.lastProgressAt = now; sp.route = null;
     store()?.emit('spider:scanStart', { spiderId: sp.id, sentenceId: sp.targetSentence.id });
   }
-  function updateScan(sp, now) {
-    if (!sp.scanElement?.isConnected) { cancelTarget(sp); return; }
-    const words = sp.scanWords, durationPerWord = 105;
-    const progress = isReduced() ? words.length : (now - sp.phaseStart) / durationPerWord;
-    const index = Math.min(words.length - 1, Math.floor(progress));
-    if (index !== sp.scanIndex) {
-      if (sp.scanIndex >= 0 && words[sp.scanIndex]) words[sp.scanIndex].classList.remove('word-scanning');
-      for (let i = Math.max(0, sp.scanIndex + 1); i <= index; i++) words[i].classList.add('word-scanned');
-      words[index].classList.add('word-scanning');
-      sp.scanIndex = index;
-    }
-    const current = wordPosition(words[index], true);
-    const next = index + 1 < words.length && isWordVisible(words[index + 1]) ? wordPosition(words[index + 1], false) : current;
-    if (current) {
-      const fraction = Math.min(1, Math.max(0, progress - index));
-      const eased = fraction * fraction * (3 - 2 * fraction);
-      const x = current.x + ((next?.x ?? current.x) - current.x) * eased;
-      const y = current.y + ((next?.y ?? current.y) - current.y) * eased;
-      if (Math.hypot(x - sp.x, y - sp.y) > .5) sp.angle = Math.atan2(y - sp.y, x - sp.x);
-      sp.x = x; sp.y = y;
-    }
-    sp.legPhase += .12;
-    if (progress < words.length) return;
+  function markScanWord(sp, index) {
+    const words = sp.scanWords;
+    if (sp.scanIndex >= 0 && words[sp.scanIndex]) words[sp.scanIndex].classList.remove('word-scanning');
+    for (let i = Math.max(0, sp.scanIndex + 1); i <= index; i++) words[i].classList.add('word-scanned');
+    words[index].classList.add('word-scanning');
+    sp.scanIndex = index; sp.scanAdvanced = true; sp.lastProgressAt = animationTime;
+  }
+  function finishScan(sp, now) {
     const pattern = extractPattern(sp.targetSentence);
     pattern.cluster = sp.cluster; pattern.color = sp.color;
     sp.extractedPattern = pattern;
     clearScan(sp);
-    sp.phase = 'ARRASTRAR_A_RED'; sp.phaseStart = now; sp.route = null;
+    sp.phase = 'ARRASTRAR_A_RED'; sp.lastProgressAt = now; sp.route = null;
     store()?.emit('spider:extracted', { spiderId: sp.id, sentenceId: sp.targetSentence.id, label: pattern.label });
+  }
+  function updateScan(sp, now, dt) {
+    if (!sp.scanElement?.isConnected) { cancelTarget(sp); return; }
+    const words = sp.scanWords;
+    if (isReduced()) {
+      // Sin recorrido prolongado: se procesa el mismo pasaje real y se libera
+      // el resaltado al terminar, igual que en el modo anterior.
+      markScanWord(sp, words.length - 1);
+      const end = wordPosition(words[words.length - 1], true);
+      if (end) { sp.x = end.x; sp.y = end.y; }
+      sp.speed = 0; finishScan(sp, now); return;
+    }
+    // Aunque un frame tenga varios subpasos, cada palabra resaltada debe
+    // permanecer visible al menos hasta el siguiente dibujo.
+    if (sp.scanAdvanced) return;
+    if (sp.scanIndex < 0) {
+      markScanWord(sp, 0); sp.scanHoldUntil = now + 80; return;
+    }
+    if (now < sp.scanHoldUntil) return;
+    if (sp.scanIndex >= words.length - 1) { finishScan(sp, now); return; }
+
+    const index = sp.scanIndex + 1, target = wordPosition(words[index], true);
+    if (!target) return;
+    // Anticipar el siguiente centro evita frenazos entre palabras de la misma
+    // línea; si cambia de línea, frena y gira antes de recorrerla sin saltos.
+    const after = index + 1 < words.length && isWordVisible(words[index + 1])
+      ? wordPosition(words[index + 1], false) : null;
+    const route = after ? [target, after] : [target];
+    const result = walk(sp, route, dt, 150, true);
+    if (result.reached) {
+      markScanWord(sp, index);
+      sp.scanHoldUntil = index === words.length - 1 ? now + 100 : now;
+    }
   }
   function updateSpider(sp, now, dt) {
     const S = store();
     if (!S) return;
-    if (sp.phase !== 'IDLE' && now - sp.phaseStart > 30000) { cancelTarget(sp); return; }
+    // Esperar el visor es trabajo válido mientras su escáner siga avanzando;
+    // si este se bloquea, ambos relojes conservan el mismo límite de inactividad.
+    if (sp.phase === 'IR_A_PALABRA' && scanOwner && scanOwner !== sp) {
+      sp.lastProgressAt = Math.max(sp.lastProgressAt, scanOwner.lastProgressAt);
+    }
+    // Una tarea inmóvil y bloqueada se libera; un recorrido largo que sí
+    // avanza no se cancela solo por durar más de 30 segundos.
+    if (sp.phase !== 'IDLE' && now - sp.lastProgressAt > 30000) { cancelTarget(sp); return; }
     if (sp.targetSentence && !S.getSentence(sp.targetSentence.id)) { cancelTarget(sp); return; }
     if (sp.phase === 'IDLE') {
       // El trabajo real tiene prioridad sobre el paseo; no recorrer el corpus 60 veces/s.
@@ -494,7 +564,7 @@
       sp.nextPickAt = now + 300;
       const sent = pickNextSentence(sp);
       if (!sent) return;
-      sp.targetSentence = sent; sp.phase = 'IR_A_PALABRA'; sp.phaseStart = now; sp.route = null;
+      assignTarget(sp, sent, now);
       S.emit('spiders:dispatched', { count: 1, source: 'auto', spiderIds: [sp.id] });
       return;
     }
@@ -509,10 +579,10 @@
       if (travel(sp, pos, true, dt) && (!scanOwner || scanOwner === sp)) beginScan(sp, element, now);
       return;
     }
-    if (sp.phase === 'EXTRAER_DATOS') { updateScan(sp, now); return; }
+    if (sp.phase === 'EXTRAER_DATOS') { updateScan(sp, now, dt); return; }
     if (sp.phase === 'ARRASTRAR_A_RED') {
       const hub = root.NeuralGraph.getHubScreenPos(sp.cluster);
-      if (travel(sp, hub, false, dt)) { sp.phase = 'ALIMENTAR_NODO'; sp.phaseStart = now; sp.route = null; }
+      if (travel(sp, hub, false, dt)) { sp.phase = 'ALIMENTAR_NODO'; sp.lastProgressAt = now; sp.route = null; }
       return;
     }
     if (sp.phase === 'ALIMENTAR_NODO') {
@@ -559,8 +629,27 @@
     S.emit('harvest:progress', { harvested, total, rate, spiders: spiders.length });
   }
 
+  function updateCargo(sp, dt, reduced) {
+    if (sp.phase !== 'ARRASTRAR_A_RED' || !sp.extractedPattern) { sp.cargo = null; return; }
+    const desired = { x: sp.x - Math.cos(sp.angle) * 28, y: sp.y - Math.sin(sp.angle) * 28 };
+    if (!sp.cargo || reduced) { sp.cargo = desired; return; }
+    const follow = 1 - Math.exp(-12 * dt);
+    sp.cargo.x += (desired.x - sp.cargo.x) * follow;
+    sp.cargo.y += (desired.y - sp.cargo.y) * follow;
+    const dx = sp.cargo.x - sp.x, dy = sp.cargo.y - sp.y, length = Math.hypot(dx, dy);
+    if (length > 46) { sp.cargo.x = sp.x + dx * 46 / length; sp.cargo.y = sp.y + dy * 46 / length; }
+  }
+  function finishMotion(sp, dt, reduced) {
+    if (reduced) { sp.motion = 0; sp.speed = 0; return; }
+    if (!sp.motionActive) sp.speed = Math.max(0, sp.speed - 700 * dt);
+    const goal = sp.motionActive ? 1 : 0;
+    sp.motion += (goal - sp.motion) * (1 - Math.exp(-(goal ? 12 : 8) * dt));
+    if (sp.motion < .001) sp.motion = 0;
+  }
+
   // ── Dibujo ───────────────────────────────────────────────────────────────
   function drawSpider(sp) {
+    const size = spiderSize();
     ctx.save();
     ctx.translate(sp.x, sp.y);
 
@@ -573,9 +662,11 @@
     if (sp.phase === 'ARRASTRAR_A_RED' && sp.extractedPattern) {
       // La cápsula contiene palabras reales del pasaje que viaja al nodo.
       const label = U.truncate(sp.extractedPattern.label || 'pasaje', 26);
-      const trailX = -Math.cos(sp.angle) * 28, trailY = -Math.sin(sp.angle) * 28;
+      const trailX = sp.cargo ? sp.cargo.x - sp.x : -Math.cos(sp.angle) * 28;
+      const trailY = sp.cargo ? sp.cargo.y - sp.y : -Math.sin(sp.angle) * 28;
       ctx.strokeStyle = sp.color; ctx.shadowColor = sp.color; ctx.shadowBlur = 7; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(trailX, trailY); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-Math.cos(sp.angle) * size, -Math.sin(sp.angle) * size);
+      ctx.quadraticCurveTo(trailX * .55, trailY * .55 + 3, trailX, trailY - 8); ctx.stroke();
       ctx.font = '600 9px monospace';
       const boxWidth = Math.min(160, ctx.measureText(label).width + 17);
       const boxX = trailX - boxWidth / 2, boxY = trailY - 24;
@@ -598,19 +689,18 @@
       ctx.restore(); ctx.globalAlpha = 1;
     }
 
-    const frame = lastLayout || layout();
-    const size = frame ? Math.max(6, Math.min(11, Math.min(frame.arena.width, frame.arena.height * 1.15) * .014)) : 8;
     const lit = sp.phase === 'EXTRAER_DATOS' || (sp.phase === 'ARRASTRAR_A_RED' && sp.extractedPattern);
     root.NCSpiderVisual.draw(ctx, { x: 0, y: 0, angle: sp.angle, size,
       color: lit ? sp.color : '#bee8ff', core: lit ? sp.color : null,
-      phase: sp.legPhase, moving: !isReduced() && (sp.phase === 'IR_A_PALABRA' || sp.phase === 'EXTRAER_DATOS' || sp.phase === 'ARRASTRAR_A_RED' || (sp.phase === 'IDLE' && !!sp.idle)),
+      phase: sp.legPhase, motion: isReduced() ? 0 : sp.motion,
       time: isReduced() ? 0 : animationTime / 1000 });
     ctx.restore();
   }
 
   function loop(now) {
-    const dt = Math.min(.05, (lastFrameTime ? (now - lastFrameTime) / 1000 : .016));
-    fpsCounter = Math.round(fpsCounter * .9 + (1 / Math.max(.001, dt)) * .1);
+    const elapsed = Math.max(0, lastFrameTime ? (now - lastFrameTime) / 1000 : .016);
+    const dt = Math.min(.15, elapsed);
+    fpsCounter = Math.round(fpsCounter * .9 + (1 / Math.max(.001, elapsed)) * .1);
     lastFrameTime = now;
     const fpsEl = document.getElementById('stat-fps');
     if (fpsEl && Math.random() < .08) fpsEl.textContent = Math.min(60, fpsCounter);
@@ -620,24 +710,33 @@
     }
     if (ctx) { ctx.setTransform(ratio, 0, 0, ratio, 0, 0); ctx.clearRect(0, 0, window.innerWidth, window.innerHeight); }
     const frame = layout();
-    syncViewport(frame);
-    const running = !paused && !document.hidden;
+    syncViewport(frame); syncDocumentScroll();
+    const running = !paused && !document.hidden, reduced = isReduced();
     if (running) {
-      animationTime += dt * 1000;
-      spiders.forEach(sp => updateSpider(sp, animationTime, dt));
+      spiders.forEach(sp => { sp.scanAdvanced = false; });
+      // En equipos lentos se recupera hasta 150 ms en pasos pequeños: evita
+      // ralentizar todo el trabajo sin saltar esquinas ni omitir palabras.
+      for (let remaining = dt; remaining > 1e-6;) {
+        const step = Math.min(.05, remaining); remaining -= step;
+        animationTime += step * 1000;
+        spiders.forEach(sp => { sp.motionActive = false; updateSpider(sp, animationTime, step); });
+        if (spiders.some(sp => sp.phase !== 'IDLE')) clearIdleAnimations();
+        else if (!reduced) {
+          idleTime += step * 1000;
+          spiders.forEach(sp => updateIdle(sp, step));
+          idleWebs = idleWebs.filter(web => web.expiresAt === null || web.expiresAt > idleTime);
+        }
+        spiders.forEach(sp => { finishMotion(sp, step, reduced); updateCargo(sp, step, reduced); });
+      }
     }
     const working = spiders.some(sp => sp.phase !== 'IDLE');
-    if (working) clearIdleAnimations();
-    else if (running && !isReduced()) {
-      idleTime += dt * 1000;
-      spiders.forEach(sp => updateIdle(sp, dt));
-      idleWebs = idleWebs.filter(web => web.expiresAt === null || web.expiresAt > idleTime);
-    }
+    if (working && !running) clearIdleAnimations();
+    if (reduced) shockwaves = [];
     if (ctx) {
       // El reposo puede aparecer en cualquier punto visible y no intercepta clics.
       if (!working) drawIdleWebs();
-      spiders.filter(sp => sp.phase === 'IDLE').forEach(drawSpider);
-      // El trabajo real sigue limitado al visor, la red y su corredor.
+      spiders.filter(sp => sp.phase === 'IDLE' || sp.approach).forEach(drawSpider);
+      // Las acciones de lectura y entrega siguen limitadas al visor, la red y su corredor.
       ctx.save(); ctx.beginPath();
       if (frame) {
         const { doc, arena } = frame;
@@ -648,10 +747,10 @@
           ctx.rect(bridge.left, bridge.top, bridge.right - bridge.left, bridge.bottom - bridge.top);
       }
       ctx.clip();
-      spiders.filter(sp => sp.phase !== 'IDLE').forEach(drawSpider);
+      spiders.filter(sp => sp.phase !== 'IDLE' && !sp.approach).forEach(drawSpider);
       shockwaves = shockwaves.filter(sw => sw.alpha > .05);
       shockwaves.forEach(sw => {
-        if (running) { sw.r += 1.8; sw.alpha *= .9; }
+        if (running) { sw.r += 108 * dt; sw.alpha *= Math.exp(-6.3 * dt); }
         ctx.strokeStyle = sw.color; ctx.globalAlpha = sw.alpha; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(sw.x, sw.y, sw.r, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
       });
@@ -666,6 +765,7 @@
     if (!S) return;
     initMicroBrains();
     lastScrollX = window.scrollX || 0; lastScrollY = window.scrollY || 0; lastLayout = layout();
+    lastDocScroll = document.getElementById('doc-dropzone')?.scrollTop || 0;
     lastViewportWidth = window.innerWidth || 1; lastViewportHeight = window.innerHeight || 1;
     canvas = document.getElementById('spider-canvas');
     if (canvas) {
@@ -682,8 +782,9 @@
     });
 
     const btnPause = document.getElementById('btn-toggle-spiders');
+    document.addEventListener('visibilitychange', () => { lastFrameTime = 0; });
     function setPaused(value) {
-      paused = value;
+      paused = value; lastFrameTime = 0;
       if (btnPause) {
         btnPause.textContent = paused ? '▶' : 'Ⅱ';
         btnPause.setAttribute('aria-label', paused ? 'Reanudar enjambre' : 'Pausar enjambre');
@@ -705,7 +806,7 @@
       if (!sentence || S.state.claimedTargets.has(sentence.id)) return;
       const sp = spiders.find(candidate => candidate.phase === 'IDLE');
       if (!sp) { root.DocViewer?.toast('Las arañas están ocupadas; vuelve a intentarlo en un momento.'); return; }
-      sp.targetSentence = sentence; sp.phase = 'IR_A_PALABRA'; sp.phaseStart = animationTime; sp.route = null;
+      assignTarget(sp, sentence, animationTime);
       S.state.claimedTargets.add(sentence.id);
       S.emit('spiders:dispatched', { count: 1, source: 'sentence', spiderIds: [sp.id] });
     });
@@ -726,9 +827,8 @@
       const sp = spiders[spiders.length - 1] || spiders[0];
       if (!sp) return;
       if (!isReduced() && !paused) shockwaves.push({ x: sp.x, y: sp.y, r: 6, maxR: 54, color: '#fbbf24', alpha: 1 });
-      const hub = root.NeuralGraph.getHubScreenPos(sp.cluster);
-      sp.targetPos = hub;
-      sp.angle = Math.atan2(hub.y - sp.y, hub.x - sp.x);
+      // Una consulta solo destaca el recorrido: no fuerza un giro brusco ni
+      // interrumpe el paso de una araña que ya está trabajando o pausada.
       if (nodeIds && nodeIds.length) root.NeuralGraph.highlightPath(nodeIds);
     });
 

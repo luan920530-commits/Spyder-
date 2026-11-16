@@ -42,6 +42,60 @@ test('la reina teje con ocho patas articuladas y cuatro hilos en fases repetible
   assert.deepEqual(first.calls, still.calls, 'si se congela la fase, se conserva la postura');
 });
 
+test('los pies en apoyo permanecen anclados al avanzar y alternan en grupos de cuatro', () => {
+  const size = 10, cycle = visual.gaitCycleDistance(size), tau = Math.PI * 2;
+  const before = visual.pose({ size, phase: .08 * tau, motion: 1 });
+  const after = visual.pose({ size, phase: .14 * tau, motion: 1 });
+  const displacement = .06 * cycle;
+  before.legs.forEach((leg, i) => {
+    assert.ok(leg.stance && after.legs[i].stance);
+    assert.ok(Math.abs(leg.foot.x - (displacement + after.legs[i].foot.x)) < 1e-8, 'el pie apoyado no debe deslizarse');
+    assert.ok(Math.abs(leg.foot.y - after.legs[i].foot.y) < 1e-8);
+  });
+  const a = visual.pose({ size, phase: .30 * tau, motion: 1 }).legs;
+  const b = visual.pose({ size, phase: .80 * tau, motion: 1 }).legs;
+  assert.equal(a.filter(leg => !leg.stance).length, 4);
+  assert.equal(b.filter(leg => !leg.stance).length, 4);
+  a.forEach((leg, i) => assert.notEqual(leg.stance, b[i].stance));
+  const still = visual.pose({ size, phase: .80 * tau, motion: 0 });
+  assert.ok(still.legs.every(leg => leg.stance && leg.lift === 0), 'al detenerse se posan las patas');
+  assert.ok(still.legs.every((leg, i) => Math.abs(leg.foot.x - b[i].foot.x) < 1e-8), 'frenar no desplaza la huella longitudinal');
+});
+
+test('la reina tira de un hilo a la vez y los extremos son los puntos suministrados de su red', () => {
+  const tau = Math.PI * 2, positions = [0.04, .29, .54, .79];
+  const movingLegs = positions.map(p => {
+    const legs = visual.pose({ queen: true, weaving: true, size: 20, phase: p * tau }).legs;
+    assert.equal(legs.filter(leg => leg.tension > .01).length, 1);
+    assert.ok(legs.filter(leg => leg.stance).length >= 7);
+    return legs.find(leg => leg.tension > .01);
+  });
+  assert.equal(new Set(movingLegs.map(leg => `${leg.side}:${leg.index}`)).size, 4);
+  const anchors = [{ x: 8, y: -20 }, { x: -11, y: -23 }, { x: 12, y: 21 }, { x: -9, y: 24 }];
+  const ctx = recordingContext();
+  visual.draw(ctx, { queen: true, weaving: true, size: 20, phase: 1, threadAnchors: anchors });
+  assert.deepEqual(ctx.calls.filter(call => call[0] === 'quadraticCurveTo').map(call => ({ x: call[3], y: call[4] })), anchors);
+});
+
+test('la geometría de las articulaciones es finita y continua al apoyar y levantar', () => {
+  const tau = Math.PI * 2, size = 10;
+  for (let p = 0; p < 1; p += .01) {
+    const legs = visual.pose({ size, phase: p * tau, motion: 1 }).legs;
+    assert.equal(legs.length, 8);
+    for (const leg of legs) {
+      for (const point of [leg.root, leg.knee, leg.ankle, leg.foot]) {
+        assert.ok(Number.isFinite(point.x) && Number.isFinite(point.y));
+        assert.ok(Math.hypot(point.x, point.y) < size * 4);
+      }
+    }
+  }
+  for (const edge of [.68, 1]) {
+    const left = visual.pose({ size, phase: (edge - .000001) * tau, motion: 1 }).legs[0];
+    const right = visual.pose({ size, phase: (edge + .000001) * tau, motion: 1 }).legs[0];
+    assert.ok(Math.hypot(left.foot.x - right.foot.x, left.foot.y - right.foot.y) < .001);
+  }
+});
+
 test('la señal de mando dibuja ondas expansivas sin despachar tareas', () => {
   const early = recordingContext(), late = recordingContext();
   visual.drawCommandWave(early, { x: 10, y: 20, maxRadius: 100, progress: .1 });

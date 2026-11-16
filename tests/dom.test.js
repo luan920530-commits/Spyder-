@@ -5,7 +5,7 @@ const path = require('node:path');
 const { JSDOM, VirtualConsole } = require('jsdom');
 const { IDBFactory } = require('fake-indexeddb');
 const root = path.join(__dirname, '..');
-const scripts = ['util', 'retrieval', 'analysis', 'srs', 'db', 'embeddings', 'store', 'local-model', 'qwen-config', 'qwen-prompt', 'qwen-model', 'parsers', 'memory', 'providers', 'character', 'rag', 'kimi-aux-model', 'viewer', 'spider-visual', 'neural-graph', 'spider-paths', 'spiders', 'eval', 'brain-rag', 'study-bots', 'app'];
+const scripts = ['util', 'retrieval', 'analysis', 'srs', 'db', 'embeddings', 'store', 'local-model', 'qwen-config', 'qwen-prompt', 'qwen-model', 'parsers', 'memory', 'providers', 'character', 'rag', 'kimi-aux-model', 'viewer', 'spider-visual', 'neural-graph', 'spider-paths', 'spider-motion', 'spiders', 'eval', 'brain-rag', 'study-bots', 'app'];
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(fn, timeout = 4000) {
   const end = Date.now() + timeout;
@@ -491,7 +491,20 @@ test('la red anima a la reina y solo envía destellos a los destinatarios del de
   try {
     const S = w.NeuralStore, frames = [], waves = [];
     const draw = w.NCSpiderVisual.draw, drawWave = w.NCSpiderVisual.drawCommandWave;
-    w.NCSpiderVisual.draw = (ctx, options) => { if (options.queen) frames.push({ phase: options.phase, weaving: options.weaving }); return draw(ctx, options); };
+    let points = [], instrumented = false;
+    w.NCSpiderVisual.draw = (ctx, options) => {
+      if (options.queen) {
+        if (!instrumented) {
+          instrumented = true;
+          const clear = ctx.clearRect, line = ctx.lineTo;
+          ctx.clearRect = (...args) => { points = []; return clear(...args); };
+          ctx.lineTo = (x, y) => { points.push([x, y]); return line(x, y); };
+        }
+        frames.push({ phase: options.phase, weaving: options.weaving, x: options.x, y: options.y, angle: options.angle,
+          anchors: Array.from(options.threadAnchors, anchor => ({ x: anchor.x, y: anchor.y })), points: points.slice() });
+      }
+      return draw(ctx, options);
+    };
     w.NCSpiderVisual.drawCommandWave = (ctx, options) => {
       waves.push(Array.from(options.targets, target => target.id));
       return drawWave(ctx, options);
@@ -502,9 +515,14 @@ test('la red anima a la reina y solo envía destellos a los destinatarios del de
       { id: 'destinataria', phase: 'IR_A_PALABRA', x: 150, y: 140 },
       { id: 'libre', phase: 'IDLE', x: 200, y: 150 }
     ] });
-    await until(() => frames.length >= 2);
-    assert.ok(frames.every(frame => frame.weaving));
+    await until(() => frames.length >= 3);
+    assert.ok(frames.every(frame => frame.weaving && frame.angle === 0 && frame.anchors.length === 4));
     assert.ok(frames.at(-1).phase > frames[0].phase);
+    const connected = frames.slice(1).find(frame => frame.anchors.every(anchor => frame.points.some(([x, y]) =>
+      Math.abs(x - frame.x - anchor.x) < 1e-7 && Math.abs(y - frame.y - anchor.y) < 1e-7)));
+    assert.ok(connected, 'los cuatro hilos terminan en vértices dibujados de la telaraña');
+    assert.ok(frames.slice(1).some(frame => frame.anchors.some((anchor, i) =>
+      Math.hypot(anchor.x - frames[0].anchors[i].x, anchor.y - frames[0].anchors[i].y) > 1e-5)), 'el hilo se tensa con el tejido');
     S.emit('spiders:dispatched', { count: 0, spiderIds: ['destinataria'] });
     await wait(80); assert.equal(waves.length, 0);
     S.emit('spiders:dispatched', { count: 1, source: 'network', spiderIds: ['destinataria'] });

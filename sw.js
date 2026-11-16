@@ -1,6 +1,6 @@
 /* Shell y dependencias empaquetadas: instalación atómica, sin CDN. */
 importScripts('./js/qwen-config.js');
-const CACHE_NAME = 'neural-spider-os-v11-15';
+const CACHE_NAME = 'neural-spider-os-v11-16';
 const MODEL_CACHE = 'neural-spider-model-v1';
 const QWEN = self.NCQwenConfig;
 // Recursos de pdfjs-dist 4.2.67 incluidos en el shell: la lectura de CMaps y
@@ -46,7 +46,7 @@ const ASSETS = [
   './js/embeddings.js', './js/store.js', './js/local-model.js', './js/onnx-worker.js', './js/parsers.js', './js/memory.js', './js/providers.js',
   './js/qwen-config.js', './js/qwen-prompt.js', './js/qwen-model.js', './js/qwen-download-worker.js', './js/qwen-inference-worker.js', './vendor/sha256/sha256.min.js',
   './js/character.js', './js/rag.js', './js/kimi-aux-model.js', './js/viewer.js', './js/spider-visual.js', './js/neural-graph.js', './js/spiders.js',
-  './js/spider-paths.js', './js/eval.js', './js/brain-rag.js', './js/study-bots.js', './js/app.js'
+  './js/spider-paths.js', './js/spider-motion.js', './js/eval.js', './js/brain-rag.js', './js/study-bots.js', './js/app.js'
 ];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
