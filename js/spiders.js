@@ -193,17 +193,43 @@
     return best;
   }
 
+  // El clic en la red solicita trabajo real: no interrumpe ni inventa cosechas.
+  function dispatchFromNetwork(options = {}) {
+    const S = store();
+    if (!S || !candidates().length) return { sent: 0, reason: 'no-document' };
+    if (paused) return { sent: 0, reason: 'paused' };
+    if (!candidates().some(sentence => !sentence.harvested)) return { sent: 0, reason: 'complete' };
+    const { cluster, x, y } = options;
+    const hasOrigin = Number.isFinite(x) && Number.isFinite(y);
+    const idle = spiders.filter(sp => sp.phase === 'IDLE').sort((a, b) => {
+      const preference = Number(b.cluster === cluster) - Number(a.cluster === cluster);
+      return preference || (hasOrigin ? Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y) : 0);
+    });
+    if (!idle.length) return { sent: 0, reason: 'busy' };
+    let sent = 0;
+    for (const sp of idle.slice(0, 3)) {
+      // pickNextSentence reserva el ID y respeta la página, el escáner y AUTO.
+      const sentence = pickNextSentence(sp);
+      if (!sentence) break;
+      sp.targetSentence = sentence; sp.phase = 'IR_A_PALABRA'; sp.phaseStart = animationTime; sp.route = null; sp.docking = false;
+      sent++;
+    }
+    if (sent) S.emit('spiders:dispatched', { count: sent, source: 'network' });
+    return { sent, reason: sent ? 'sent' : 'unavailable' };
+  }
+
   // ── Ciclo de vida ────────────────────────────────────────────────────────
   function createSpider(index) {
     const spec = AGENT_SPECS[index % AGENT_SPECS.length];
     const arena = document.getElementById('arena-stage')?.getBoundingClientRect() || { left: 400, top: 200, width: 300, height: 300 };
+    const size = Math.min(arena.width, arena.height * 1.15), angle = index * Math.PI * 2 / 5 + .3;
     return Object.assign({}, spec, {
-      x: arena.left + arena.width * .5 + (Math.random() - .5) * 50,
-      y: arena.top + arena.height * .5 + (Math.random() - .5) * 50,
+      x: arena.left + arena.width * .19 + Math.cos(angle) * size * .085,
+      y: arena.top + arena.height * .46 + Math.sin(angle) * size * .085,
       angle: 0, phase: 'IDLE', phaseStart: animationTime,
       targetSentence: null, extractedPattern: null, scanWords: [], scanIndex: -1,
       route: null, routeSignature: '', lane: (index - 2) * 5, nextPickAt: animationTime,
-      legPhase: Math.random() * Math.PI * 2, harvestedCount: 0
+      legPhase: Math.random() * Math.PI * 2, docking: false, harvestedCount: 0
     });
   }
   function clearScan(sp) {
@@ -292,6 +318,16 @@
     sp.legPhase += dt * 18;
     return move.done;
   }
+  function dockAtQueen(sp, dt) {
+    const frame = layout();
+    if (!frame) return;
+    const { arena } = frame, size = Math.min(arena.width, arena.height * 1.15);
+    const angle = Math.max(0, spiders.indexOf(sp)) * Math.PI * 2 / Math.max(1, activeCount) + .3;
+    const target = { x: arena.left + arena.width * .19 + Math.cos(angle) * size * .085,
+      y: arena.top + arena.height * .46 + Math.sin(angle) * size * .085 };
+    if (Math.hypot(sp.x - target.x, sp.y - target.y) < 2) { sp.docking = false; return; }
+    sp.docking = !travel(sp, target, false, dt);
+  }
   function beginScan(sp, element, now) {
     scanOwner = sp;
     sp.scanElement = element;
@@ -339,12 +375,14 @@
     if (sp.phase !== 'IDLE' && now - sp.phaseStart > 30000) { cancelTarget(sp); return; }
     if (sp.targetSentence && !S.getSentence(sp.targetSentence.id)) { cancelTarget(sp); return; }
     if (sp.phase === 'IDLE') {
+      // Las arañas libres descansan junto a la reina visual, sin crear trabajo ficticio.
+      dockAtQueen(sp, dt);
       // Una araña sin trabajo no debe escanear el corpus 60 veces por segundo.
       if (now < sp.nextPickAt) return;
       sp.nextPickAt = now + 300;
       const sent = pickNextSentence(sp);
       if (!sent) return;
-      sp.targetSentence = sent; sp.phase = 'IR_A_PALABRA'; sp.phaseStart = now; sp.route = null;
+      sp.targetSentence = sent; sp.phase = 'IR_A_PALABRA'; sp.phaseStart = now; sp.route = null; sp.docking = false;
       return;
     }
     if (sp.phase === 'IR_A_PALABRA') {
@@ -380,7 +418,7 @@
             pageNum: p.pageNum, sentenceId: p.sentenceId, docName: sp.targetSentence.docName });
           sp.harvestedCount++; harvestWindow.count++;
         }
-        shockwaves.push({ x: sp.x, y: sp.y, r: 4, maxR: 38, color: sp.color, alpha: 1 });
+        if (!isReduced()) shockwaves.push({ x: sp.x, y: sp.y, r: 4, maxR: 38, color: sp.color, alpha: 1 });
         S.emit('spider:delivered', { spiderId: sp.id, sentenceId: p.sentenceId, cluster: p.cluster, fresh });
         S.emit('spider:thought', { spiderId: sp.id, role: sp.role, color: sp.color,
           text: `${sp.id} (${sp.role}) llevó «${p.label}» a la red` });
@@ -428,69 +466,26 @@
       ctx.fillText(label, boxX + 8, boxY + 8);
     }
     if (sp.phase === 'EXTRAER_DATOS') {
-      ctx.strokeStyle = sp.color; ctx.shadowColor = sp.color; ctx.shadowBlur = 8; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(0, 0, 19, 0, Math.PI * 2); ctx.stroke();
-    }
-
-    ctx.rotate(sp.angle);
-    const bodyScale = sp.phase === 'EXTRAER_DATOS' ? 1.0 : 1.3;
-    ctx.scale(bodyScale, bodyScale);
-
-    const legColors = ['#00f0ff', '#a855f7', '#f59e0b', '#10b981'];
-    ctx.lineWidth = 1.4;
-    for (const side of [-1, 1]) {
-      for (let i = 0; i < 4; i++) {
-        const lc = legColors[i];
-        const baseAngle = side * (0.45 + i * 0.36);
-        const swing = Math.sin(sp.legPhase + i * 1.3 + (side > 0 ? 0 : Math.PI)) * 0.2;
-        const kx = Math.cos(baseAngle + swing) * 11;
-        const ky = Math.sin(baseAngle + swing) * 11;
-        const fx = Math.cos(baseAngle + swing * 1.2) * 21;
-        const fy = Math.sin(baseAngle + swing * 1.2) * 21;
-        ctx.strokeStyle = lc;
-        ctx.shadowColor = lc;
-        ctx.shadowBlur = 7;
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(kx, ky);
-        ctx.lineTo(fx, fy);
-        ctx.stroke();
-        ctx.fillStyle = lc;
-        ctx.beginPath();
-        ctx.arc(fx, fy, 1.8, 0, Math.PI * 2);
-        ctx.fill();
+      // Los haces apuntan exclusivamente a palabras visibles del pasaje real.
+      ctx.strokeStyle = sp.color; ctx.shadowColor = sp.color; ctx.shadowBlur = 5; ctx.lineWidth = .7;
+      for (let i = Math.max(0, sp.scanIndex + 1); i < Math.min(sp.scanWords.length, sp.scanIndex + 4); i++) {
+        const word = sp.scanWords[i];
+        if (!isWordVisible(word)) continue;
+        const pos = wordPosition(word, false);
+        if (pos) { ctx.globalAlpha = .35; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(pos.x - sp.x, pos.y - sp.y); ctx.stroke(); }
       }
+      ctx.globalAlpha = .85; ctx.save(); ctx.rotate(isReduced() ? 0 : animationTime / 500);
+      ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore(); ctx.globalAlpha = 1;
     }
 
-    ctx.shadowColor = '#00f0ff';
-    ctx.shadowBlur = 8;
-    ctx.fillStyle = '#05080f';
-    ctx.strokeStyle = '#e2e8f0';
-    ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    for (let k = 0; k < 6; k++) {
-      const a = (k * Math.PI) / 3;
-      const hx = -6 + Math.cos(a) * 6.5, hy = Math.sin(a) * 6.5;
-      if (k === 0) ctx.moveTo(hx, hy); else ctx.lineTo(hx, hy);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.beginPath();
-    for (let k = 0; k < 6; k++) {
-      const a = (k * Math.PI) / 3;
-      const hx = 4 + Math.cos(a) * 4.5, hy = Math.sin(a) * 4.5;
-      if (k === 0) ctx.moveTo(hx, hy); else ctx.lineTo(hx, hy);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(4, 0, 1.8, 0, Math.PI * 2);
-    ctx.fill();
+    const frame = lastLayout || layout();
+    const size = frame ? Math.max(6, Math.min(11, Math.min(frame.arena.width, frame.arena.height * 1.15) * .014)) : 8;
+    const lit = sp.phase === 'EXTRAER_DATOS' || (sp.phase === 'ARRASTRAR_A_RED' && sp.extractedPattern);
+    root.NCSpiderVisual.draw(ctx, { x: 0, y: 0, angle: sp.angle, size,
+      color: lit ? sp.color : '#bee8ff', core: lit ? sp.color : null,
+      phase: sp.legPhase, moving: !isReduced() && (sp.phase === 'IR_A_PALABRA' || sp.phase === 'EXTRAER_DATOS' || sp.phase === 'ARRASTRAR_A_RED' || sp.docking),
+      time: isReduced() ? 0 : animationTime / 1000 });
     ctx.restore();
   }
 
@@ -500,10 +495,11 @@
     lastFrameTime = now;
     const fpsEl = document.getElementById('stat-fps');
     if (fpsEl && Math.random() < .08) fpsEl.textContent = Math.min(60, fpsCounter);
-    if (canvas && (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight)) {
-      canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    if (canvas && (canvas.width !== Math.round(window.innerWidth * ratio) || canvas.height !== Math.round(window.innerHeight * ratio))) {
+      canvas.width = Math.round(window.innerWidth * ratio); canvas.height = Math.round(window.innerHeight * ratio);
     }
-    if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (ctx) { ctx.setTransform(ratio, 0, 0, ratio, 0, 0); ctx.clearRect(0, 0, window.innerWidth, window.innerHeight); }
     const frame = layout();
     syncViewport(frame);
     if (!paused && !document.hidden) {
@@ -596,7 +592,7 @@
     S.on('spider:queryVisual', ({ nodeIds }) => {
       const sp = spiders[spiders.length - 1] || spiders[0];
       if (!sp) return;
-      shockwaves.push({ x: sp.x, y: sp.y, r: 6, maxR: 54, color: '#fbbf24', alpha: 1 });
+      if (!isReduced() && !paused) shockwaves.push({ x: sp.x, y: sp.y, r: 6, maxR: 54, color: '#fbbf24', alpha: 1 });
       const hub = root.NeuralGraph.getHubScreenPos(sp.cluster);
       sp.targetPos = hub;
       sp.angle = Math.atan2(hub.y - sp.y, hub.x - sp.x);
@@ -616,6 +612,6 @@
     }, 45000);
   }
 
-  root.SpiderEngine = { init, setSpiderCount, AGENT_SPECS, microBrains, reloadMicroBrains: initMicroBrains,
+  root.SpiderEngine = { init, setSpiderCount, dispatchFromNetwork, AGENT_SPECS, microBrains, reloadMicroBrains: initMicroBrains,
     getStatus: () => ({ paused, spiders: spiders.map(({ id, role, cluster, phase, x, y, scanIndex, targetSentence }) => ({ id, role, cluster, phase, x, y, scanIndex, sentenceId: targetSentence?.id || null })) }) };
 })(typeof window !== 'undefined' ? window : globalThis);

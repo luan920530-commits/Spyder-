@@ -66,6 +66,10 @@
       set('stat-sentences', total);
       set('stat-harvested', harvested);
       set('stat-spiders', `${status.spiders.length}/5`);
+      set('swarm-count', status.spiders.length);
+      set('swarm-reading', status.paused ? 0 : status.spiders.filter(sp => sp.phase === 'EXTRAER_DATOS').length);
+      set('swarm-harvested', harvested);
+      set('swarm-patterns', patterns.length);
       set('stat-nodes', S.state.nodes.filter(n => !n.isHub).length);
       set('stat-patterns', patterns.length);
       set('ticker-hashes', `${patterns.length} PATRONES`);
@@ -103,7 +107,7 @@
     }
     let queued = false;
     const schedule = () => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; update(); }); } };
-    ['doc:added','doc:removed','doc:pageChanged','node:added','node:removed','harvest:progress','spiders:count','spiders:paused','system:reset','brain:imported'].forEach(event => S.on(event, schedule));
+    ['doc:added','doc:removed','doc:pageChanged','node:added','node:removed','harvest:progress','spiders:count','spiders:paused','spiders:dispatched','spider:scanStart','spider:extracted','spider:delivered','system:reset','brain:imported'].forEach(event => S.on(event, schedule));
     S.on('system:reset', () => { history.length = 0; sample(); });
     const clock = () => set('system-clock', new Date().toLocaleTimeString('es-CO', { hour12: false }));
     update(); sample(); clock();

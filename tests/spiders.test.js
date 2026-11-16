@@ -28,8 +28,8 @@ function makeHarness() {
   w.requestAnimationFrame = cb => { callbacks.push(cb); return callbacks.length; };
   w.setInterval = () => 1;
   w.matchMedia = () => ({ matches: true }); // modo accesible: fases sin movimiento prolongado
-  const ctx = { measureText: text => ({ width: String(text).length * 6 }) };
-  ['arc', 'beginPath', 'clearRect', 'clip', 'closePath', 'fill', 'fillRect', 'fillText', 'lineTo', 'moveTo', 'rect', 'restore', 'rotate', 'save', 'scale', 'stroke', 'strokeRect', 'translate'].forEach(name => { ctx[name] = () => {}; });
+  const ctx = { measureText: text => ({ width: String(text).length * 6 }), createRadialGradient: () => ({ addColorStop() {} }) };
+  ['arc', 'beginPath', 'clearRect', 'clip', 'closePath', 'ellipse', 'fill', 'fillRect', 'fillText', 'lineTo', 'moveTo', 'rect', 'restore', 'rotate', 'save', 'scale', 'setLineDash', 'setTransform', 'stroke', 'strokeRect', 'translate'].forEach(name => { ctx[name] = () => {}; });
   w.HTMLCanvasElement.prototype.getContext = () => ctx;
 
   const sentences = [
@@ -54,7 +54,7 @@ function makeHarness() {
   w.NeuralGraph = { getHubScreenPos: () => { const r = rect(shape.arena); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, highlightPath() {} };
   w.KimiAuxModel = { trainOnPattern() {} };
   w.NCMemory = { vaultAdd() {}, consolidate() {} };
-  for (const name of ['util', 'spider-paths', 'spiders']) w.eval(fs.readFileSync(path.join(root, 'js', name + '.js'), 'utf8'));
+  for (const name of ['util', 'spider-visual', 'spider-paths', 'spiders']) w.eval(fs.readFileSync(path.join(root, 'js', name + '.js'), 'utf8'));
   w.SpiderEngine.init();
   function tick(count = 1, step = 50) {
     for (let i = 0; i < count; i++) {
@@ -151,5 +151,74 @@ test('desplazamiento y redimensionado mantienen posiciones vinculadas al panel',
     const resized = h.w.SpiderEngine.getStatus().spiders[0];
     const expectedX = h.shape.doc.left + (before.x - 10) / 300 * 450;
     assert.ok(Math.abs(resized.x - expectedX) < .01);
+  } finally { h.dom.window.close(); }
+});
+
+test('despacho desde la red reserva pasajes reales sin interrumpir ni duplicar tareas', () => {
+  const h = makeHarness();
+  try {
+    h.w.SpiderEngine.setSpiderCount(2);
+    const result = h.w.SpiderEngine.dispatchFromNetwork({ cluster: 'AGT-02', x: 500, y: 250 });
+    assert.equal(result.sent, 2);
+    assert.equal(result.reason, 'sent');
+    const assigned = h.w.SpiderEngine.getStatus().spiders;
+    assert.equal(assigned[1].phase, 'IR_A_PALABRA', 'se prioriza la especialidad elegida cuando está libre');
+    assert.equal(new Set(assigned.map(sp => sp.sentenceId)).size, 2);
+    assert.equal(h.store.state.claimedTargets.size, 2);
+    const again = h.w.SpiderEngine.dispatchFromNetwork({ cluster: 'AGT-01' });
+    assert.equal(again.sent, 0);
+    assert.equal(again.reason, 'busy');
+    assert.deepEqual(h.w.SpiderEngine.getStatus().spiders, assigned);
+    h.tick(8);
+    assert.equal(h.store.state.patterns.length, 2);
+    assert.equal(new Set(h.store.state.patterns.map(pattern => pattern.sentenceId)).size, 2);
+    assert.equal(h.store.state.claimedTargets.size, 0);
+    assert.equal(h.w.SpiderEngine.dispatchFromNetwork().reason, 'complete');
+  } finally { h.dom.window.close(); }
+});
+
+test('el despacho respeta pausa, AUTO, navegación retenida y ausencia de texto', () => {
+  const h = makeHarness();
+  try {
+    h.w.document.getElementById('btn-toggle-spiders').click();
+    assert.equal(h.w.SpiderEngine.dispatchFromNetwork().reason, 'paused');
+    assert.equal(h.store.state.claimedTargets.size, 0);
+    h.w.document.getElementById('btn-toggle-spiders').click();
+    h.store.state.allSentences = [{ id: 'page2', docId: 'd1', pageNum: 2, text: 'Un pasaje de otra página.' }];
+    h.w.document.getElementById('chk-auto-page').checked = false;
+    assert.equal(h.w.SpiderEngine.dispatchFromNetwork().reason, 'unavailable');
+    assert.equal(h.store.state.activePage, 1);
+    h.w.document.getElementById('chk-auto-page').checked = true;
+    h.store.state.autoNavigationPausedUntil = Date.now() + 30000;
+    assert.equal(h.w.SpiderEngine.dispatchFromNetwork().reason, 'unavailable');
+    assert.equal(h.store.state.claimedTargets.size, 0);
+    h.store.state.autoNavigationPausedUntil = 0;
+    assert.equal(h.w.SpiderEngine.dispatchFromNetwork().sent, 1);
+    assert.equal(h.store.state.activePage, 2);
+    assert.equal(h.store.state.claimedTargets.has('page2'), true);
+    h.store.state.activePage = 1;
+    h.store.emit('doc:pageChanged', { docId: 'd1', pageNum: 1 });
+    assert.equal(h.store.state.claimedTargets.size, 0);
+    h.store.state.allSentences = [];
+    assert.equal(h.w.SpiderEngine.dispatchFromNetwork().reason, 'no-document');
+  } finally { h.dom.window.close(); }
+});
+
+test('cada gesto despacha como máximo tres arañas libres y conserva los claims previos', () => {
+  const h = makeHarness();
+  try {
+    h.store.state.allSentences = Array.from({ length: 6 }, (_, i) => ({
+      id: 'real-' + i, docId: 'd1', docName: 'd.txt', pageNum: 1, text: 'Un pasaje auténtico número ' + i
+    }));
+    h.w.SpiderEngine.setSpiderCount(5);
+    assert.equal(h.w.SpiderEngine.dispatchFromNetwork({ cluster: 'AGT-03' }).sent, 3);
+    const first = h.w.SpiderEngine.getStatus().spiders.filter(sp => sp.sentenceId);
+    assert.equal(first.length, 3);
+    assert.ok(first.some(sp => sp.cluster === 'AGT-03'));
+    assert.equal(h.w.SpiderEngine.dispatchFromNetwork({ cluster: 'AGT-02' }).sent, 2);
+    const all = h.w.SpiderEngine.getStatus().spiders;
+    assert.equal(new Set(all.map(sp => sp.sentenceId)).size, 5);
+    assert.equal(h.store.state.claimedTargets.size, 5);
+    first.forEach(previous => assert.equal(all.find(sp => sp.id === previous.id).sentenceId, previous.sentenceId));
   } finally { h.dom.window.close(); }
 });

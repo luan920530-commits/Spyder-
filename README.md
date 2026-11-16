@@ -21,7 +21,8 @@ El modelo `all-MiniLM-L6-v2` es un encoder de embeddings de 384 dimensiones, ent
 
 ## Qué incluye
 
-- **Arañas:** recorren el texto visible, destacan sus palabras y transportan una cápsula con el fragmento al nodo correspondiente. Se coordinan para no escanear el mismo pasaje; los controles de pausa, número de arañas y páginas permanecen disponibles. Con movimiento reducido, las transiciones se simplifican.
+- **Arañas:** de una a cinco arañas articuladas recorren el texto visible, destacan sus palabras y transportan una cápsula con el fragmento al nodo correspondiente. Se coordinan para no escanear el mismo pasaje; los controles de pausa, número de arañas y páginas permanecen disponibles.
+- **Red interactiva:** la reina NC-00 y su telaraña son elementos visuales; las partículas y destellos no son datos cosechados. Mueve el puntero para explorar y haz clic o pulsa Enter sobre la red para enviar hasta tres arañas libres a pasajes reales, sin interrumpir sus tareas. Los nodos de conceptos mantienen su inspector y sus citas. Pausa o activa **Reducir animaciones** en Ajustes para detener o simplificar el movimiento.
 - **Recuperación híbrida:** índice invertido BM25, normalización y raíces en español, bigramas, corrección básica de erratas, diversificación MMR y una proyección vectorial local combinada mediante RRF y coseno. Con el modelo opcional se añade un ranking de embeddings ONNX. Filtros: `=doc:nombre`, `=pag:2`, `"frase exacta"` y `-excluir`.
 - **Respuestas con fuentes:** modos automático, resumen, examen, socrático, crítico y redacción. Se puede abrir cada cita en el documento y valorar la respuesta para ajustar la prioridad del primer pasaje. El modo crítico señala *posibles* discrepancias, no pruebas definitivas.
 - **Estudio:** guía editable, tarjetas con repetición espaciada (Leitner/SM-2 simplificado), exportación CSV para Anki, quiz con puntuación y temporizador opcional, bóveda de conocimiento y evaluación del corpus.

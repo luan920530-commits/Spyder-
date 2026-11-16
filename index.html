@@ -27,6 +27,7 @@
   <script defer src="js/rag.js"></script>
   <script defer src="js/kimi-aux-model.js"></script>
   <script defer src="js/viewer.js"></script>
+  <script defer src="js/spider-visual.js"></script>
   <script defer src="js/neural-graph.js"></script>
   <script defer src="js/spider-paths.js"></script>
   <script defer src="js/spiders.js"></script>
@@ -94,9 +95,13 @@
     </aside>
 
     <section id="panel-arena" class="hud-panel arena-panel" aria-label="Red de conocimiento">
-      <div id="arena-stage" class="arena-stage">
+      <div id="arena-stage" class="arena-stage" role="group" tabindex="0" aria-label="Red de conocimiento interactiva" aria-describedby="swarm-help">
         <canvas id="core-3d-canvas" aria-hidden="true"></canvas>
         <svg id="neural-svg" role="group" aria-label="Grafo de conceptos cosechados"></svg>
+        <div class="swarm-hud" aria-hidden="true"><strong>◇ ENJAMBRE · REINA NC-00</strong><span>ARAÑAS <b id="swarm-count">1</b> · LEYENDO <b id="swarm-reading">0</b></span><span>COSECHADOS <b id="swarm-harvested">0</b> · PATRONES <b id="swarm-patterns">0</b></span></div>
+        <div id="swarm-help" class="swarm-hint">MUEVE · EXPLORA LA RED<br>CLIC O ENTER · ENVIAR ARAÑAS AL TEXTO</div>
+        <div id="swarm-tip" class="swarm-tip hidden" aria-hidden="true"></div>
+        <p id="swarm-feedback" class="swarm-feedback" role="status" aria-live="polite"></p>
         <div id="graph-fallback" class="graph-fallback hidden"></div>
         <div class="arena-corner top-left"></div><div class="arena-corner top-right"></div><div class="arena-corner bottom-left"></div><div class="arena-corner bottom-right"></div>
         <div class="arena-tools" aria-label="Filtrar conceptos">
@@ -110,7 +115,7 @@
         <div class="orbit-icon icon-def" aria-hidden="true">✳</div>
         <div class="orbit-icon icon-causal" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M20 4 37 34H3Z"/><path d="M9 28h22"/></svg></div>
         <div class="orbit-label label-causal"><span class="orbit-name">AGT-02 · CAUSAL</span><span class="orbit-state" data-orbit="AGT-02">EN ESPERA</span></div>
-        <div class="network-tag">DOCUMENTO · TEXTO</div>
+        <div class="network-tag"><span>♛ REINA · DOCUMENTO</span><small>NC-00 · COORDINADORA VISUAL</small></div>
         <div class="core-label"><span>NEURAL CORE</span><small>índice local · conocimiento</small></div>
         <div class="orbit-label label-synth"><span class="orbit-name">AGT-04 · SÍNTESIS</span><span class="orbit-state" data-orbit="AGT-04">EN ESPERA</span></div>
         <div class="orbit-icon icon-synth" aria-hidden="true">✣</div>

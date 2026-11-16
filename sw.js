@@ -1,5 +1,5 @@
 /* Shell y dependencias empaquetadas: instalación atómica, sin CDN. */
-const CACHE_NAME = 'neural-spider-os-v11-8';
+const CACHE_NAME = 'neural-spider-os-v11-9';
 const MODEL_CACHE = 'neural-spider-model-v1';
 const ASSETS = [
   './', './index.html', './manifest.json', './css/hud.css',
@@ -10,7 +10,7 @@ const ASSETS = [
   './vendor/pdfjs/pdf.min.mjs', './vendor/pdfjs/pdf.worker.min.mjs',
   './js/util.js', './js/retrieval.js', './js/analysis.js', './js/srs.js', './js/db.js',
   './js/embeddings.js', './js/store.js', './js/local-model.js', './js/onnx-worker.js', './js/parsers.js', './js/memory.js', './js/providers.js',
-  './js/rag.js', './js/kimi-aux-model.js', './js/viewer.js', './js/neural-graph.js', './js/spiders.js',
+  './js/rag.js', './js/kimi-aux-model.js', './js/viewer.js', './js/spider-visual.js', './js/neural-graph.js', './js/spiders.js',
   './js/spider-paths.js', './js/eval.js', './js/brain-rag.js', './js/study-bots.js', './js/app.js'
 ];
 self.addEventListener('install', event => {

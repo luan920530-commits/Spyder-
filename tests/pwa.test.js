@@ -41,6 +41,7 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
   assert.ok(manifest.icons.some(icon => icon.sizes === '512x512'));
   for (const icon of manifest.icons) assert.ok(assets.includes('./' + icon.src));
   assert.ok(assets.includes('./vendor/pdfjs/pdf.worker.min.mjs'));
+  assert.ok(assets.includes('./js/spider-visual.js'), 'la silueta compartida debe estar disponible sin conexión');
   assert.ok(assets.includes('./js/onnx-worker.js'));
   assert.ok(!assets.some(asset => asset.startsWith('./models/minilm/') || asset.startsWith('./vendor/transformers/')), 'los pesos no deben descargarse al instalar el shell');
   for (const font of ['jetbrains-mono-latin-400-normal.woff2', 'jetbrains-mono-latin-600-normal.woff2', 'chakra-petch-latin-500-normal.woff2', 'chakra-petch-latin-700-normal.woff2']) assert.ok(assets.includes('./vendor/fonts/' + font));
