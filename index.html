@@ -24,6 +24,9 @@
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"
     onload="window.__CDN_STATUS.tesseract = true"
     onerror="console.warn('[OFFLINE] Tesseract CDN no disponible.')"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"
+    onload="window.__CDN_STATUS.sqljs = true"
+    onerror="console.warn('[OFFLINE] sql.js CDN no disponible, usando IndexedDB.')"></script>
 </head>
 <body>
   <!-- TOP HUD BAR -->
@@ -193,6 +196,7 @@
           <button class="bot-btn active" data-bot="guide">📘 Guía</button>
           <button class="bot-btn" data-bot="flashcards">🃏 Flashcards</button>
           <button class="bot-btn" data-bot="quiz">📝 Quiz</button>
+          <button class="bot-btn" data-bot="sqlite">🗄️ SQLite</button>
           <button class="bot-btn" data-bot="export">📦 .ZIP</button>
         </div>
         <div id="bot-stage" class="bot-stage"></div>

@@ -100,6 +100,57 @@
           }
         });
       });
+    } else if (activeBot === 'sqlite') {
+      const patterns = store.state.patterns;
+      stage.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <span style="color:var(--cyan); font-size:11px;">🗄️ Base de Datos SQLite (${patterns.length} registros)</span>
+          <button class="btn-mini" id="btn-dl-sqlite">⬇ .sqlite</button>
+        </div>
+        <div style="display:flex; gap:4px; margin-bottom:6px;">
+          <input id="sql-query" value="SELECT cluster, label, pageNum FROM patterns LIMIT 10;" style="flex:1; background:var(--bg-void); border:1px solid var(--border-hud); color:var(--text-main); padding:4px 6px; font-family:var(--font-mono); font-size:10.5px; border-radius:3px;" />
+          <button class="btn-mini" id="btn-run-sql">▶ SQL</button>
+        </div>
+        <pre id="sql-result" style="background:var(--bg-void); border:1px solid rgba(255,255,255,0.08); padding:6px; border-radius:4px; font-size:10px; max-height:190px; overflow:auto; color:#cbd5e1;">Pulsa ▶ SQL para consultar los patrones en SQLite.</pre>
+      `;
+
+      const getDb = async () => {
+        if (!window.initSqlJs) return null;
+        const SQL = await window.initSqlJs({ locateFile: f => `https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/${f}` });
+        const db = new SQL.Database();
+        db.run('CREATE TABLE patterns (id INTEGER PRIMARY KEY AUTOINCREMENT, cluster TEXT, label TEXT, text TEXT, pageNum INTEGER);');
+        const stmt = db.prepare('INSERT INTO patterns (cluster, label, text, pageNum) VALUES (?, ?, ?, ?);');
+        patterns.forEach(p => stmt.run([p.cluster, p.label, p.text, p.pageNum || 1]));
+        stmt.free();
+        return db;
+      };
+
+      document.getElementById('btn-run-sql')?.addEventListener('click', async () => {
+        const out = document.getElementById('sql-result');
+        const q = document.getElementById('sql-query')?.value || '';
+        try {
+          const db = await getDb();
+          if (!db) {
+            out.textContent = JSON.stringify(patterns.slice(0, 10), null, 2);
+            return;
+          }
+          const res = db.exec(q);
+          out.textContent = res.length ? JSON.stringify(res[0], null, 2) : '(0 filas)';
+        } catch (err) {
+          out.textContent = 'Error SQL: ' + err.message;
+        }
+      });
+
+      document.getElementById('btn-dl-sqlite')?.addEventListener('click', async () => {
+        const db = await getDb();
+        if (!db) return alert('sql.js no disponible offline.');
+        const data = db.export();
+        const blob = new Blob([data], { type: 'application/x-sqlite3' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'neural_spider_knowledge.sqlite';
+        a.click();
+      });
     } else if (activeBot === 'export') {
       stage.innerHTML = `
         <p style="font-size:11.5px; color:var(--text-dim); margin-bottom:10px;">
