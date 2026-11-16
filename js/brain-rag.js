@@ -260,8 +260,11 @@
         fb.innerHTML = '<span style="color:var(--emerald);">✅ Reforzado (+XP en KimiAuxModel)</span>';
       });
       fb.querySelector('.btn-fb-down').addEventListener('click', e => {
-        if (window.KimiAuxModel) window.KimiAuxModel.trainOnPattern(plainText, -0.5);
-        fb.innerHTML = '<span style="color:var(--coral);">⚠️ Penalizado (pesos ajustados)</span>';
+        if (window.KimiAuxModel) {
+          window.KimiAuxModel.trainOnPattern(plainText, -0.5);
+          window.KimiAuxModel.recordNegativeEpisode(plainText);
+        }
+        fb.innerHTML = '<span style="color:var(--coral);">⚠️ Penalizado (Memoria Negativa actualizada)</span>';
       });
       div.appendChild(fb);
     }

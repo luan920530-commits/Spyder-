@@ -8,6 +8,8 @@
   const brain = {
     cooccurrence: {}, // { wordA: { wordB: weight } }
     markov: {},       // { wordA: { nextWord: weight } } para generación N-gram natural
+    negativeEpisodes: [], // Memoria negativa (EMK): patrones penalizados con 👎
+    episodes: [],         // Episodios maestros comprimidos por SleepCycle
     evolutionXP: 0,
     level: 1,
     totalInferences: 0
@@ -132,6 +134,36 @@
     };
   }
 
+  function recordNegativeEpisode(text) {
+    if (!text) return;
+    brain.negativeEpisodes.push(text.slice(0, 80).toLowerCase());
+    if (brain.negativeEpisodes.length > 30) brain.negativeEpisodes.shift();
+    save();
+  }
+
+  function runSleepCycle(nodes = []) {
+    // Compresión episódica (EMK): agrupa nodos por clúster y poda ruido de bajo peso
+    const byCluster = {};
+    nodes.filter(n => !n.isHub).forEach(n => {
+      if (!byCluster[n.cluster]) byCluster[n.cluster] = [];
+      byCluster[n.cluster].push(n);
+    });
+    brain.episodes = Object.entries(byCluster).map(([cluster, list]) => {
+      const top = list.sort((a, b) => (b.weight || 1) - (a.weight || 1)).slice(0, 3);
+      return { cluster, summary: top.map(t => t.label).join(' · '), count: list.length };
+    });
+    save();
+    return brain.episodes;
+  }
+
   load();
-  window.KimiAuxModel = { trainOnPattern, getAssociatedConcepts, generateNaturalText, reason, brain };
+  window.KimiAuxModel = {
+    trainOnPattern,
+    getAssociatedConcepts,
+    generateNaturalText,
+    reason,
+    recordNegativeEpisode,
+    runSleepCycle,
+    brain
+  };
 })();
