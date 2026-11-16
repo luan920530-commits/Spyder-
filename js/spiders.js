@@ -87,10 +87,8 @@
 
   function extractMultiWordPattern(sentenceText) {
     const words = sentenceText.trim().split(/\s+/).filter(Boolean);
-    if (words.length <= 4) return words.join(' ');
-    const len = Math.min(14, Math.max(4, Math.floor(words.length * 0.65)));
-    const start = Math.floor(Math.random() * Math.max(1, words.length - len));
-    return words.slice(start, start + len).join(' ');
+    if (words.length <= 14) return words.join(' ');
+    return words.slice(0, 14).join(' ') + '…';
   }
 
   function scoreSentenceForSpider(sp, text) {
@@ -311,57 +309,66 @@
     ctx.rotate(sp.angle);
     ctx.scale(1.35, 1.35);
 
-    // 8 patas angulares estilo emblema Spider-Man
-    ctx.strokeStyle = sp.color;
-    ctx.lineWidth = 1.7;
-    ctx.shadowColor = sp.color;
-    ctx.shadowBlur = 8;
+    // 8 patas largas finas multicolor con puntos luminosos en las puntas (estilo v8.0)
+    const legColors = ['#00f0ff', '#a855f7', '#f59e0b', '#10b981'];
+    ctx.lineWidth = 1.4;
     for (let side of [-1, 1]) {
       for (let i = 0; i < 4; i++) {
-        const isFront = i < 2;
-        const baseAngle = side * (isFront ? (0.35 + i * 0.28) : (1.75 + (i - 2) * 0.28));
-        const swing = Math.sin(sp.legPhase + i * 1.3 + (side > 0 ? 0 : Math.PI)) * 0.22;
-        const kx = Math.cos(baseAngle + swing) * (isFront ? 11 : 10);
-        const ky = Math.sin(baseAngle + swing) * (isFront ? 11 : 10);
-        const fx = Math.cos(baseAngle + swing * 1.2 + (isFront ? -0.35 : 0.35) * side) * (isFront ? 19 : 18);
-        const fy = Math.sin(baseAngle + swing * 1.2 + (isFront ? -0.35 : 0.35) * side) * (isFront ? 19 : 18);
+        const lc = legColors[i];
+        const baseAngle = side * (0.45 + i * 0.36);
+        const swing = Math.sin(sp.legPhase + i * 1.3 + (side > 0 ? 0 : Math.PI)) * 0.2;
+        const kx = Math.cos(baseAngle + swing) * 11;
+        const ky = Math.sin(baseAngle + swing) * 11;
+        const fx = Math.cos(baseAngle + swing * 1.2) * 21;
+        const fy = Math.sin(baseAngle + swing * 1.2) * 21;
+        ctx.strokeStyle = lc;
+        ctx.shadowColor = lc;
+        ctx.shadowBlur = 7;
         ctx.beginPath();
-        ctx.moveTo(isFront ? 2 : -3, 0);
+        ctx.moveTo(0, 0);
         ctx.lineTo(kx, ky);
         ctx.lineTo(fx, fy);
         ctx.stroke();
+        ctx.fillStyle = lc;
+        ctx.beginPath();
+        ctx.arc(fx, fy, 1.8, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
 
-    // Cuerpo angular icónico (cefalotórax + abdomen afilado)
+    // Abdomen hexagonal oscuro con borde neón blanco/cian
+    ctx.shadowColor = '#00f0ff';
+    ctx.shadowBlur = 8;
     ctx.fillStyle = '#05080f';
-    ctx.strokeStyle = sp.color;
-    ctx.lineWidth = 1.8;
-    // Abdomen en punta
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
-    ctx.moveTo(-1, 0);
-    ctx.lineTo(-6, -4.2);
-    ctx.lineTo(-12, 0);
-    ctx.lineTo(-6, 4.2);
+    for (let k = 0; k < 6; k++) {
+      const a = (k * Math.PI) / 3;
+      const hx = -6 + Math.cos(a) * 6.5;
+      const hy = Math.sin(a) * 6.5;
+      if (k === 0) ctx.moveTo(hx, hy); else ctx.lineTo(hx, hy);
+    }
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
-    // Cefalotórax frontal
+    // Cefalotórax hexagonal frontal
     ctx.beginPath();
-    ctx.moveTo(8, 0);
-    ctx.lineTo(3, -3.5);
-    ctx.lineTo(-1, 0);
-    ctx.lineTo(3, 3.5);
+    for (let k = 0; k < 6; k++) {
+      const a = (k * Math.PI) / 3;
+      const hx = 4 + Math.cos(a) * 4.5;
+      const hy = Math.sin(a) * 4.5;
+      if (k === 0) ctx.moveTo(hx, hy); else ctx.lineTo(hx, hy);
+    }
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
-    // Núcleo y ojos neón
+    // Núcleo central blanco brillante
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(5, -1.3, 1.0, 0, Math.PI * 2);
-    ctx.arc(5, 1.3, 1.0, 0, Math.PI * 2);
+    ctx.arc(4, 0, 1.8, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
 
