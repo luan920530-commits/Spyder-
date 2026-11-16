@@ -247,6 +247,7 @@
       if (sp.extractedPattern) {
         window.NeuralGraph.addPatternNode(sp.extractedPattern);
         learnFromPattern(sp, sp.extractedPattern.text, 1.0);
+        if (window.KimiAuxModel) window.KimiAuxModel.trainOnPattern(sp.extractedPattern.text, 1.0);
         shockwaves.push({ x: sp.x, y: sp.y, r: 4, maxR: 38, color: sp.color, alpha: 1 });
         sp.harvestedCount = (sp.harvestedCount || 0) + 1;
         const vocab = microBrains[sp.id]?.learnedTokens || 0;

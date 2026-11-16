@@ -221,9 +221,14 @@
       html += `<br/>💡 <strong>Memoria Consolidada:</strong> ${memHits.map(m => m.fact).join(' | ')}`;
     }
 
+    const aux = window.KimiAuxModel ? window.KimiAuxModel.reason(query) : null;
+    if (aux && aux.associated.length) {
+      html += `<br/>🧬 <strong>Inferencia Auxiliar (${aux.intent} · Nv.${aux.level}):</strong> Conceptos asociados por aprendizaje hebbiano: ${aux.associated.map(a => `<code>${a.word}</code>`).join(', ')}`;
+    }
+
     return {
       html,
-      trace: `Tools: BM25(${hits.length}) + SynapticPropagation2Hop(${matchedNodes.length} nodes) + CorePower(${corePower} pts)`,
+      trace: `Tools: BM25(${hits.length}) + Synaptic2Hop(${matchedNodes.length}) + AuxModel(Nv.${aux?.level || 1}, XP:${aux?.xp || 0}) + CorePower(${corePower})`,
       nodeIds: matchedNodes.map(n => n.id)
     };
   }
