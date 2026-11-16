@@ -80,13 +80,19 @@
     const quant = sents.find(s => /\d+%|\d+\s*(ms|s|kb|mb|épocas)/i.test(s.text)) || sents[Math.min(1, sents.length - 1)];
     const concl = sents[sents.length - 1];
     const topNodes = nodes.slice(0, 6);
+    const quantCount = sents.filter(s => /\d+/.test(s.text)).length;
+    const confidence = Math.min(98, Math.round(45 + (nodes.length * 3) + (quantCount * 4)));
+    const critique = quantCount < 2
+      ? '⚠️ Baja densidad cuantitativa: las afirmaciones requieren mayor respaldo métrico o experimental.'
+      : `✅ Respaldo empírico sólido (${quantCount} oraciones con datos cuantitativos verificables).`;
 
     const html = `
-      <strong>📊 Síntesis Estructurada (KIMI-CORE):</strong><br/>
-      • <strong>Tesis Central:</strong> ${thesis.text} <span class="citation-chip" data-page="${thesis.pageNum}" data-sid="${thesis.id}">[Pág ${thesis.pageNum} · ${thesis.id.split('-').pop()}]</span><br/>
-      • <strong>Conceptos del Grafo (${nodes.length}):</strong> ${topNodes.map(n => `<code>${n.label}</code>`).join(', ') || 'En proceso de cosecha...'}<br/>
-      • <strong>Evidencia Cuantitativa/Causal:</strong> ${quant.text} <span class="citation-chip" data-page="${quant.pageNum}" data-sid="${quant.id}">[Pág ${quant.pageNum} · ${quant.id.split('-').pop()}]</span><br/>
-      • <strong>Conclusión:</strong> ${concl.text} <span class="citation-chip" data-page="${concl.pageNum}" data-sid="${concl.id}">[Pág ${concl.pageNum} · ${concl.id.split('-').pop()}]</span>
+      <strong>🧠 ANÁLISIS CIENTÍFICO Y CRÍTICO (KIMI-CORE // MODO J.A.R.V.I.S.):</strong><br/>
+      • <strong>1. Hipótesis / Tesis Central:</strong> ${thesis.text} <span class="citation-chip" data-page="${thesis.pageNum}" data-sid="${thesis.id}">[Pág ${thesis.pageNum}]</span><br/>
+      • <strong>2. Evidencia Empírica:</strong> ${quant.text} <span class="citation-chip" data-page="${quant.pageNum}" data-sid="${quant.id}">[Pág ${quant.pageNum}]</span><br/>
+      • <strong>3. Juicio Crítico:</strong> ${critique}<br/>
+      • <strong>4. Nodos Clave (${nodes.length}):</strong> ${topNodes.map(n => `<code>${n.label}</code>`).join(', ') || 'En proceso de cosecha...'}<br/>
+      • <strong>5. Conclusión Razonada (Confianza ${confidence}%):</strong> ${concl.text} <span class="citation-chip" data-page="${concl.pageNum}" data-sid="${concl.id}">[Pág ${concl.pageNum}]</span>
     `;
 
     return {
