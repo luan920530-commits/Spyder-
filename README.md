@@ -10,6 +10,16 @@ python3 -m http.server 8080
 
 Abre `http://localhost:8080`, carga un archivo, pega apuntes o pulsa **Demo**. Usa **Asistente** y **Estudio** en la barra superior para abrir el chat y las herramientas sin salir del panel. La aplicación no necesita npm para ejecutarse. Una vez completada la instalación del service worker, la interfaz y sus librerías básicas funcionan sin conexión. El funcionamiento sin conexión y el modelo opcional requieren HTTPS o localhost, almacenamiento disponible y un navegador compatible.
 
+### Conversar con un personaje
+
+1. Abre **Asistente** y elige **Conversación · personaje** en el selector de modo.
+2. Sube el PDF de una novela o elige un libro ya cargado; también admite EPUB, TXT, Markdown y DOCX. Escribe el nombre del personaje tal como aparece en el texto extraído.
+3. Saluda, pregunta por un tema de la obra o usa **Háblame de ti** y **¿Y después?**. Si hay un pasaje relacionado, su cita abre la página del libro; la continuación recorre el texto desde la última cita del mismo personaje y libro.
+
+Es una alternativa pequeña de **reglas y fragmentos literales**, no un LLM ni un modelo entrenado con tu libro. Busca menciones del nombre y palabras cercanas solo en el libro elegido; puede no comprender una pregunta, confundir el contexto o revelar spoilers. Un pasaje puede ser narración o palabras de otra persona, no necesariamente diálogo del personaje. No promete imitar su personalidad ni sustituye una conversación generativa. Un PDF sin texto extraíble no se puede usar sin OCR.
+
+Las respuestas de acompañamiento y crisis son frases básicas activadas por reglas muy limitadas: pueden pasar por alto situaciones importantes y no sustituyen ayuda profesional o de emergencia. El libro, el nombre y el historial se guardan en este navegador cuando hay almacenamiento disponible y pueden incluirse en respaldos JSON. **BORRAR** elimina todo el historial del chat, no los libros; quitar un libro tampoco elimina las citas que ya quedaron en el historial. Para retirar ambos, borra el chat y el libro o usa el reset completo. Los archivos de respaldo/exportación que hayas guardado aparte no se borran automáticamente.
+
 ### Modelo semántico opcional
 
 1. Pulsa **MODELO** y después **DESCARGAR Y ACTIVAR**. Se descargan aproximadamente **42 MiB (44 MB)** desde la misma instalación de la aplicación, no desde un CDN ni una API de IA. El shell no descarga esos archivos automáticamente.
@@ -22,9 +32,9 @@ El modelo `all-MiniLM-L6-v2` es un encoder de embeddings de 384 dimensiones, ent
 ## Qué incluye
 
 - **Arañas:** de una a cinco arañas articuladas recorren el texto visible, destacan sus palabras y transportan una cápsula con el fragmento al nodo correspondiente. Cuando no hay análisis activo, pasean por la pantalla y tejen telarañas efímeras puramente decorativas; estas no crean patrones, reservas ni métricas. El análisis real tiene prioridad. La pausa y el movimiento reducido detienen el paseo.
-- **Red interactiva:** la reina NC-00 y su telaraña son elementos visuales; las partículas y destellos no son datos cosechados. Mueve el puntero para explorar y haz clic o pulsa Enter sobre la red para enviar hasta tres arañas libres a pasajes reales, sin interrumpir sus tareas. Los nodos de conceptos mantienen su inspector y sus citas. Pausa o activa **Reducir animaciones** en Ajustes para detener o simplificar el movimiento.
+- **Red interactiva:** la reina NC-00 mueve sus patas como si tejiera y emite una onda al asignarse trabajo real; los destellos apuntan únicamente a las arañas de ese despacho. La reina, la telaraña y las partículas son elementos visuales, no datos cosechados. Mueve el puntero para explorar y haz clic o pulsa Enter sobre la red para enviar hasta tres arañas libres a pasajes reales, sin interrumpir sus tareas. Los nodos de conceptos mantienen su inspector y sus citas. Pausa o activa **Reducir animaciones** en Ajustes para detener o simplificar el movimiento.
 - **Recuperación híbrida:** índice invertido BM25, normalización y raíces en español, bigramas, corrección básica de erratas, diversificación MMR y una proyección vectorial local combinada mediante RRF y coseno. Con el modelo opcional se añade un ranking de embeddings ONNX. Filtros: `=doc:nombre`, `=pag:2`, `"frase exacta"` y `-excluir`.
-- **Respuestas con fuentes:** modos automático, resumen, examen, socrático, crítico y redacción. Se puede abrir cada cita en el documento y valorar la respuesta para ajustar la prioridad del primer pasaje. El modo crítico señala *posibles* discrepancias, no pruebas definitivas.
+- **Respuestas con fuentes:** modos automático, resumen, examen, socrático, crítico, redacción y conversación por personaje. Se puede abrir cada cita en el documento; en los modos de estudio, las valoraciones ajustan la prioridad del primer pasaje. El modo crítico señala *posibles* discrepancias, no pruebas definitivas.
 - **Estudio:** guía editable, tarjetas con repetición espaciada (Leitner/SM-2 simplificado), exportación CSV para Anki, quiz con puntuación y temporizador opcional, bóveda de conocimiento y evaluación del corpus.
 - **Persistencia:** documentos indexados, grafo, memoria, conversación, valoraciones y progreso en IndexedDB, con respaldo JSON e importación validada. Si IndexedDB no está disponible se intenta usar localStorage, sujeto a su cuota. Los datos pertenecen al navegador y al origen desde el que se abrió la aplicación; exporta un respaldo antes de limpiar sus datos.
 - **Formatos:** texto, Markdown, código, CSV, SRT/VTT, HTML, PDF con texto, DOCX, PPTX, XLSX y EPUB. PDF.js, Mammoth, JSZip y D3 están empaquetados localmente.

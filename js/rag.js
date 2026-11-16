@@ -13,10 +13,11 @@
   const A = root.NCAnalysis || {};
   const P = root.NCProviders || {};
   const M = root.NCMemory || {};
-  const api = factory(U, R, A, P, M);
+  const C = root.NCCharacter || ((typeof require === 'function' && typeof module !== 'undefined') ? require('./character.js') : {});
+  const api = factory(U, R, A, P, M, C);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.NCRag = Object.assign(root.NCRag || {}, api);
-})(typeof window !== 'undefined' ? window : globalThis, function (U, R, A, P, M) {
+})(typeof window !== 'undefined' ? window : globalThis, function (U, R, A, P, M, C) {
   'use strict';
 
   const MAX_CONTEXT_CHARS = 7000;
@@ -304,6 +305,19 @@
     const q = String(question || '').trim();
     if (!q) return emptyResult(q);
 
+    // El modo personaje no ejecuta comandos de memoria ni usa otros documentos
+    // o el encoder opcional: solo las reglas y el libro elegido explícitamente.
+    const requestedMode = o.mode || (S ? S.getSetting('mode', 'auto') : 'auto');
+    if (requestedMode === 'conversacion') {
+      const docId = o.characterDocId ?? (S ? S.getSetting('characterDocId', '') : '');
+      const name = o.characterName ?? (S ? S.getSetting('characterName', '') : '');
+      const doc = S?.state.docs.find(item => item.id === docId) || null;
+      const reply = C.respond({ question: q, name, doc, index: S?.state.index, history: S?.state.chat || [] });
+      return finalize({ question: q, text: reply.text, provider: 'internal', model: 'personaje por reglas',
+        mode: 'conversacion', chunks: reply.chunks, citations: reply.citations, intent: reply.intent,
+        character: reply.character, characterReply: reply.reply, t0, S });
+    }
+
     const intent = detectIntent(q);
 
     // 1. Comandos directos
@@ -474,6 +488,8 @@
       trace,
       intent: p.intent,
       fallback: !!p.fallback,
+      character: p.character || null,
+      characterReply: p.characterReply || null,
       nodeIds: (p.graphNodes || []).map(n => n.id),
       vaultIds: (p.vaultHits || []).map(v => v.id),
       fewShots: p.fewShots || [],
@@ -485,6 +501,7 @@
       S.state.chat.push({
         id: U.uid('msg'), role: 'assistant', question: p.question, text: p.text,
         mode: p.mode, provider: p.provider, citations: p.citations, sources, trace,
+        character: result.character, characterReply: result.characterReply,
         nodeIds: result.nodeIds, vaultIds: result.vaultIds, latencyMs: result.latencyMs, at: result.at
       });
       if (S.state.chat.length > 200) S.state.chat.shift();

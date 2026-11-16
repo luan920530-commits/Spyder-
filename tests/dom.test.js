@@ -5,7 +5,7 @@ const path = require('node:path');
 const { JSDOM, VirtualConsole } = require('jsdom');
 const { IDBFactory } = require('fake-indexeddb');
 const root = path.join(__dirname, '..');
-const scripts = ['util', 'retrieval', 'analysis', 'srs', 'db', 'embeddings', 'store', 'local-model', 'parsers', 'memory', 'providers', 'rag', 'kimi-aux-model', 'viewer', 'spider-visual', 'neural-graph', 'spider-paths', 'spiders', 'eval', 'brain-rag', 'study-bots', 'app'];
+const scripts = ['util', 'retrieval', 'analysis', 'srs', 'db', 'embeddings', 'store', 'local-model', 'parsers', 'memory', 'providers', 'character', 'rag', 'kimi-aux-model', 'viewer', 'spider-visual', 'neural-graph', 'spider-paths', 'spiders', 'eval', 'brain-rag', 'study-bots', 'app'];
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(fn, timeout = 4000) {
   const end = Date.now() + timeout;
@@ -18,7 +18,7 @@ function canvasContext() {
   ['arc', 'beginPath', 'bezierCurveTo', 'quadraticCurveTo', 'clearRect', 'clip', 'closePath', 'ellipse', 'fill', 'fillRect', 'fillText', 'lineTo', 'moveTo', 'rect', 'restore', 'rotate', 'save', 'scale', 'setLineDash', 'setTransform', 'stroke', 'strokeRect', 'translate'].forEach(name => { ctx[name] = () => {}; });
   return ctx;
 }
-async function createApp(indexedDB, withD3 = false) {
+async function createApp(indexedDB, withD3 = false, reducedMotion = true) {
   const errors = [];
   const vc = new VirtualConsole();
   vc.on('jsdomError', e => errors.push(e.message));
@@ -27,7 +27,7 @@ async function createApp(indexedDB, withD3 = false) {
   });
   const w = dom.window;
   Object.defineProperty(w, 'indexedDB', { value: indexedDB, configurable: true });
-  w.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });
+  w.matchMedia = () => ({ matches: reducedMotion, addEventListener() {}, removeEventListener() {} });
   w.confirm = () => true;
   w.URL.createObjectURL = () => 'blob:https://local.test/fake';
   w.URL.revokeObjectURL = () => {};
@@ -293,6 +293,241 @@ test('los errores de ingesta y avisos parciales se leen completos sin ejecutar c
     assert.ok(answer.sources.some(source => source.sentenceId === 'pdf-s1' && source.sourcePage === 3 && source.pageNum === 1));
     S.setActivePage(1);
     await until(() => notice.textContent.includes('Lectura parcial'));
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('modo personaje guía la configuración, limita fuentes al libro y recuerda la posición local', async () => {
+  const db = new IDBFactory();
+  const first = await createApp(db), { w } = first;
+  try {
+    const S = w.NeuralStore;
+    S.setSetting('autoHarvest', false);
+    w.document.querySelector('[data-workspace="chat"]').click();
+    const mode = w.document.getElementById('mode-select');
+    mode.value = 'conversacion'; mode.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert.equal(w.document.getElementById('character-setup').classList.contains('hidden'), false);
+    assert.match(w.document.getElementById('character-setup').textContent, /sube el PDF de un libro/i);
+    assert.equal(w.document.getElementById('study-quick-actions').classList.contains('hidden'), true);
+    assert.equal(w.document.getElementById('character-quick-actions').classList.contains('hidden'), false);
+    let answer = await w.BrainRAG.send('Hola');
+    assert.equal(answer.intent, 'setup');
+    assert.match(answer.text, /sube un libro/i);
+    S.addDocument({ id: 'novela', name: 'novela.pdf', type: 'pdf', pages: [
+      { pageNum: 1, sourcePage: 2, text: 'Luna guardó la llave azul. Después abrió la puerta.', sentences: [
+        { id: 'n1', sourcePage: 2, text: 'Luna guardó la llave azul en una caja.' },
+        { id: 'n2', sourcePage: 2, text: 'Después abrió la puerta del jardín.' },
+        { id: 'n3', sourcePage: 2, text: 'Luna guarda evidencia <img src=x onerror="window.pwned=1"> [7] de su viaje.' }
+      ] }
+    ] });
+    S.addDocument({ id: 'novela-extra', name: 'otro.pdf', type: 'pdf', pages: [
+      { pageNum: 1, sourcePage: 1, text: 'Luna guardó una llave roja.', sentences: [{ id: 'o1', sourcePage: 1, text: 'Luna guardó la llave roja en otro universo.' }] }
+    ] });
+    const book = w.document.getElementById('character-book');
+    assert.equal(book.options.length, 3);
+    book.value = 'novela'; book.dispatchEvent(new w.Event('change', { bubbles: true }));
+    const name = w.document.getElementById('character-name');
+    name.value = 'Luna'; name.dispatchEvent(new w.Event('input', { bubbles: true }));
+    assert.match(w.document.getElementById('character-status').textContent, /Listo/);
+    answer = await w.BrainRAG.send('¿Qué hizo con la llave?');
+    assert.equal(answer.mode, 'conversacion');
+    assert.equal(answer.sources.length, 1);
+    assert.equal(answer.sources[0].docId, 'novela');
+    assert.equal(answer.sources[0].sourcePage, 2);
+    assert.match(answer.text, /llave azul/);
+    assert.doesNotMatch(answer.text, /llave roja/);
+    const cite = [...w.document.querySelectorAll('.msg-ai')].at(-1).querySelector('.character-excerpt .cite-ref');
+    assert.ok(cite); cite.click();
+    assert.equal(S.state.activeDocId, 'novela');
+    assert.equal(S.state.activePage, 1);
+    assert.ok(S.state.autoNavigationPausedUntil > Date.now());
+    answer = await w.BrainRAG.send('¿Y después?');
+    assert.equal(answer.sources[0].sentenceId, 'n2');
+    assert.match(answer.text, /puerta del jardín/);
+
+    const beforeVault = S.state.vault.length, beforeFeedback = S.state.feedback.length;
+    answer = await w.BrainRAG.send('Me siento sola y necesito hablar');
+    assert.equal(answer.intent, 'emotional');
+    assert.equal(answer.sources.length, 0);
+    assert.equal(S.state.vault.length, beforeVault);
+    assert.equal(S.state.feedback.length, beforeFeedback);
+    assert.equal([...w.document.querySelectorAll('.msg-ai')].at(-1).querySelector('[aria-label="Respuesta útil"]'), null);
+    answer = await w.BrainRAG.send('Aprende que un secreto es íntimo');
+    assert.equal(S.state.consolidatedMemory.length, 0, 'conversación no ejecuta el comando de memoria');
+    answer = await w.BrainRAG.send('evidencia');
+    const rendered = [...w.document.querySelectorAll('.msg-ai')].at(-1);
+    assert.match(rendered.querySelector('.character-excerpt').textContent, /<img/);
+    assert.match(rendered.querySelector('.character-excerpt').textContent, /\[7\]/);
+    assert.equal(rendered.querySelectorAll('.character-excerpt .cite-ref').length, 1, 'los corchetes del libro no son citas');
+    assert.equal(w.document.querySelectorAll('img[src="x"]').length, 0);
+    assert.equal(w.pwned, undefined);
+    assert.deepEqual(first.errors, []);
+    const backup = await S.exportBrain();
+    assert.equal(backup.data.settings.characterDocId, 'novela');
+    assert.ok(backup.data.chat.some(entry => entry.question === 'Me siento sola y necesito hablar'));
+    assert.equal(backup.data.docs.length, 2);
+    await S.savePersistent();
+  } finally { first.dom.window.close(); }
+  const second = await createApp(db);
+  try {
+    const w2 = second.w, S = w2.NeuralStore;
+    w2.document.querySelector('[data-workspace="chat"]').click();
+    assert.equal(w2.document.getElementById('mode-select').value, 'conversacion');
+    assert.equal(w2.document.getElementById('character-book').value, 'novela');
+    assert.equal(w2.document.getElementById('character-name').value, 'Luna');
+    assert.ok(w2.document.querySelector('.character-excerpt .cite-ref'));
+    assert.equal(w2.document.querySelectorAll('img[src="x"]').length, 0);
+    const next = await w2.BrainRAG.send('¿Y después?');
+    assert.equal(next.sources.length, 0, 'el pasaje siguiente pertenece a otro libro y no debe mostrarse');
+    w2.document.getElementById('btn-clear-chat').click();
+    assert.equal(S.state.chat.length, 0);
+    assert.equal(S.state.docs.length, 2, 'borrar chat no elimina los libros');
+    assert.equal(S.state.feedback.length, 0);
+    await S.savePersistent();
+    const cleared = await createApp(db);
+    try {
+      assert.equal(cleared.w.NeuralStore.state.chat.length, 0, 'el historial permanece borrado al recargar');
+      assert.equal(cleared.w.NeuralStore.state.docs.length, 2);
+    } finally { cleared.dom.window.close(); }
+    S.removeDocument('novela');
+    assert.equal(S.getSetting('characterDocId'), '');
+    assert.equal(w2.document.getElementById('character-book').value, '');
+    await S.resetAll({ keepSettings: true });
+    assert.equal(S.getSetting('characterName'), '');
+    assert.equal(w2.document.getElementById('character-name').value, '');
+    assert.deepEqual(second.errors, []);
+  } finally { second.dom.window.close(); }
+});
+
+test('la carga desde conversación selecciona el libro solo al terminar y muestra errores', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const S = w.NeuralStore;
+    S.setSetting('mode', 'conversacion');
+    S.setSetting('autoHarvest', false);
+    const input = w.document.getElementById('character-file');
+    let calls = 0;
+    w.DocParsers.handleFiles = async (files, options) => {
+      calls++;
+      assert.equal(files[0].name, 'novela.pdf');
+      assert.equal(options.signal.aborted, false);
+      options.onProgress({ phase: 'parse', name: files[0].name });
+      options.onProgress({ phase: 'pdf-page', page: 1, limit: 2, name: files[0].name });
+      const doc = S.addDocument({ id: 'subido', name: files[0].name, type: 'pdf', ingestWarnings: ['Lectura parcial.'],
+        pages: [{ pageNum: 1, text: 'Luna camina.', sentences: [{ id: 'subido-1', text: 'Luna camina.' }] }] });
+      return [{ ok: true, doc }];
+    };
+    Object.defineProperty(input, 'files', { configurable: true, value: [new w.File(['PDF'], 'novela.pdf', { type: 'application/pdf' })] });
+    input.dispatchEvent(new w.Event('change', { bubbles: true }));
+    await until(() => S.getSetting('characterDocId') === 'subido');
+    assert.equal(calls, 1);
+    assert.equal(w.document.getElementById('character-book').value, 'subido');
+    assert.match(w.document.getElementById('character-status').textContent, /Lectura parcial/);
+    Object.defineProperty(input, 'files', { configurable: true, value: [new w.File(['x'], 'mal.exe')] });
+    input.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert.match(w.document.getElementById('character-status').textContent, /Selecciona un libro/);
+    assert.equal(calls, 1);
+    assert.equal(S.getSetting('characterDocId'), 'subido');
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('reset e importación cancelan al inicio las lecturas lentas y restauran la selección correcta', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const S = w.NeuralStore, fileInput = w.document.getElementById('character-file');
+    S.setSetting('mode', 'conversacion');
+    S.setSetting('autoHarvest', false);
+    const originalHandle = w.DocParsers.handleFiles;
+    let signal, finishText;
+    w.DocParsers.handleFiles = (files, options) => { signal = options.signal; return originalHandle(files, options); };
+    function startSlowUpload() {
+      const file = { name: 'lento.txt', text: () => new Promise(resolve => { finishText = resolve; }) };
+      Object.defineProperty(fileInput, 'files', { configurable: true, value: [file] });
+      fileInput.dispatchEvent(new w.Event('change', { bubbles: true }));
+      assert.ok(signal && !signal.aborted);
+      assert.equal(fileInput.disabled, true);
+    }
+    startSlowUpload();
+    const originalClear = w.NCDB.clearAll;
+    let releaseClear, clearStarted = false;
+    w.NCDB.clearAll = async () => { clearStarted = true; await new Promise(resolve => { releaseClear = resolve; }); return originalClear(); };
+    const reset = S.resetAll({ keepSettings: true });
+    assert.equal(signal.aborted, true, 'no se espera a la operación asíncrona de reset');
+    await until(() => clearStarted);
+    finishText('Luna no debe reaparecer después del reset.');
+    await until(() => !fileInput.disabled);
+    assert.equal(S.state.docs.length, 0);
+    releaseClear(); await reset;
+    w.NCDB.clearAll = originalClear;
+
+    startSlowUpload();
+    const originalImport = w.NCDB.importAll;
+    let releaseImport, importStarted = false;
+    w.NCDB.importAll = async (...args) => { importStarted = true; await new Promise(resolve => { releaseImport = resolve; }); return originalImport(...args); };
+    const backup = { data: { docs: [{ id: 'restaurado', name: 'restaurado.txt', pages: [
+      { pageNum: 1, text: 'Mara encontró un mapa.', sentences: [{ id: 'rest-1', text: 'Mara encontró un mapa.' }] }
+    ] }], settings: { mode: 'conversacion', characterDocId: 'restaurado', characterName: 'Mara', autoHarvest: false }, chat: [] } };
+    const importing = S.importBrain(backup);
+    assert.equal(signal.aborted, true, 'se cancela antes de comenzar a sustituir el respaldo');
+    await until(() => importStarted);
+    finishText('Luna no debe mezclarse con el respaldo.');
+    await until(() => !fileInput.disabled);
+    assert.equal(S.state.docs.length, 0);
+    releaseImport(); await importing;
+    w.NCDB.importAll = originalImport;
+    assert.equal(S.state.docs.length, 1);
+    assert.equal(S.state.docs[0].id, 'restaurado');
+    assert.equal(w.document.getElementById('character-book').value, 'restaurado');
+    assert.equal(w.document.getElementById('character-name').value, 'Mara');
+    const reply = await w.BrainRAG.send('Háblame de ti');
+    assert.equal(reply.sources[0].docId, 'restaurado');
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('la red anima a la reina y solo envía destellos a los destinatarios del despacho', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory(), false, false);
+  try {
+    const S = w.NeuralStore, frames = [], waves = [];
+    const draw = w.NCSpiderVisual.draw, drawWave = w.NCSpiderVisual.drawCommandWave;
+    w.NCSpiderVisual.draw = (ctx, options) => { if (options.queen) frames.push({ phase: options.phase, weaving: options.weaving }); return draw(ctx, options); };
+    w.NCSpiderVisual.drawCommandWave = (ctx, options) => {
+      waves.push(Array.from(options.targets, target => target.id));
+      return drawWave(ctx, options);
+    };
+    let paused = false;
+    w.SpiderEngine.getStatus = () => ({ paused, spiders: [
+      { id: 'ocupada-de-antes', phase: 'EXTRAER_DATOS', x: 100, y: 100 },
+      { id: 'destinataria', phase: 'IR_A_PALABRA', x: 150, y: 140 },
+      { id: 'libre', phase: 'IDLE', x: 200, y: 150 }
+    ] });
+    await until(() => frames.length >= 2);
+    assert.ok(frames.every(frame => frame.weaving));
+    assert.ok(frames.at(-1).phase > frames[0].phase);
+    S.emit('spiders:dispatched', { count: 0, spiderIds: ['destinataria'] });
+    await wait(80); assert.equal(waves.length, 0);
+    S.emit('spiders:dispatched', { count: 1, source: 'network', spiderIds: ['destinataria'] });
+    await until(() => waves.length > 0);
+    assert.deepEqual(waves[0], ['destinataria']);
+    assert.equal(S.state.patterns.length, 0);
+    assert.equal(S.state.claimedTargets.size, 0);
+
+    paused = true; S.emit('spiders:paused', { paused });
+    const stoppedPhase = frames.at(-1).phase, stoppedWaves = waves.length;
+    S.emit('spiders:dispatched', { count: 1, spiderIds: ['ocupada-de-antes'] });
+    await wait(100);
+    assert.equal(frames.at(-1).phase, stoppedPhase);
+    assert.equal(waves.length, stoppedWaves);
+    paused = false; S.emit('spiders:paused', { paused });
+    await until(() => frames.at(-1).phase > stoppedPhase);
+    assert.equal(waves.length, stoppedWaves, 'la onda no se reproduce con retraso al reanudar');
+    S.setSetting('reduceMotion', true);
+    const reducedPhase = frames.at(-1).phase, reducedWaves = waves.length;
+    S.emit('spiders:dispatched', { count: 1, spiderIds: ['ocupada-de-antes'] });
+    await wait(100);
+    assert.equal(frames.at(-1).phase, reducedPhase);
+    assert.equal(waves.length, reducedWaves);
     assert.deepEqual(errors, []);
   } finally { dom.window.close(); }
 });

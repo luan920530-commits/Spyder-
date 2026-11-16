@@ -5,6 +5,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const P = require('../js/parsers');
 const R = require('../js/retrieval');
+const C = require('../js/character');
 const root = path.join(__dirname, '..');
 
 function file(name, bytes) {
@@ -186,4 +187,22 @@ test('un lector ausente o incompatible no se presenta como PDF escaneado', async
   } finally {
     for (const [key, value] of Object.entries(previous)) restore(key, value);
   }
+});
+
+test('personaje consulta una novela PDF real y cita la página física del pasaje', async () => {
+  await withPdfJs(async () => {
+    const saved = [];
+    global.NeuralStore = { addDocument: doc => saved.push(doc) };
+    const novel = file('personaje-novela.pdf', fs.readFileSync(path.join(root, 'tests/fixtures/personaje-novela.pdf')));
+    const [result] = await P.handleFiles([novel]);
+    assert.equal(result.ok, true);
+    const doc = saved[0], index = R.rebuildFrom(doc.pages.flatMap(page => page.sentences));
+    assert.deepEqual(doc.pages.map(page => page.sourcePage), [1, 2, 3]);
+    const answer = C.respond({ question: '¿Qué hizo con la llave?', name: 'Luna', doc, index });
+    assert.equal(answer.intent, 'character-search');
+    assert.equal(answer.chunks[0].docId, doc.id);
+    assert.equal(answer.chunks[0].sourcePage, 2);
+    assert.match(answer.reply.excerpt, /llave de plata/);
+    assert.equal(answer.citations.allValid, true);
+  });
 });

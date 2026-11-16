@@ -468,8 +468,12 @@
     const o = opts || {};
     const results = [];
     for (const file of Array.from(fileList || [])) {
+      if (o.signal?.aborted) break;
       try {
         const parsed = await parseOne(file, o.onProgress);
+        // Evita volver a añadir un libro si se hizo RESET o se importó un respaldo
+        // mientras PDF.js seguía leyendo. No modifica la carga normal de archivos.
+        if (o.signal?.aborted) { results.push({ ok: false, cancelled: true, name: file.name }); break; }
         if (parsed.failed) {
           const error = new Error(parsed.error || 'No se pudo extraer el texto');
           error.code = parsed.code;
@@ -506,6 +510,7 @@
         results.push({ ok: !parsed.failed, doc, method: parsed.method });
         if (o.onProgress) o.onProgress({ phase: 'indexed', doc, method: parsed.method, ok: !parsed.failed });
       } catch (err) {
+        if (o.signal?.aborted) { results.push({ ok: false, cancelled: true, name: file.name }); break; }
         console.error('[Parser]', err);
         results.push({ ok: false, error: err.message, code: err.code || null, name: file.name });
         if (o.onProgress) o.onProgress({ phase: 'error', name: file.name, error: err.message, code: err.code || null });

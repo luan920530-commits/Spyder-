@@ -170,12 +170,17 @@ test('despacho desde la red reserva pasajes reales sin interrumpir ni duplicar t
     assert.equal(result.sent, 2);
     assert.equal(result.reason, 'sent');
     const assigned = h.w.SpiderEngine.getStatus().spiders;
+    const dispatch = h.events.find(event => event.type === 'spiders:dispatched');
+    assert.equal(dispatch.payload.source, 'network');
+    assert.equal(dispatch.payload.count, assigned.length);
+    assert.deepEqual(Array.from(dispatch.payload.spiderIds).sort(), Array.from(assigned, spider => spider.id).sort());
     assert.equal(assigned[1].phase, 'IR_A_PALABRA', 'se prioriza la especialidad elegida cuando está libre');
     assert.equal(new Set(assigned.map(sp => sp.sentenceId)).size, 2);
     assert.equal(h.store.state.claimedTargets.size, 2);
     const again = h.w.SpiderEngine.dispatchFromNetwork({ cluster: 'AGT-01' });
     assert.equal(again.sent, 0);
     assert.equal(again.reason, 'busy');
+    assert.equal(h.events.filter(event => event.type === 'spiders:dispatched').length, 1, 'no hay onda por un despacho fallido');
     assert.deepEqual(h.w.SpiderEngine.getStatus().spiders, assigned);
     h.tick(8);
     assert.equal(h.store.state.patterns.length, 2);
@@ -341,4 +346,27 @@ test('la cosecha automática tiene prioridad sobre el reposo y el redimensionado
     assert.equal(h.drawing.webLines.length, 0);
     assert.equal(h.store.state.patterns.length, 0);
   } finally { h.dom.window.close(); }
+});
+
+test('los despachos automáticos y por pasaje identifican solo a las arañas realmente asignadas', () => {
+  const auto = makeHarness();
+  try {
+    auto.tick();
+    const event = auto.events.find(e => e.type === 'spiders:dispatched' && e.payload.source === 'auto');
+    const assigned = auto.w.SpiderEngine.getStatus().spiders.filter(sp => sp.sentenceId);
+    assert.ok(event);
+    assert.equal(event.payload.count, 1);
+    assert.deepEqual(Array.from(event.payload.spiderIds), Array.from(assigned, sp => sp.id));
+  } finally { auto.dom.window.close(); }
+  const manual = makeHarness();
+  try {
+    manual.store.emit('spider:dispatchToSentence', { sentence: manual.sentences[0] });
+    const event = manual.events.find(e => e.type === 'spiders:dispatched' && e.payload.source === 'sentence');
+    const assigned = manual.w.SpiderEngine.getStatus().spiders.filter(sp => sp.sentenceId);
+    assert.ok(event);
+    assert.equal(event.payload.count, 1);
+    assert.deepEqual(Array.from(event.payload.spiderIds), Array.from(assigned, sp => sp.id));
+    manual.store.emit('spider:dispatchToSentence', { sentence: manual.sentences[0] });
+    assert.equal(manual.events.filter(e => e.type === 'spiders:dispatched').length, 1);
+  } finally { manual.dom.window.close(); }
 });

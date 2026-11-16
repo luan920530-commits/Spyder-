@@ -24,6 +24,7 @@
   <script defer src="js/parsers.js"></script>
   <script defer src="js/memory.js"></script>
   <script defer src="js/providers.js"></script>
+  <script defer src="js/character.js"></script>
   <script defer src="js/rag.js"></script>
   <script defer src="js/kimi-aux-model.js"></script>
   <script defer src="js/viewer.js"></script>
@@ -175,8 +176,19 @@
         </div>
         <div id="tab-chat" class="tab-pane active" role="tabpanel">
           <div class="mode-bar"><label for="mode-select">MODO</label><select id="mode-select"></select><button class="btn-mini" id="btn-clear-chat" title="Borrar conversación">BORRAR</button></div>
+          <section id="character-setup" class="character-setup hidden" aria-labelledby="character-title">
+            <div class="character-heading"><span id="character-title"><span aria-hidden="true">✧</span> PERSONAJE LOCAL</span><span class="character-badge">SIN LLM</span></div>
+            <p class="character-intro">Elige o sube el PDF de un libro y escribe el personaje tal como aparece en él.</p>
+            <label for="character-book">LIBRO</label>
+            <div class="character-source-row"><select id="character-book" aria-describedby="character-status"><option value="">Selecciona un libro…</option></select><label class="btn-mini character-upload" for="character-file">+ SUBIR LIBRO<input id="character-file" class="sr-only" type="file" accept=".pdf,.epub,.txt,.md,.docx"></label></div>
+            <label for="character-name">PERSONAJE</label>
+            <input id="character-name" type="text" maxlength="80" autocomplete="off" placeholder="Ej. Alicia" aria-describedby="character-status character-limits">
+            <p id="character-status" class="character-status" role="status"></p>
+            <details id="character-limits" class="character-limits"><summary>Respuestas por reglas · privacidad</summary><p>Usa reglas y fragmentos del libro: no es un modelo generativo y puede equivocarse o incluir spoilers. Los pasajes pueden ser narración o de otra persona. El historial y el libro se guardan en este navegador si el almacenamiento está disponible y se incluyen en los respaldos JSON. BORRAR elimina todo el chat, no el libro; quitar el libro no borra las citas guardadas en el chat.</p><p>El acompañamiento es básico y no reemplaza ayuda profesional ni servicios de emergencia. La detección de crisis es limitada.</p></details>
+          </section>
           <div id="chat-messages" class="chat-messages" aria-live="polite" aria-relevant="additions"></div>
-          <div class="chat-quick-actions"><button class="btn-chip" data-prompt="Resume y analiza el documento completo">RESUMIR</button><button class="btn-chip" data-prompt="Detecta contradicciones en el documento">CONTRASTAR</button><button class="btn-chip" data-prompt="Aprende que ">ENSEÑAR</button></div>
+          <div id="study-quick-actions" class="chat-quick-actions"><button class="btn-chip" data-prompt="Resume y analiza el documento completo">RESUMIR</button><button class="btn-chip" data-prompt="Detecta contradicciones en el documento">CONTRASTAR</button><button class="btn-chip" data-prompt="Aprende que ">ENSEÑAR</button></div>
+          <div id="character-quick-actions" class="chat-quick-actions hidden"><button class="btn-chip" data-prompt="Háblame de ti">HÁBLAME DE TI</button><button class="btn-chip" data-prompt="¿Qué pasó después?">¿Y DESPUÉS?</button><button class="btn-chip" data-prompt="Necesito hablar">NECESITO HABLAR</button></div>
           <form id="chat-form" class="chat-form"><label class="sr-only" for="chat-input">Pregunta</label><input type="text" id="chat-input" placeholder="Pregunta sobre tus documentos…" autocomplete="off"><button type="submit" id="btn-send" class="btn-hud btn-cyan">ENVIAR</button></form>
         </div>
         <div id="tab-writer" class="tab-pane" role="tabpanel">

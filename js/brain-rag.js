@@ -37,19 +37,35 @@
     if (!box) return;
     const div = element('article', 'msg msg-ai');
     const body = element('div', 'answer-body');
-    // safeMarkdown escapa toda la entrada ANTES de añadir sus etiquetas fijas.
-    body.innerHTML = U.safeMarkdown(result.text || '');
     const sources = Array.isArray(result.sources) ? result.sources : [];
-    body.querySelectorAll('.cite-ref').forEach(ref => {
-      const n = Number(ref.textContent.replace(/\D/g, ''));
-      const source = sources[n - 1];
-      if (!source) { ref.classList.add('cite-unverified'); ref.title = 'Cita fuera de las fuentes'; return; }
+    function sourceButton(n, source) {
       const button = element('button', 'cite-ref', `[${n}]`);
       button.type = 'button';
       button.title = `${source.docName || 'Fuente'} · pág. ${source.sourcePage || source.pageNum || '?'}`;
       button.addEventListener('click', () => goToSource(source));
-      ref.replaceWith(button);
-    });
+      return button;
+    }
+    const characterReply = result.mode === 'conversacion' && result.characterReply;
+    if (characterReply && typeof characterReply === 'object') {
+      // El texto del libro es literal: sus corchetes no se convierten en citas de la app.
+      body.appendChild(element('div', '', String(characterReply.lead || '')));
+      if (characterReply.excerpt) {
+        body.appendChild(element('div', 'character-excerpt-label', String(characterReply.excerptLabel || 'Fragmento del libro:')));
+        const quote = element('div', 'character-excerpt', `«${String(characterReply.excerpt)}»`);
+        if (sources[0]) quote.append(' ', sourceButton(1, sources[0]));
+        body.appendChild(quote);
+      }
+      if (characterReply.closing) body.appendChild(element('div', '', String(characterReply.closing)));
+    } else {
+      // safeMarkdown escapa toda la entrada ANTES de añadir sus etiquetas fijas.
+      body.innerHTML = U.safeMarkdown(result.text || '');
+      body.querySelectorAll('.cite-ref').forEach(ref => {
+        const n = Number(ref.textContent.replace(/\D/g, ''));
+        const source = sources[n - 1];
+        if (!source) { ref.classList.add('cite-unverified'); ref.title = 'Cita fuera de las fuentes'; return; }
+        ref.replaceWith(sourceButton(n, source));
+      });
+    }
     div.appendChild(body);
 
     if (sources.length) {
@@ -78,26 +94,32 @@
       trace.appendChild(list); div.appendChild(trace);
     }
     const actions = element('div', 'answer-actions');
-    const meta = element('span', 'muted', `${result.mode || 'auto'} · motor local${Number.isFinite(result.latencyMs) ? ' · ' + U.formatMs(result.latencyMs) : ''}`);
+    const isCharacter = result.mode === 'conversacion';
+    const modeLabel = isCharacter ? `${result.character?.name || 'Personaje'} · reglas locales` : `${result.mode || 'auto'} · motor local`;
+    const meta = element('span', 'muted', modeLabel + (Number.isFinite(result.latencyMs) ? ' · ' + U.formatMs(result.latencyMs) : ''));
     actions.appendChild(meta);
-    const up = element('button', 'btn-mini', 'SÍ'); up.type = 'button'; up.setAttribute('aria-label', 'Respuesta útil');
-    const down = element('button', 'btn-mini', 'NO'); down.type = 'button'; down.setAttribute('aria-label', 'Respuesta poco útil');
-    function rate(rating) {
-      const first = sources[0];
-      root.NCMemory.recordFeedback({
-        question: result.question, answer: result.text, rating,
-        provider: result.provider || 'internal', mode: result.mode,
-        citations: result.citations?.used || [], nodeIds: result.nodeIds || [], vaultIds: result.vaultIds || [],
-        sentenceIds: first && first.sentenceId ? [first.sentenceId] : []
-      });
-      if (rating < 0) root.KimiAuxModel?.recordNegativeEpisode(result.text || '');
-      else root.KimiAuxModel?.trainOnPattern(result.text || '', 1.5);
-      up.disabled = down.disabled = true;
-      meta.textContent = first ? 'Valoración guardada; se ajustó la prioridad del primer pasaje.' : 'Valoración guardada.';
+    // No copiar mensajes íntimos del modo personaje al registro de feedback ni
+    // al modelo auxiliar: BORRAR debe eliminar el historial de esa conversación.
+    if (!isCharacter) {
+      const up = element('button', 'btn-mini', 'SÍ'); up.type = 'button'; up.setAttribute('aria-label', 'Respuesta útil');
+      const down = element('button', 'btn-mini', 'NO'); down.type = 'button'; down.setAttribute('aria-label', 'Respuesta poco útil');
+      function rate(rating) {
+        const first = sources[0];
+        root.NCMemory.recordFeedback({
+          question: result.question, answer: result.text, rating,
+          provider: result.provider || 'internal', mode: result.mode,
+          citations: result.citations?.used || [], nodeIds: result.nodeIds || [], vaultIds: result.vaultIds || [],
+          sentenceIds: first && first.sentenceId ? [first.sentenceId] : []
+        });
+        if (rating < 0) root.KimiAuxModel?.recordNegativeEpisode(result.text || '');
+        else root.KimiAuxModel?.trainOnPattern(result.text || '', 1.5);
+        up.disabled = down.disabled = true;
+        meta.textContent = first ? 'Valoración guardada; se ajustó la prioridad del primer pasaje.' : 'Valoración guardada.';
+      }
+      up.addEventListener('click', () => rate(1));
+      down.addEventListener('click', () => rate(-1));
+      actions.append(up, down);
     }
-    up.addEventListener('click', () => rate(1));
-    down.addEventListener('click', () => rate(-1));
-    actions.append(up, down);
     const md = element('button', 'btn-mini', '↓ .md'); md.type = 'button';
     md.addEventListener('click', () => download('respuesta-neural.md', root.NCRag.toMarkdown({ ...result, sources }), 'text/markdown;charset=utf-8'));
     actions.appendChild(md); div.appendChild(actions);
@@ -113,9 +135,10 @@
     const out = target || document.getElementById('chat-messages');
     if (!target) message('user', q);
     else out.replaceChildren(element('p', 'muted', 'Analizando las fuentes locales…'));
-    const pending = !target ? message('system', 'Buscando en tus documentos…') : null;
+    const selectedMode = mode || S().getSetting('mode', 'auto');
+    const pending = !target ? message('system', selectedMode === 'conversacion' ? 'Buscando en el libro elegido…' : 'Buscando en tus documentos…') : null;
     try {
-      const result = await root.NCRag.ask(q, { mode: mode || S().getSetting('mode', 'auto') });
+      const result = await root.NCRag.ask(q, { mode: selectedMode });
       pending?.remove();
       if (target) target.replaceChildren();
       renderAnswer(result, { container: out });
@@ -145,10 +168,97 @@
       renderAnswer(entry);
     });
   }
+  function setupCharacter() {
+    const setup = document.getElementById('character-setup');
+    const book = document.getElementById('character-book');
+    const name = document.getElementById('character-name');
+    const file = document.getElementById('character-file');
+    const status = document.getElementById('character-status');
+    const uploadLabel = file?.closest('label');
+    if (!setup || !book || !name || !file || !status) return;
+    let uploading = false, uploadController = null, notice = '', optionsKey = '';
+    const textDocs = () => S().state.docs.filter(doc => !doc.mediaType && (doc.pages || []).some(page =>
+      (page.sentences || []).some(sentence => String(sentence.text || '').trim())));
+
+    function sync() {
+      const active = S().getSetting('mode', 'auto') === 'conversacion';
+      setup.classList.toggle('hidden', !active);
+      document.getElementById('study-quick-actions')?.classList.toggle('hidden', active);
+      document.getElementById('character-quick-actions')?.classList.toggle('hidden', !active);
+      const chat = document.getElementById('chat-input');
+      if (chat) chat.placeholder = active ? 'Habla con tu personaje…' : 'Pregunta sobre tus documentos…';
+      const docs = textDocs(), key = JSON.stringify(docs.map(doc => [doc.id, doc.name]));
+      if (key !== optionsKey) {
+        optionsKey = key;
+        book.replaceChildren(element('option', '', docs.length ? 'Selecciona un libro…' : 'Aún no hay libros cargados'));
+        book.firstChild.value = '';
+        docs.forEach(doc => { const option = element('option', '', doc.name); option.value = doc.id; book.appendChild(option); });
+      }
+      const selected = String(S().getSetting('characterDocId', '') || '');
+      if (selected && !docs.some(doc => doc.id === selected)) {
+        S().setSetting('characterDocId', '');
+        return;
+      }
+      book.value = selected;
+      const savedName = String(S().getSetting('characterName', '') || '').slice(0, 80);
+      if (name.value !== savedName) name.value = savedName;
+      book.disabled = uploading || !docs.length;
+      file.disabled = uploading;
+      uploadLabel?.classList.toggle('is-busy', uploading);
+      if (uploading) return;
+      status.textContent = notice || (!selected ? 'Sube un PDF, EPUB, TXT, Markdown o DOCX, o elige un libro ya cargado.' :
+        !savedName.trim() ? 'Escribe el nombre del personaje para empezar.' : 'Listo. Pregunta por su historia o simplemente saluda.');
+    }
+
+    book.addEventListener('change', () => { notice = ''; S().setSetting('characterDocId', book.value); });
+    name.addEventListener('input', () => { notice = ''; S().setSetting('characterName', name.value); });
+    file.addEventListener('change', async () => {
+      const selectedFile = file.files?.[0];
+      if (!selectedFile || uploading) return;
+      notice = '';
+      if (!/\.(pdf|epub|txt|md|docx)$/i.test(selectedFile.name)) {
+        notice = 'Selecciona un libro PDF, EPUB, TXT, Markdown o DOCX.';
+        file.value = ''; sync(); return;
+      }
+      uploading = true; uploadController = new AbortController();
+      const controller = uploadController;
+      sync(); status.textContent = 'Cargando el libro en este dispositivo…';
+      try {
+        const results = await root.DocParsers.handleFiles([selectedFile], {
+          signal: controller.signal,
+          onProgress(detail) {
+            if (controller.signal.aborted) return;
+            S().emit('ingest:progress', detail);
+            if (detail.phase === 'pdf-page') status.textContent = `Leyendo PDF: página ${detail.page} de ${detail.limit}…`;
+            else if (detail.phase === 'parse') status.textContent = 'Leyendo el libro en este dispositivo…';
+          }
+        });
+        const result = results[0];
+        if (!controller.signal.aborted && result?.ok) {
+          S().setSetting('characterDocId', result.doc.id);
+          notice = (result.doc.ingestWarnings || []).length ? `Libro cargado. ${result.doc.ingestWarnings.join(' ')}` : 'Libro cargado. Escribe el personaje y comienza a conversar.';
+        } else if (!controller.signal.aborted) notice = result?.error || 'No se pudo cargar el libro.';
+      } catch (error) {
+        if (!controller.signal.aborted) notice = `No se pudo cargar el libro: ${error.message}`;
+      } finally {
+        if (uploadController === controller) uploadController = null;
+        uploading = false; file.value = ''; sync();
+      }
+    });
+    S().on('settings:changed', ({ key }) => { if (['mode', 'characterDocId', 'characterName'].includes(key)) sync(); });
+    S().on('doc:added', sync);
+    S().on('doc:removed', () => { notice = ''; root.NCCharacter?.clearCache(); sync(); });
+    const cancelUpload = () => { uploadController?.abort(); };
+    S().on('system:resetting', cancelUpload); S().on('brain:importing', cancelUpload);
+    const reset = () => { cancelUpload(); notice = ''; root.NCCharacter?.clearCache(); sync(); };
+    S().on('system:reset', reset); S().on('brain:imported', reset);
+    sync();
+  }
   function init() {
     const form = document.getElementById('chat-form');
     const input = document.getElementById('chat-input');
     restoreChat();
+    setupCharacter();
     form?.addEventListener('submit', e => {
       e.preventDefault();
       if (!input || busy) return;

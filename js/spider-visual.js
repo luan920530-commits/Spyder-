@@ -8,7 +8,7 @@
 
   function draw(ctx, options) {
     const o = Object.assign({ x: 0, y: 0, angle: 0, size: 8, color: '#bee8ff', core: null,
-      phase: 0, moving: false, queen: false, time: 0 }, options || {});
+      phase: 0, moving: false, queen: false, weaving: false, time: 0 }, options || {});
     const size = Math.max(1, o.size), color = o.color;
     ctx.save(); ctx.translate(o.x, o.y); ctx.rotate(o.angle);
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -17,14 +17,25 @@
     const baseAngles = [.6, 1.2, 1.9, 2.5], length = size * (o.queen ? 2.25 : 1.9);
     for (const side of [-1, 1]) {
       for (let i = 0; i < 4; i++) {
-        const swing = o.moving ? Math.sin(o.phase + i * Math.PI / 2 + (side > 0 ? Math.PI : 0)) :
-          Math.sin(o.time * 1.6 + i * 1.3 + side) * .22;
-        const angle = side * (baseAngles[i] + swing * .24);
+        const weaving = o.queen && o.weaving;
+        const swing = weaving ? Math.sin(o.phase + i * 1.15 + (side > 0 ? Math.PI : 0)) :
+          o.moving ? Math.sin(o.phase + i * Math.PI / 2 + (side > 0 ? Math.PI : 0)) :
+            Math.sin(o.time * 1.6 + i * 1.3 + side) * .22;
+        const angle = side * (baseAngles[i] + swing * (weaving ? .26 : .24));
         const rootX = size * (.22 - i * .13), rootY = side * size * .16;
-        const footX = rootX + Math.cos(angle) * length, footY = rootY + Math.sin(angle) * length;
+        const reach = length * (weaving ? 1 + .11 * Math.sin(o.phase * .8 + i + side) : 1);
+        const footX = rootX + Math.cos(angle) * reach, footY = rootY + Math.sin(angle) * reach;
         const kneeAngle = angle + (side * Math.PI / 2 - angle) * .45;
-        const kneeLength = length * (.58 + (o.moving ? Math.max(0, swing) * .08 : 0));
+        const kneeLength = length * (.58 + (weaving ? swing * .09 : o.moving ? Math.max(0, swing) * .08 : 0));
         const kneeX = rootX + Math.cos(kneeAngle) * kneeLength, kneeY = rootY + Math.sin(kneeAngle) * kneeLength;
+        if (weaving && (i === 1 || i === 2)) {
+          // Hilos efímeros entre las patas y el borde de la telaraña decorativa.
+          const anchorAngle = side * baseAngles[i], anchorX = Math.cos(anchorAngle) * length * 1.85, anchorY = Math.sin(anchorAngle) * length * 1.85;
+          ctx.save(); ctx.shadowBlur = 3; ctx.strokeStyle = 'rgba(142,220,255,.48)'; ctx.lineWidth = .65;
+          ctx.beginPath(); ctx.moveTo(footX, footY);
+          ctx.quadraticCurveTo((footX + anchorX) / 2, (footY + anchorY) / 2 + side * size * .18, anchorX, anchorY);
+          ctx.stroke(); ctx.restore();
+        }
         ctx.beginPath(); ctx.moveTo(rootX, rootY); ctx.lineTo(kneeX, kneeY); ctx.lineTo(footX, footY); ctx.stroke();
         ctx.fillStyle = color; ctx.fillRect(kneeX - .9, kneeY - .9, 1.8, 1.8);
       }
@@ -64,5 +75,25 @@
     });
     ctx.restore();
   }
-  return { draw };
+  /** Onda visual para una orden real; no asigna trabajo ni registra datos. */
+  function drawCommandWave(ctx, options) {
+    const o = options || {}, progress = Math.min(1, Math.max(0, Number(o.progress) || 0));
+    const radius = Math.max(1, Number(o.maxRadius) || 1) * (1 - Math.pow(1 - progress, 2));
+    const alpha = (1 - progress) * .65;
+    ctx.save(); ctx.shadowColor = '#ff5ab4'; ctx.shadowBlur = 9; ctx.lineWidth = 1.3;
+    ctx.strokeStyle = `rgba(255,90,180,${alpha})`;
+    ctx.beginPath(); ctx.arc(o.x, o.y, Math.max(1, radius), 0, Math.PI * 2); ctx.stroke();
+    ctx.shadowBlur = 0; ctx.lineWidth = .7; ctx.strokeStyle = `rgba(160,225,255,${alpha * .55})`;
+    ctx.beginPath(); ctx.arc(o.x, o.y, Math.max(1, radius * .8), 0, Math.PI * 2); ctx.stroke();
+    // Los puntos parten de la reina hacia las posiciones suministradas por el
+    // enjambre real. Sin destinatarios solo se muestra la onda circular.
+    ctx.fillStyle = `rgba(255,175,225,${(1 - progress) * .85})`;
+    for (const target of o.targets || []) {
+      if (!Number.isFinite(target.x) || !Number.isFinite(target.y)) continue;
+      const x = o.x + (target.x - o.x) * progress, y = o.y + (target.y - o.y) * progress;
+      ctx.beginPath(); ctx.arc(x, y, 2.4, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+  return { draw, drawCommandWave };
 });

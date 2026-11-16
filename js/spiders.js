@@ -209,15 +209,16 @@
       return preference || (hasOrigin ? Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y) : 0);
     });
     if (!idle.length) return { sent: 0, reason: 'busy' };
-    let sent = 0;
+    const spiderIds = [];
     for (const sp of idle.slice(0, 3)) {
       // pickNextSentence reserva el ID y respeta la página, el escáner y AUTO.
       const sentence = pickNextSentence(sp);
       if (!sentence) break;
       sp.targetSentence = sentence; sp.phase = 'IR_A_PALABRA'; sp.phaseStart = animationTime; sp.route = null;
-      sent++;
+      spiderIds.push(sp.id);
     }
-    if (sent) S.emit('spiders:dispatched', { count: sent, source: 'network' });
+    const sent = spiderIds.length;
+    if (sent) S.emit('spiders:dispatched', { count: sent, source: 'network', spiderIds });
     return { sent, reason: sent ? 'sent' : 'unavailable' };
   }
 
@@ -494,6 +495,7 @@
       const sent = pickNextSentence(sp);
       if (!sent) return;
       sp.targetSentence = sent; sp.phase = 'IR_A_PALABRA'; sp.phaseStart = now; sp.route = null;
+      S.emit('spiders:dispatched', { count: 1, source: 'auto', spiderIds: [sp.id] });
       return;
     }
     if (sp.phase === 'IR_A_PALABRA') {
@@ -705,6 +707,7 @@
       if (!sp) { root.DocViewer?.toast('Las arañas están ocupadas; vuelve a intentarlo en un momento.'); return; }
       sp.targetSentence = sentence; sp.phase = 'IR_A_PALABRA'; sp.phaseStart = animationTime; sp.route = null;
       S.state.claimedTargets.add(sentence.id);
+      S.emit('spiders:dispatched', { count: 1, source: 'sentence', spiderIds: [sp.id] });
     });
 
     S.on('doc:pageChanged', ({ docId, pageNum }) => {

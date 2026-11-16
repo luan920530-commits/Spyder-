@@ -7,6 +7,7 @@
   'use strict';
   const MODES = [
     { id: 'auto', label: 'Automático', description: 'Selecciona el formato según la pregunta.' },
+    { id: 'conversacion', label: 'Conversación · personaje', description: 'Personaje ligero basado en un libro local.' },
     { id: 'resumen', label: 'Resumen', description: 'Ideas principales y evidencia.' },
     { id: 'examen', label: 'Examen', description: 'Definición, mecanismo, evidencia y límite.' },
     { id: 'socratico', label: 'Socrático', description: 'Preguntas y pistas para razonar.' },

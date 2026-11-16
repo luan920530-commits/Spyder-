@@ -21,7 +21,7 @@
   let width = 460, height = 380;
   let sphereCtx = null, constellations = [], stars = [], ambientPackets = [];
   let rafSphere = null, rafStill = null, lastSphereTime = 0, visualTime = 0;
-  let arcs = [], waves = [], deliveryPackets = [], queenPulse = 0, webVibration = 0, arcClock = 0;
+  let arcs = [], waves = [], commandWaves = [], deliveryPackets = [], queenPulse = 0, webVibration = 0, arcClock = 0;
   const probe = { x: 0, y: 0, inside: false };
   let highlighted = new Set();
   let activeCluster = null;
@@ -95,7 +95,7 @@
   }
 
   function resetVisualEffects() {
-    arcs = []; waves = []; deliveryPackets = [];
+    arcs = []; waves = []; commandWaves = []; deliveryPackets = [];
     queenPulse = 0; webVibration = 0; arcClock = 0;
   }
 
@@ -213,6 +213,7 @@
       webVibration = Math.max(0, webVibration - dt * 1.1);
       arcs.forEach(arc => { arc.age += dt; }); arcs = arcs.filter(arc => arc.age < arc.duration);
       waves.forEach(wave => { wave.age += dt; }); waves = waves.filter(wave => wave.age < .8);
+      commandWaves.forEach(wave => { wave.age += dt; }); commandWaves = commandWaves.filter(wave => wave.age < 1.4);
       deliveryPackets.forEach(packet => { packet.progress += dt * .7; }); deliveryPackets = deliveryPackets.filter(packet => packet.progress < 1);
     }
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -314,9 +315,18 @@
       ctx.strokeStyle=`rgba(255,90,180,${queenPulse*.7})`; ctx.lineWidth=1.2;
       ctx.beginPath(); ctx.arc(qx,qy,qSize*(1.5+(1-queenPulse)*3),0,Math.PI*2); ctx.stroke();
     }
+    commandWaves.forEach(wave => {
+      const progress = Math.min(1, wave.age / 1.4);
+      // Solo se indican las arañas asignadas en este despacho; otras pueden
+      // estar ocupadas por órdenes anteriores y no son sus destinatarias.
+      const targets = status.spiders.filter(sp => wave.spiderIds.includes(sp.id) && sp.phase !== 'IDLE')
+        .map(sp => ({ id: sp.id, x: sp.x - rect.left, y: sp.y - rect.top }));
+      root.NCSpiderVisual.drawCommandWave(ctx, { x: qx, y: qy, progress, maxRadius: size * .58, targets });
+    });
     ctx.globalCompositeOperation = 'source-over';
+    // El tiempo visual se congela en pausa o movimiento reducido; la postura también.
     root.NCSpiderVisual.draw(ctx, { x: qx, y: qy, angle: Math.sin(t * .6) * .18, size: qSize,
-      color: '#bee8ff', core: '#ff5ab4', queen: true, time: t });
+      color: '#bee8ff', core: '#ff5ab4', queen: true, weaving: true, phase: t * 2.6, time: t });
     ctx.globalCompositeOperation = 'lighter';
     drawProbe(ctx, status, rect, t);
     waves.forEach(wave => {
@@ -871,7 +881,22 @@
       }
       redrawIfStill();
     });
-    ['spiders:count', 'spiders:dispatched', 'spider:scanStart', 'spider:extracted', 'harvest:progress'].forEach(event => S.on(event, redrawIfStill));
+    S.on('spiders:dispatched', detail => {
+      if (detail?.count > 0 && !document.hidden && visible && !motionStopped()) {
+        // Agrupa despachos simultáneos para que la señal no tape la red.
+        if (!commandWaves.length || commandWaves[commandWaves.length - 1].age > .25) {
+          if (commandWaves.length >= 3) commandWaves.shift();
+          commandWaves.push({ age: 0, spiderIds: [] });
+        }
+        const wave = commandWaves[commandWaves.length - 1];
+        for (const id of Array.isArray(detail.spiderIds) ? detail.spiderIds : []) {
+          if (!wave.spiderIds.includes(id)) wave.spiderIds.push(id);
+        }
+        queenPulse = Math.max(queenPulse, .8); webVibration = Math.max(webVibration, .45);
+      }
+      redrawIfStill();
+    });
+    ['spiders:count', 'spider:scanStart', 'spider:extracted', 'harvest:progress'].forEach(event => S.on(event, redrawIfStill));
     function updateMotionMode() {
       document.documentElement.classList.toggle('motion-reduced', !!S.getSetting('reduceMotion'));
       stopSphere(); resetVisualEffects();

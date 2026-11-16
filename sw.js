@@ -1,5 +1,5 @@
 /* Shell y dependencias empaquetadas: instalación atómica, sin CDN. */
-const CACHE_NAME = 'neural-spider-os-v11-11';
+const CACHE_NAME = 'neural-spider-os-v11-14';
 const MODEL_CACHE = 'neural-spider-model-v1';
 // Recursos de pdfjs-dist 4.2.67 incluidos en el shell: la lectura de CMaps y
 // fuentes debe funcionar también en la primera importación sin conexión.
@@ -42,7 +42,7 @@ const ASSETS = [
   './vendor/pdfjs/pdf.min.mjs', './vendor/pdfjs/pdf.worker.min.mjs', ...PDF_CMAPS, ...PDF_FONTS,
   './js/util.js', './js/retrieval.js', './js/analysis.js', './js/srs.js', './js/db.js',
   './js/embeddings.js', './js/store.js', './js/local-model.js', './js/onnx-worker.js', './js/parsers.js', './js/memory.js', './js/providers.js',
-  './js/rag.js', './js/kimi-aux-model.js', './js/viewer.js', './js/spider-visual.js', './js/neural-graph.js', './js/spiders.js',
+  './js/character.js', './js/rag.js', './js/kimi-aux-model.js', './js/viewer.js', './js/spider-visual.js', './js/neural-graph.js', './js/spiders.js',
   './js/spider-paths.js', './js/eval.js', './js/brain-rag.js', './js/study-bots.js', './js/app.js'
 ];
 self.addEventListener('install', event => {

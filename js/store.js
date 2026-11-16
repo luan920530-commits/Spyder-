@@ -24,6 +24,8 @@
     provider: 'internal',
     model: '',
     mode: 'auto',
+    characterDocId: '',
+    characterName: '',
     topK: 6,
     window: 1,
     fuzzy: true,
@@ -241,6 +243,7 @@
     if (!doc) return;
     const removed = new Set(state.allSentences.filter(s => s.docId === docId).map(s => s.id));
     state.docs = state.docs.filter(d => d.id !== docId);
+    if (state.settings.characterDocId === docId) state.settings.characterDocId = '';
     state.allSentences = state.allSentences.filter(s => s.docId !== docId);
     state.patterns = state.patterns.filter(p => !removed.has(p.sentenceId));
     state.visitedPatternHashes = new Set(state.patterns.map(p => p.hash));
@@ -517,6 +520,8 @@
   // ─────────────────────────────────────────────────────────────────────────
   async function resetAll(opts) {
     const o = Object.assign({ keepSettings: true, keepMemory: false }, opts || {});
+    // Avisar antes de cualquier espera para cancelar lecturas aún en curso.
+    emit('system:resetting', o);
     clearTimeout(saveTimer); dirty.clear();
     await flushChain;
     state.docs = [];
@@ -535,6 +540,9 @@
     state.evalRuns = [];
     if (!o.keepMemory) { state.vault = []; state.consolidatedMemory = []; state.cards = []; state.feedback = []; }
     if (!o.keepSettings) state.settings = Object.assign({}, DEFAULT_SETTINGS);
+    // El personaje y su libro son datos del usuario, no preferencias de interfaz.
+    state.settings.characterDocId = '';
+    state.settings.characterName = '';
 
     try {
       if (typeof localStorage !== 'undefined') localStorage.removeItem('neural_spider_os_v2');
@@ -584,6 +592,8 @@
     if (obj.auxiliary && (typeof obj.auxiliary !== 'object' || Array.isArray(obj.auxiliary) || JSON.stringify(obj.auxiliary).length > 2000000)) throw new Error('Respaldo auxiliar inválido');
     const auxiliary = obj.auxiliary || {};
     obj = { ...obj, data: Object.fromEntries(allowed.filter(k => Object.prototype.hasOwnProperty.call(obj.data, k)).map(k => [k, obj.data[k]]) ) };
+    // Una carga de libro anterior no debe mezclarse con el respaldo importado.
+    emit('brain:importing');
     clearTimeout(saveTimer); dirty.clear();
     await flushChain;
     await DB.importAll(obj, opts);
