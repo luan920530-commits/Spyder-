@@ -159,7 +159,7 @@ html, body {
 #hud-workspace {
   display: grid;
   grid-template-columns: 1fr 1.25fr 1fr;
-  height: calc(100vh - 52px);
+  height: calc(100dvh - 52px);
   width: 100%;
   gap: 6px;
   padding: 6px;
@@ -333,6 +333,7 @@ html, body {
 
 .arena-stage {
   flex: 1;
+  min-height: 0;
   position: relative;
   overflow: hidden;
   background: radial-gradient(circle at center, #0c1428 0%, #05080f 75%);
