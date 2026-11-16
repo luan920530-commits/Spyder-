@@ -15,3 +15,7 @@ Plataforma académica modular **100% offline-first** con interfaz HUD cyberpunk 
 python3 -m http.server 8080
 ```
 Luego abre `http://localhost:8080` en tu navegador.
+
+## Documentación y verificación
+- [`docs/AUDITORIA_Y_PLAN.md`](docs/AUDITORIA_Y_PLAN.md) — auditoría técnica del estado actual y plan de trabajo por fases para reforzar el motor KIMI-CORE.
+- [`tests/bench-bm25.js`](tests/bench-bm25.js) — benchmark sin dependencias del motor de recuperación (`node tests/bench-bm25.js`).
