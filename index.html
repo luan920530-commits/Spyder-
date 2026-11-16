@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>NEURAL COMMAND // AI SPIDER OS</title>
+  <link rel="stylesheet" href="css/hud.css" />
+  <!-- Librerías externas con respaldo offline automático -->
+  <script>
+    window.__CDN_STATUS = { d3: false, pdfjs: false, mammoth: false, jszip: false, tesseract: false };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"
+    onload="window.__CDN_STATUS.d3 = true"
+    onerror="console.warn('[OFFLINE] D3 CDN no disponible, usando motor de respaldo local.')"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"
+    onload="window.__CDN_STATUS.pdfjs = true; if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';}"
+    onerror="console.warn('[OFFLINE] PDF.js CDN no disponible, usando FlateDecode nativo.')"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"
+    onload="window.__CDN_STATUS.mammoth = true"
+    onerror="console.warn('[OFFLINE] Mammoth CDN no disponible.')"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"
+    onload="window.__CDN_STATUS.jszip = true"
+    onerror="console.warn('[OFFLINE] JSZip CDN no disponible, usando empaquetador ZIP nativo.')"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"
+    onload="window.__CDN_STATUS.tesseract = true"
+    onerror="console.warn('[OFFLINE] Tesseract CDN no disponible.')"></script>
+</head>
+<body>
+  <!-- TOP HUD BAR -->
+  <header id="hud-topbar">
+    <div class="hud-brand">
+      <span class="pulse-dot"></span>
+      <span class="brand-title">NEURAL COMMAND // AI SPIDER OS</span>
+      <span class="badge badge-cyan" id="hud-mode-badge">OFFLINE-READY</span>
+    </div>
+
+    <div class="hud-telemetry">
+      <div class="tele-item" title="Arañas activas">
+        <span class="tele-label">ARAÑAS</span>
+        <span class="tele-val cyan" id="stat-spiders">1/5</span>
+      </div>
+      <div class="tele-item" title="Nodos en red neuronal">
+        <span class="tele-label">NODOS</span>
+        <span class="tele-val violet" id="stat-nodes">0</span>
+      </div>
+      <div class="tele-item" title="Patrones cosechados">
+        <span class="tele-label">PATRONES</span>
+        <span class="tele-val emerald" id="stat-patterns">0</span>
+      </div>
+      <div class="tele-item" title="Rendimiento">
+        <span class="tele-label">FPS</span>
+        <span class="tele-val amber" id="stat-fps">60</span>
+      </div>
+    </div>
+
+    <div class="hud-actions">
+      <button class="btn-hud btn-cyan" id="btn-load-demo" title="Cargar documento académico de prueba">⚡ Demo</button>
+      <button class="btn-hud btn-violet" id="btn-mitosis" title="Forzar mitosis de arañas (1 a 5)">🕷️ +Mitosis</button>
+      <button class="btn-hud btn-amber" id="btn-toggle-spiders" title="Pausar/Reanudar enjambre">⏸ Pausar</button>
+      <button class="btn-hud btn-coral" id="btn-reset-all" title="Reiniciar sesión">↺ Reset</button>
+    </div>
+  </header>
+
+  <!-- MAIN 3-COLUMN HUD WORKSPACE -->
+  <main id="hud-workspace">
+    <!-- COLUMNA 1: VISOR DOCUMENTAL -->
+    <section id="panel-doc" class="hud-panel">
+      <div class="panel-header">
+        <span class="panel-title">📄 VISOR DOCUMENTAL</span>
+        <div class="panel-controls">
+          <label class="btn-hud btn-cyan file-label" title="Cargar archivos (PDF, DOCX, PPTX, XLSX, TXT, MD, PY, JS, IMG, MP4)">
+            + Archivo
+            <input type="file" id="file-input" multiple hidden />
+          </label>
+          <button class="btn-hud btn-ghost" id="btn-paste-modal" title="Pegar texto manual">📋 Pegar</button>
+        </div>
+      </div>
+
+      <!-- Barra de documentos cargados -->
+      <div id="doc-tabs" class="doc-tabs"></div>
+
+      <!-- Barra de paginación anti-saturación -->
+      <div id="doc-pagination" class="doc-pagination">
+        <button class="btn-mini" id="btn-prev-page" disabled>◀</button>
+        <span id="page-indicator">Pág 0 / 0</span>
+        <button class="btn-mini" id="btn-next-page" disabled>▶</button>
+        <label class="auto-page-toggle" title="Avance automático de páginas para cosecha continua">
+          <input type="checkbox" id="chk-auto-page" checked />
+          <span>Auto-Pág</span>
+        </label>
+      </div>
+
+      <!-- Zona de Drop + Contenido Paginado -->
+      <div id="doc-dropzone" class="doc-dropzone">
+        <div id="doc-empty-state" class="empty-state">
+          <div class="empty-icon">🕸️</div>
+          <p>Arrastra archivos aquí, usa <strong>+ Archivo</strong> o pulsa <strong>⚡ Demo</strong>.</p>
+          <small>Soporta .pdf, .docx, .pptx, .xlsx, .txt, .md, .py, .js, .csv, .srt, imágenes (OCR) y video.</small>
+        </div>
+
+        <!-- Visor multimedia (Imagen con láser OCR / Video con captura de fotogramas) -->
+        <div id="media-viewer" class="media-viewer hidden"></div>
+
+        <!-- Texto paginado (~1600 chars) -->
+        <article id="doc-content" class="doc-content"></article>
+      </div>
+    </section>
+
+    <!-- COLUMNA 2: ARENA CENTRAL (RED NEURONAL + ESFERA 3D) -->
+    <section id="panel-arena" class="hud-panel">
+      <div class="panel-header">
+        <span class="panel-title">🧠 ARENA NEURONAL // KIMI-CORE</span>
+        <div class="panel-controls">
+          <span class="cluster-pill c-def" title="AGT-01 Definiciones">DEF</span>
+          <span class="cluster-pill c-causal" title="AGT-02 Causal/Código">CAUSAL</span>
+          <span class="cluster-pill c-quant" title="AGT-03 Cuantitativo">QUANT</span>
+          <span class="cluster-pill c-synth" title="AGT-04 Síntesis">SYNTH</span>
+        </div>
+      </div>
+
+      <div id="arena-stage" class="arena-stage">
+        <canvas id="core-3d-canvas"></canvas>
+        <svg id="neural-svg"></svg>
+
+        <!-- Tarjeta Inspectora de Nodo -->
+        <div id="node-inspector" class="node-inspector hidden">
+          <div class="inspector-head">
+            <span id="insp-cluster" class="badge">AGT-01</span>
+            <span id="insp-weight" class="insp-weight">×1</span>
+            <button id="btn-close-inspector" class="btn-mini">✕</button>
+          </div>
+          <h4 id="insp-label">Concepto</h4>
+          <p id="insp-text" class="insp-text"></p>
+          <div id="insp-citations" class="insp-citations"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- COLUMNA 3: CEREBRO CONVERSACIONAL & BOTS DE ESTUDIO -->
+    <section id="panel-brain" class="hud-panel">
+      <div class="panel-header">
+        <div class="tab-switcher">
+          <button class="tab-btn active" data-tab="chat">💬 KIMI-CORE</button>
+          <button class="tab-btn" data-tab="bots">🎓 BOTS ESTUDIO</button>
+        </div>
+        <button class="btn-mini" id="btn-ollama-cfg" title="Configurar puente Ollama local">🦙</button>
+      </div>
+
+      <!-- TAB 1: CHAT RAG LOCAL -->
+      <div id="tab-chat" class="tab-pane active">
+        <div id="chat-messages" class="chat-messages">
+          <div class="msg msg-system">
+            <strong>KIMI-CORE v2.0</strong> inicializado en modo 100% local. Carga un documento o pulsa <em>⚡ Demo</em> para que las arañas tejan la red neuronal.
+          </div>
+        </div>
+
+        <div class="chat-quick-actions">
+          <button class="btn-chip" data-prompt="Resume y analiza el documento completo">📊 Analizar Doc</button>
+          <button class="btn-chip" data-prompt="¿Qué conceptos clave ha encontrado la red?">🕸️ Conceptos</button>
+          <button class="btn-chip" data-prompt="Aprende que ">💡 Enseñar</button>
+        </div>
+
+        <form id="chat-form" class="chat-form">
+          <input type="text" id="chat-input" placeholder="Pregunta sobre el documento, calcula o enseña ('Aprende que...')..." autocomplete="off" />
+          <button type="submit" class="btn-hud btn-cyan">Enviar</button>
+        </form>
+      </div>
+
+      <!-- TAB 2: SUITE BOTS DE ESTUDIO -->
+      <div id="tab-bots" class="tab-pane">
+        <div class="bots-nav">
+          <button class="bot-btn active" data-bot="guide">📘 Guía</button>
+          <button class="bot-btn" data-bot="flashcards">🃏 Flashcards</button>
+          <button class="bot-btn" data-bot="quiz">📝 Quiz</button>
+          <button class="bot-btn" data-bot="export">📦 .ZIP</button>
+        </div>
+        <div id="bot-stage" class="bot-stage"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- CANVAS OVERLAY GLOBAL PARA ARAÑAS (Con recorte estricto ctx.clip y pointer-events: none) -->
+  <canvas id="spider-canvas"></canvas>
+
+  <!-- MODAL PARA PEGAR TEXTO MANUAL -->
+  <div id="paste-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <span>📋 Pegar Texto Manual</span>
+        <button id="btn-close-paste" class="btn-mini">✕</button>
+      </div>
+      <input type="text" id="paste-title" placeholder="Título del documento (ej. Apuntes Clase 4)" />
+      <textarea id="paste-body" rows="8" placeholder="Pega aquí tus apuntes, código o texto académico..."></textarea>
+      <div class="modal-foot">
+        <button id="btn-confirm-paste" class="btn-hud btn-cyan">Indexar Texto</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MÓDULOS DE LA APLICACIÓN -->
+  <script src="js/store.js"></script>
+  <script src="js/parsers.js"></script>
+  <script src="js/neural-graph.js"></script>
+  <script src="js/spiders.js"></script>
+  <script src="js/brain-rag.js"></script>
+  <script src="js/study-bots.js"></script>
+  <script>
+    // Inicialización coordinada del sistema
+    window.addEventListener('DOMContentLoaded', () => {
+      if (window.NeuralStore) window.NeuralStore.init();
+      if (window.NeuralGraph) window.NeuralGraph.init();
+      if (window.SpiderEngine) window.SpiderEngine.init();
+      if (window.DocParsers) window.DocParsers.init();
+      if (window.BrainRAG) window.BrainRAG.init();
+      if (window.StudyBots) window.StudyBots.init();
+    });
+  </script>
+</body>
+</html>
