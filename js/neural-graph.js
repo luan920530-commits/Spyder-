@@ -238,8 +238,22 @@
     }
 
     store.state.patterns.push({ cluster, label, text, pageNum, sentenceId });
+    appendTickerRow({ cluster, text, pageNum, color: color || '#00f0ff' });
     updateTelemetry();
     renderGraph();
+  }
+
+  function appendTickerRow({ cluster, text, pageNum, color }) {
+    const list = document.getElementById('ticker-list');
+    const hashEl = document.getElementById('ticker-hashes');
+    if (hashEl) hashEl.textContent = `${window.NeuralStore.state.visitedPatternHashes.size} hashes únicos`;
+    if (!list) return;
+    const row = document.createElement('div');
+    row.className = 'ticker-row';
+    const tagMap = { 'AGT-01': 'SPDR-01 [DEF]', 'AGT-02': 'SPDR-02 [CAUSAL]', 'AGT-03': 'SPDR-03 [QUANT]', 'AGT-04': 'SPDR-04 [SÍNTESIS]' };
+    row.innerHTML = `<span style="color:${color}; font-weight:700;">${tagMap[cluster] || cluster}</span> <span style="color:var(--text-dim);">[Pág ${pageNum}]</span> "${text}"`;
+    list.prepend(row);
+    while (list.children.length > 30) list.removeChild(list.lastChild);
   }
 
   function openInspector(node) {
