@@ -263,7 +263,29 @@
       }
     });
 
-    document.querySelectorAll('.btn-chip').forEach(btn => {
+    // Asistente de Voz nativo (Web Speech API - inspirado en Nexi / Voicear)
+    const micBtn = document.getElementById('btn-voice-mic');
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (micBtn && SpeechRec) {
+      const rec = new SpeechRec();
+      rec.lang = 'es-ES';
+      rec.interimResults = false;
+      micBtn.addEventListener('click', () => {
+        micBtn.textContent = '🔴';
+        rec.start();
+      });
+      rec.onresult = e => {
+        const transcript = e.results[0][0].transcript;
+        input.value = transcript;
+        micBtn.textContent = '🎙️';
+        form.dispatchEvent(new Event('submit'));
+      };
+      rec.onerror = () => { micBtn.textContent = '🎙️'; };
+      rec.onend = () => { micBtn.textContent = '🎙️'; };
+    } else if (micBtn) {
+      micBtn.title = 'Reconocimiento de voz no soportado en este navegador';
+      micBtn.disabled = true;
+    }
       btn.addEventListener('click', () => {
         const p = btn.dataset.prompt || '';
         if (p.endsWith(' ')) {
