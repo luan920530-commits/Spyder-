@@ -247,6 +247,22 @@
       div.appendChild(det);
     }
 
+    if (role === 'ai') {
+      const fb = document.createElement('div');
+      fb.style.cssText = 'display:flex; gap:6px; margin-top:6px; align-items:center; font-size:10px; color:var(--text-dim);';
+      fb.innerHTML = `<span>¿Útil?</span><button class="btn-mini btn-fb-up">👍</button><button class="btn-mini btn-fb-down">👎</button>`;
+      const plainText = div.textContent || '';
+      fb.querySelector('.btn-fb-up').addEventListener('click', e => {
+        if (window.KimiAuxModel) window.KimiAuxModel.trainOnPattern(plainText, 2.0);
+        fb.innerHTML = '<span style="color:var(--emerald);">✅ Reforzado (+XP en KimiAuxModel)</span>';
+      });
+      fb.querySelector('.btn-fb-down').addEventListener('click', e => {
+        if (window.KimiAuxModel) window.KimiAuxModel.trainOnPattern(plainText, -0.5);
+        fb.innerHTML = '<span style="color:var(--coral);">⚠️ Penalizado (pesos ajustados)</span>';
+      });
+      div.appendChild(fb);
+    }
+
     div.querySelectorAll('.citation-chip').forEach(chip => {
       chip.addEventListener('click', () => {
         const p = parseInt(chip.dataset.page, 10);
