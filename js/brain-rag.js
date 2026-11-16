@@ -105,7 +105,27 @@
       };
     }
 
-    // 3. Análisis / Resumen completo
+    // 3. Generador de Artefactos (HTML / PHP / Resumen) desde la Red Neuronal
+    if (/(genera|crea|haz|escribe).*(html|php)/i.test(lower)) {
+      const isPhp = /php/i.test(lower);
+      const nodes = store.state.nodes.filter(n => !n.isHub);
+      const title = store.getActiveDoc()?.name || 'Neural_Knowledge';
+      let code = '';
+      if (isPhp) {
+        const items = nodes.map(n => `  ['cluster' => '${n.cluster}', 'label' => '${n.label.replace(/'/g, "\\'")}', 'text' => '${(n.text || '').replace(/'/g, "\\'")}']`).join(",\n");
+        code = `<?php\n// Generado por NEURAL COMMAND // AI SPIDER OS\n$knowledgeGraph = [\n${items}\n];\necho "<h1>${title}</h1><ul>";\nforeach ($knowledgeGraph as $node) {\n  echo "<li><strong>[{$node['cluster']}] {$node['label']}:</strong> {$node['text']}</li>";\n}\necho "</ul>";\n?>`;
+      } else {
+        const items = nodes.map(n => `  <li><strong>[${n.cluster}] ${n.label}:</strong> ${n.text}</li>`).join('\n');
+        code = `<!DOCTYPE html>\n<html lang="es">\n<head><meta charset="UTF-8"><title>${title}</title></head>\n<body style="background:#05080f;color:#e2e8f0;font-family:monospace;padding:20px;">\n  <h1>${title} (${nodes.length} nodos)</h1>\n  <ul>\n${items}\n  </ul>\n</body>\n</html>`;
+      }
+      return {
+        html: `⚡ <strong>Artefacto ${isPhp ? 'PHP' : 'HTML'} generado desde ${nodes.length} nodos de la red:</strong><pre style="background:#04070d;padding:8px;border-radius:4px;overflow-x:auto;font-size:10.5px;margin-top:6px;">${code.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`,
+        trace: `Tool: ArtifactGenerator(${isPhp ? 'PHP' : 'HTML'}, ${nodes.length} nodes) -> OK`,
+        nodeIds: nodes.slice(0, 5).map(n => n.id)
+      };
+    }
+
+    // 4. Análisis / Resumen completo
     if (/resum|analiz|síntesis|sintesis|tesis/i.test(lower)) {
       return generateStructuredAnalysis();
     }

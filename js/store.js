@@ -121,9 +121,35 @@
 
   function init() {
     loadPersistent();
+    initIndexedDB();
     const btnReset = document.getElementById('btn-reset-all');
     if (btnReset) btnReset.addEventListener('click', resetAll);
   }
+
+  let idb = null;
+  function initIndexedDB() {
+    if (!window.indexedDB) return;
+    const req = indexedDB.open('NeuralSpiderDB', 1);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('patterns')) {
+        db.createObjectStore('patterns', { keyPath: 'id', autoIncrement: true });
+      }
+    };
+    req.onsuccess = e => {
+      idb = e.target.result;
+    };
+  }
+
+  function persistPatternIDB(pattern) {
+    if (!idb) return;
+    try {
+      const tx = idb.transaction('patterns', 'readwrite');
+      tx.objectStore('patterns').add({ ...pattern, ts: Date.now() });
+    } catch (_) {}
+  }
+
+  on('spider:manualPattern', persistPatternIDB);
 
   window.NeuralStore = {
     state,
