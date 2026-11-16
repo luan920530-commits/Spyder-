@@ -714,17 +714,18 @@
   // ─────────────────────────────────────────────────────────────────────────
   const TAGS = { 'AGT-01': 'SPDR-01 [DEF]', 'AGT-02': 'SPDR-02 [CAUSAL]', 'AGT-03': 'SPDR-03 [QUANT]', 'AGT-04': 'SPDR-04 [SYNTH]' };
 
-  function appendTickerRow({ cluster, text, pageNum, color }) {
+  function appendTickerRow({ cluster, text, pageNum, color, sentenceId }) {
     const list = document.getElementById('ticker-list');
     const hashEl = document.getElementById('ticker-hashes');
     const S = store();
+    const displayPage = S?.getSentence(sentenceId)?.sourcePage || pageNum;
     if (hashEl && S) hashEl.textContent = `${S.state.visitedPatternHashes.size} PATRONES`;
     if (!list) return;
     list.querySelector('.ticker-empty')?.remove();
     const row = document.createElement('div');
     row.className = 'ticker-row';
     row.innerHTML = `<span style="color:${U.escapeHtml(color || '#00f0ff')}; font-weight:700;">${U.escapeHtml(TAGS[cluster] || cluster)}</span> ` +
-      `<span class="muted">[Pág ${U.escapeHtml(pageNum || 1)}]</span> “${U.escapeHtml(text || '')}”`;
+      `<span class="muted">[Pág ${U.escapeHtml(displayPage || 1)}]</span> “${U.escapeHtml(text || '')}”`;
     list.prepend(row);
     while (list.children.length > 40) list.removeChild(list.lastChild);
   }

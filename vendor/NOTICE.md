@@ -7,7 +7,9 @@ Estas bibliotecas se distribuyen con la aplicación para que no requiera CDN en 
 | D3.js | 7.9.0 | Grafo interactivo | ISC, `d3/LICENSE` |
 | JSZip | 3.10.1 | Respaldo de descompresión ZIP | MIT / GPLv3, `jszip/LICENSE.markdown` |
 | Mammoth | 1.8.0 | Extracción de DOCX | BSD-2-Clause, `mammoth/LICENSE` |
-| PDF.js | 4.2.67 | Extracción de PDF con texto | Apache-2.0, `pdfjs/LICENSE` |
+| PDF.js (distribución legacy) | 4.2.67 | Extracción de PDF con texto | Apache-2.0, `pdfjs/LICENSE` |
+| CMaps de Adobe (distribuidos con PDF.js) | 4.2.67 | Mapas de caracteres PDF | BSD-3-Clause, `pdfjs/cmaps/LICENSE` |
+| Fuentes estándar de Foxit y Liberation (distribuidas con PDF.js) | 4.2.67 | Fuentes de respaldo PDF | BSD-3-Clause y SIL OFL 1.1, `pdfjs/standard_fonts/LICENSE_FOXIT` y `LICENSE_LIBERATION` |
 | JetBrains Mono | paquete Fontsource 5.3.0 | Tipografía local | SIL OFL 1.1, `fonts/JetBrains-LICENSE` |
 | Chakra Petch | paquete Fontsource 5.3.0 | Tipografía local | SIL OFL 1.1, `fonts/Chakra-LICENSE` |
 | Transformers.js (`@xenova/transformers`) | 2.17.2 | Inferencia opcional de embeddings en el navegador | Apache-2.0, `transformers/LICENSE` |

@@ -10,6 +10,7 @@
   const store = () => root.NeuralStore;
 
   let renderScheduled = false;
+  let ingestError = '';
   // El enjambre consulta posiciones con frecuencia; evita recorrer todo el DOM por frame.
   const sentenceElements = new Map();
 
@@ -17,6 +18,13 @@
     if (renderScheduled) return;
     renderScheduled = true;
     requestAnimationFrame(() => { renderScheduled = false; render(); });
+  }
+
+  function showIngestMessage(message) {
+    const el = document.getElementById('ingest-message');
+    if (!el) return;
+    el.textContent = message || '';
+    el.classList.toggle('hidden', !message);
   }
 
   function render() {
@@ -34,6 +42,7 @@
 
     sentenceElements.clear();
     renderDocTabs();
+    showIngestMessage(ingestError || (doc?.ingestWarnings || []).join(' '));
 
     if (!doc) {
       emptyEl?.classList.remove('hidden');
@@ -209,7 +218,7 @@
 
     setupModals();
 
-    S.on('doc:pageChanged', scheduleRender);
+    S.on('doc:pageChanged', () => { ingestError = ''; scheduleRender(); });
     S.on('doc:added', scheduleRender);
     S.on('doc:removed', scheduleRender);
     S.on('system:reset', scheduleRender);
@@ -217,9 +226,21 @@
     S.on('ingest:progress', detail => {
       const status = document.getElementById('ingest-status');
       if (!status) return;
-      if (detail.phase === 'parse') status.textContent = `Analizando ${detail.name}…`;
-      else if (detail.phase === 'indexed') status.textContent = `${detail.doc.name} · ${detail.method} · listo`;
-      else if (detail.phase === 'error') status.textContent = `Error con ${detail.name}: ${detail.error}`;
+      if (detail.phase === 'parse') {
+        ingestError = ''; showIngestMessage('');
+        status.textContent = `Analizando ${detail.name}…`;
+      } else if (detail.phase === 'pdf-page') {
+        status.textContent = `Leyendo PDF ${detail.page} / ${detail.limit} pág.`;
+      } else if (detail.phase === 'indexed') {
+        status.textContent = `${detail.doc.name} · ${detail.method} · listo`;
+        showIngestMessage((detail.doc.ingestWarnings || []).join(' '));
+      } else if (detail.phase === 'error') {
+        status.textContent = `Error con ${detail.name}`;
+        ingestError = `${detail.name}: ${detail.error}`;
+        showIngestMessage(ingestError);
+        const zone = document.getElementById('doc-dropzone');
+        if (zone) zone.scrollTop = 0;
+      }
     });
 
     S.on('harvest:progress', ({ harvested, total, rate }) => {

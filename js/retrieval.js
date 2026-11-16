@@ -176,7 +176,9 @@
       const id = String(sentence.docId || '').toLowerCase();
       if (!filters.docs.some(d => name.includes(d) || id.includes(d))) return false;
     }
-    if (filters.pages && filters.pages.length && !filters.pages.includes(Number(sentence.pageNum))) return false;
+    // En PDF, la cita visible usa la página original; pageNum es solo la
+    // página interna del visor (una página física puede dividirse en varias).
+    if (filters.pages && filters.pages.length && !filters.pages.includes(Number(sentence.sourcePage || sentence.pageNum))) return false;
     if (filters.phrases && filters.phrases.length) {
       const text = U.normalize(sentence.text || '');
       if (!filters.phrases.every(phrase => text.includes(U.normalize(phrase)))) return false;

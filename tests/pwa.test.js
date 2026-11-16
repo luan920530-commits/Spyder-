@@ -41,6 +41,11 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
   assert.ok(manifest.icons.some(icon => icon.sizes === '512x512'));
   for (const icon of manifest.icons) assert.ok(assets.includes('./' + icon.src));
   assert.ok(assets.includes('./vendor/pdfjs/pdf.worker.min.mjs'));
+  for (const [dir, extensions] of [['cmaps', ['.bcmap']], ['standard_fonts', ['.ttf', '.pfb']]]) {
+    const files = fs.readdirSync(path.join(root, 'vendor/pdfjs', dir)).filter(name => extensions.some(ext => name.endsWith(ext)));
+    assert.ok(files.length > 0);
+    for (const name of files) assert.ok(assets.includes(`./vendor/pdfjs/${dir}/${name}`), `Falta PDF.js offline: ${name}`);
+  }
   assert.ok(assets.includes('./js/spider-visual.js'), 'la silueta compartida debe estar disponible sin conexión');
   assert.ok(assets.includes('./js/onnx-worker.js'));
   assert.ok(!assets.some(asset => asset.startsWith('./models/minilm/') || asset.startsWith('./vendor/transformers/')), 'los pesos no deben descargarse al instalar el shell');
@@ -55,6 +60,8 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
   let response;
   listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/js/rag.js', mode: 'cors' }, respondWith: p => { response = p; } });
   assert.match(await (await response).text(), /cached:.*js\/rag/);
+  listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/vendor/pdfjs/cmaps/UniJIS-UCS2-H.bcmap', mode: 'cors' }, respondWith: p => { response = p; } });
+  assert.match(await (await response).text(), /cached:.*UniJIS-UCS2-H\.bcmap/);
   listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/models/minilm/onnx/model_quantized.onnx', mode: 'cors' }, respondWith: p => { response = p; } });
   assert.equal(await (await response).text(), 'pesos opcionales');
   listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/unknown', mode: 'navigate' }, respondWith: p => { response = p; } });

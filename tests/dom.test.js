@@ -266,3 +266,33 @@ test('nodos D3 mantienen inspector, citas y filtros; hubs y teclado no duplican 
     assert.deepEqual(errors, []);
   } finally { dom.window.close(); }
 });
+
+test('los errores de ingesta y avisos parciales se leen completos sin ejecutar contenido', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const S = w.NeuralStore, notice = w.document.getElementById('ingest-message');
+    w.document.getElementById('btn-toggle-spiders').click();
+    S.emit('ingest:progress', { phase: 'error', name: '<img src=x onerror=alert(1)>.pdf', error: 'El PDF requiere una contraseña.' });
+    assert.equal(notice.classList.contains('hidden'), false);
+    assert.match(notice.textContent, /requiere una contraseña/);
+    assert.equal(notice.querySelector('img'), null);
+    w.DocViewer.render();
+    assert.match(notice.textContent, /requiere una contraseña/, 'el error persiste al redibujar el visor');
+    S.emit('ingest:progress', { phase: 'parse', name: 'parcial.pdf' });
+    assert.equal(notice.classList.contains('hidden'), true);
+    S.addDocument({ id: 'pdf', name: 'parcial.pdf', type: 'pdf', method: 'PDF.js local',
+      ingestWarnings: ['Lectura parcial: no se pudieron extraer las páginas PDF 2.'],
+      pages: [{ pageNum: 1, sourcePage: 3, text: 'Texto real de la tercera página.',
+        sentences: [{ id: 'pdf-s1', pageNum: 1, sourcePage: 3, text: 'Texto real de la tercera página.' }] }] });
+    await until(() => notice.textContent.includes('Lectura parcial'));
+    assert.equal(notice.classList.contains('hidden'), false);
+    assert.match(w.document.getElementById('doc-section').textContent, /PDF pág\. 3/);
+    S.addPattern({ cluster: 'AGT-01', label: 'Texto real', text: 'Texto real de la tercera página.', pageNum: 1, sentenceId: 'pdf-s1' });
+    assert.match(w.document.getElementById('ticker-list').textContent, /\[Pág 3\]/, 'el registro muestra la página física citada');
+    const answer = await w.NCRag.ask('tercera =pag:3');
+    assert.ok(answer.sources.some(source => source.sentenceId === 'pdf-s1' && source.sourcePage === 3 && source.pageNum === 1));
+    S.setActivePage(1);
+    await until(() => notice.textContent.includes('Lectura parcial'));
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});

@@ -2,7 +2,7 @@
  * NEURAL COMMAND // AI SPIDER OS — v11
  * js/parsers.js — Ingesta local multi-formato con extracción por secciones.
  *
- * Formatos: PDF (PDF.js o deflate nativo), DOCX/PPTX/XLSX/EPUB (ZIP nativo o JSZip),
+ * Formatos: PDF (PDF.js local), DOCX/PPTX/XLSX/EPUB (ZIP nativo o JSZip),
  * HTML, TXT/MD/código/CSV/SRT, imágenes (OCR opcional) y vídeo (captura de fotogramas).
  * Todo ocurre en el navegador; ninguna llamada a servidores.
  */
@@ -27,12 +27,6 @@
 
   async function inflateRaw(bytes) {
     const ds = new DecompressionStream('deflate-raw');
-    const stream = new Blob([bytes]).stream().pipeThrough(ds);
-    return new Uint8Array(await new Response(stream).arrayBuffer());
-  }
-
-  async function inflateZlib(bytes) {
-    const ds = new DecompressionStream('deflate');
     const stream = new Blob([bytes]).stream().pipeThrough(ds);
     return new Uint8Array(await new Response(stream).arrayBuffer());
   }
@@ -94,84 +88,105 @@
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // PDF: PDF.js si está disponible, si no extracción nativa con deflate
+  // PDF: lector y recursos locales, con páginas y errores diferenciados.
   // ─────────────────────────────────────────────────────────────────────────
-  async function parsePDF(file) {
-    const buffer = await file.arrayBuffer();
+  const MAX_PDF_PAGES = 500;
+
+  function pdfFailure(error) {
+    if (error?.name === 'PasswordException') {
+      return { code: 'password', error: 'El PDF requiere una contraseña. Ábrelo con ella y guarda una copia sin contraseña para importarlo.' };
+    }
+    if (error?.name === 'InvalidPDFException' || error?.name === 'MissingPDFException') {
+      return { code: 'invalid', error: 'No se pudo abrir el PDF: el archivo puede estar dañado, incompleto o no ser un PDF válido.' };
+    }
+    return { code: 'open', error: 'El lector local no pudo abrir o interpretar este PDF. Puede estar dañado, protegido o usar un formato no compatible.' };
+  }
+
+  function listPdfPages(pages) {
+    const shown = pages.slice(0, 8).join(', ');
+    return pages.length > 8 ? `${shown} y ${pages.length - 8} más` : shown;
+  }
+
+  async function parsePDF(file, onProgress) {
+    let buffer;
+    try { buffer = await file.arrayBuffer(); }
+    catch (_) {
+      return { text: '', method: 'error de lectura', failed: true, code: 'file-read',
+        error: 'No se pudo leer el archivo seleccionado. Vuelve a seleccionarlo y comprueba que esté disponible.' };
+    }
+
+    // La versión legacy incluye los polyfills para navegadores sin Promise.withResolvers.
+    // Todos sus recursos están en la misma instalación, incluidos los CMaps y fuentes.
+    let pdfjs = root.pdfjsLib;
+    const base = typeof document !== 'undefined' ? document.baseURI : null;
     try {
-      // PDF.js y su worker se distribuyen con la aplicación; nunca se usa un CDN.
-      let pdfjs = root.pdfjsLib;
-      if (!pdfjs && typeof document !== 'undefined') {
-        pdfjs = await import(new URL('vendor/pdfjs/pdf.min.mjs', document.baseURI).href);
-        pdfjs.GlobalWorkerOptions.workerSrc = new URL('vendor/pdfjs/pdf.worker.min.mjs', document.baseURI).href;
+      if (!pdfjs && base) pdfjs = await import(new URL('vendor/pdfjs/pdf.min.mjs', base).href);
+      if (!pdfjs || typeof pdfjs.getDocument !== 'function') throw new Error('PDF.js no disponible');
+      if (base && pdfjs.GlobalWorkerOptions)
+        pdfjs.GlobalWorkerOptions.workerSrc = new URL('vendor/pdfjs/pdf.worker.min.mjs', base).href;
+    } catch (e) {
+      console.warn('[PDF.js local] No se pudo cargar el lector:', e?.message || String(e));
+      return { text: '', method: 'error del lector', failed: true, code: 'reader',
+        error: 'No se pudo cargar el lector PDF local. Recarga la aplicación y comprueba su instalación o la compatibilidad del navegador.' };
+    }
+
+    let task, pdf;
+    try {
+      const options = { data: new Uint8Array(buffer.slice(0)), isEvalSupported: false };
+      if (base) {
+        options.cMapUrl = new URL('vendor/pdfjs/cmaps/', base).href;
+        options.cMapPacked = true;
+        options.standardFontDataUrl = new URL('vendor/pdfjs/standard_fonts/', base).href;
       }
-      if (pdfjs) {
-        const pdf = await pdfjs.getDocument({ data: buffer.slice(0), isEvalSupported: false }).promise;
-        const pageTexts = [];
-        for (let i = 1; i <= Math.min(pdf.numPages, 500); i++) {
-          const page = await pdf.getPage(i);
+      task = pdfjs.getDocument(options);
+      pdf = await task.promise;
+    } catch (e) {
+      console.warn('[PDF.js local] No se pudo abrir:', e?.message || String(e));
+      try { await task?.destroy(); } catch (_) {}
+      return Object.assign({ text: '', method: 'error de PDF', failed: true }, pdfFailure(e));
+    }
+
+    const pageTexts = [], failedPages = [], emptyPages = [];
+    const limit = Math.min(pdf.numPages, MAX_PDF_PAGES);
+    try {
+      for (let i = 1; i <= limit; i++) {
+        let page;
+        try {
+          page = await pdf.getPage(i);
           const content = await page.getTextContent();
-          pageTexts.push({ sourcePage: i, text: content.items.map(it => it.str || '').join(' ') });
+          // PDF.js ya inserta espacios entre fragmentos. Añadir uno a cada item
+          // separaría palabras cuando una fuente o ligadura las divide en varios.
+          const text = (content.items || []).map(item =>
+            (typeof item.str === 'string' ? item.str : '') + (item.hasEOL ? '\n' : '')).join('');
+          pageTexts.push({ sourcePage: i, text });
+          if (!text.trim()) emptyPages.push(i);
+        } catch (e) {
+          failedPages.push(i);
+          console.warn(`[PDF.js local] No se pudo extraer la página ${i}:`, e?.message || String(e));
+        } finally {
+          try { page?.cleanup(); } catch (_) {}
         }
-        const text = pageTexts.map(p => p.text).join('\n\n');
-        if (text.trim()) return { text, pageTexts, method: 'PDF.js local' };
+        if (onProgress && (i === 1 || i % 20 === 0 || i === limit))
+          onProgress({ phase: 'pdf-page', name: file.name, page: i, total: pdf.numPages, limit });
       }
-    } catch (e) { console.warn('[PDF.js local]', e.message); }
-    try {
-      const text = await extractPdfNative(buffer);
-      if (text && text.trim()) return { text, method: 'extractor nativo' };
-    } catch (e) { console.warn('[PDF nativo]', e.message); }
-    return { text: '', method: 'sin texto', failed: true,
-      error: 'No se pudo extraer texto. Los PDF escaneados necesitan OCR, que no está incluido.' };
-  }
-
-  async function extractPdfNative(buffer) {
-    if (!hasDecompression()) return null;
-    const bytes = new Uint8Array(buffer);
-    const latin = new TextDecoder('latin1').decode(bytes);
-    const chunks = [];
-    const re = /stream\r?\n/g;
-    let m;
-    while ((m = re.exec(latin))) {
-      const start = m.index + m[0].length;
-      const end = latin.indexOf('endstream', start);
-      if (end < 0) break;
-      const slice = bytes.subarray(start, end);
-      let data = null;
-      try {
-        data = await inflateZlib(slice);
-      } catch (_) {
-        // Algunos PDF no usan zlib: probar raw
-        try { data = await inflateRaw(slice); } catch (_) { data = null; }
-      }
-      if (!data) continue;
-      const content = new TextDecoder('latin1').decode(data);
-      if (!/T[jJ]/.test(content)) continue;
-      chunks.push(extractPdfTextOperators(content));
+    } finally {
+      try { await task?.destroy(); } catch (_) {}
     }
-    const text = chunks.join('\n').replace(/[ \t]{2,}/g, ' ').trim();
-    return text.length > 40 ? text : null;
-  }
 
-  function extractPdfTextOperators(content) {
-    const out = [];
-    // Literales (texto) Tj y arreglos [(a) -1 (b)] TJ
-    const re = /\((?:\\.|[^\\()])*\)\s*Tj|\[(?:[^\][]|\\.)*\]\s*TJ|\((?:\\.|[^\\()])*\)\s*'/g;
-    let m;
-    while ((m = re.exec(content))) {
-      const seg = m[0];
-      const parts = seg.match(/\((?:\\.|[^\\()])*\)/g) || [];
-      const text = parts.map(p => decodePdfString(p.slice(1, -1))).join('');
-      if (text.trim()) out.push(text);
+    const text = pageTexts.map(p => p.text).join('\n\n');
+    const warnings = [];
+    if (failedPages.length) warnings.push(`Lectura parcial: no se pudieron extraer las páginas PDF ${listPdfPages(failedPages)}.`);
+    if (emptyPages.length && text.trim()) warnings.push(`${emptyPages.length} página(s) no devolvieron texto; pueden estar vacías, contener imágenes o usar una codificación no compatible.`);
+    if (pdf.numPages > limit) warnings.push(`Solo se analizaron las primeras ${limit} de ${pdf.numPages} páginas del PDF.`);
+    if (text.trim()) return { text, pageTexts, method: 'PDF.js local', warnings };
+    if (failedPages.length) {
+      const limited = pdf.numPages > limit ? ` Solo se analizaron las primeras ${limit} de ${pdf.numPages} páginas.` : '';
+      return { text: '', method: 'error de extracción', failed: true, code: 'extract',
+        error: `El PDF se abrió, pero falló la extracción de las páginas ${listPdfPages(failedPages)} y no se obtuvo texto del resto de páginas analizadas.${limited}` };
     }
-    return out.join(' ').replace(/\s+/g, ' ');
-  }
-
-  function decodePdfString(s) {
-    return s
-      .replace(/\\([nrtbf()\\])/g, (_, c) => ({ n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', '(': '(', ')': ')', '\\': '\\' }[c] || c))
-      .replace(/\\([0-7]{1,3})/g, (_, o) => String.fromCharCode(parseInt(o, 8)))
-      .replace(/\\\n/g, '');
+    const scope = pdf.numPages > limit ? `las primeras ${limit} páginas analizadas` : 'las páginas analizadas';
+    return { text: '', method: 'sin texto', failed: true, code: 'empty',
+      error: `No se encontró texto extraíble en ${scope}. Pueden estar vacías, contener imágenes o usar una codificación no compatible. No se incluye OCR.` };
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -435,7 +450,7 @@
 
     if (onProgress) onProgress({ phase: 'parse', kind, name: file.name });
 
-    if (kind === 'pdf') return parsePDF(file);
+    if (kind === 'pdf') return parsePDF(file, onProgress);
     if (kind === 'docx') return parseDOCX(file);
     if (kind === 'office') return parseOfficeZip(file, ext);
     if (kind === 'epub') return parseEPUB(file);
@@ -455,7 +470,11 @@
     for (const file of Array.from(fileList || [])) {
       try {
         const parsed = await parseOne(file, o.onProgress);
-        if (parsed.failed) throw new Error(parsed.error || 'No se pudo extraer el texto');
+        if (parsed.failed) {
+          const error = new Error(parsed.error || 'No se pudo extraer el texto');
+          error.code = parsed.code;
+          throw error;
+        }
         const docId = U.uid('doc');
         let pages;
         if (Array.isArray(parsed.pageTexts)) {
@@ -478,6 +497,7 @@
           type: (file.name.split('.').pop() || '').toLowerCase(),
           size: file.size || 0,
           method: parsed.method,
+          ingestWarnings: parsed.warnings || [],
           mediaUrl: parsed.mediaUrl || null,
           mediaType: parsed.mediaType || null,
           pages
@@ -487,8 +507,8 @@
         if (o.onProgress) o.onProgress({ phase: 'indexed', doc, method: parsed.method, ok: !parsed.failed });
       } catch (err) {
         console.error('[Parser]', err);
-        results.push({ ok: false, error: err.message, name: file.name });
-        if (o.onProgress) o.onProgress({ phase: 'error', name: file.name, error: err.message });
+        results.push({ ok: false, error: err.message, code: err.code || null, name: file.name });
+        if (o.onProgress) o.onProgress({ phase: 'error', name: file.name, error: err.message, code: err.code || null });
       }
     }
     return results;

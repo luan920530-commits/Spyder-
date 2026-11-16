@@ -29,6 +29,9 @@
   let canvas, ctx;
   let spiders = [];
   let shockwaves = [];
+  // Las telarañas son efímeras y solo viven en el lienzo; nunca en el store.
+  let idleWebs = [], idleTime = 0;
+  let lastViewportWidth = 0, lastViewportHeight = 0;
   let paused = false;
   let activeCount = 1;
   let lastFrameTime = 0;
@@ -211,7 +214,7 @@
       // pickNextSentence reserva el ID y respeta la página, el escáner y AUTO.
       const sentence = pickNextSentence(sp);
       if (!sentence) break;
-      sp.targetSentence = sentence; sp.phase = 'IR_A_PALABRA'; sp.phaseStart = animationTime; sp.route = null; sp.docking = false;
+      sp.targetSentence = sentence; sp.phase = 'IR_A_PALABRA'; sp.phaseStart = animationTime; sp.route = null;
       sent++;
     }
     if (sent) S.emit('spiders:dispatched', { count: sent, source: 'network' });
@@ -224,12 +227,13 @@
     const arena = document.getElementById('arena-stage')?.getBoundingClientRect() || { left: 400, top: 200, width: 300, height: 300 };
     const size = Math.min(arena.width, arena.height * 1.15), angle = index * Math.PI * 2 / 5 + .3;
     return Object.assign({}, spec, {
-      x: arena.left + arena.width * .19 + Math.cos(angle) * size * .085,
-      y: arena.top + arena.height * .46 + Math.sin(angle) * size * .085,
+      // En móvil la arena puede estar fuera de la pantalla al arrancar.
+      x: root.NCSpiderPaths.bound(arena.left + arena.width * .19 + Math.cos(angle) * size * .085, 16, Math.max(16, window.innerWidth - 16)),
+      y: root.NCSpiderPaths.bound(arena.top + arena.height * .46 + Math.sin(angle) * size * .085, 16, Math.max(16, window.innerHeight - 16)),
       angle: 0, phase: 'IDLE', phaseStart: animationTime,
       targetSentence: null, extractedPattern: null, scanWords: [], scanIndex: -1,
       route: null, routeSignature: '', lane: (index - 2) * 5, nextPickAt: animationTime,
-      legPhase: Math.random() * Math.PI * 2, docking: false, harvestedCount: 0
+      legPhase: Math.random() * Math.PI * 2, idle: null, idleStarted: false, harvestedCount: 0
     });
   }
   function clearScan(sp) {
@@ -247,15 +251,19 @@
   }
   function cancelTarget(sp) {
     clearScan(sp); releaseClaim(sp);
+    if (sp.idle?.kind === 'weave') idleWebs = idleWebs.filter(web => web !== sp.idle.web);
     sp.phase = 'IDLE'; sp.targetSentence = null; sp.extractedPattern = null;
-    sp.route = null; sp.routeSignature = ''; sp.phaseStart = animationTime; sp.nextPickAt = animationTime + 200;
+    sp.route = null; sp.routeSignature = ''; sp.idle = null; sp.phaseStart = animationTime; sp.nextPickAt = animationTime + 200;
   }
   function setSpiderCount(count) {
     const S = store(), max = 5;
     activeCount = Math.max(1, Math.min(max, count));
     while (spiders.length < activeCount) spiders.push(createSpider(spiders.length));
     if (spiders.length > activeCount) {
-      spiders.slice(activeCount).forEach(cancelTarget);
+      const removed = spiders.slice(activeCount);
+      const removedIds = new Set(removed.map(sp => sp.id));
+      removed.forEach(cancelTarget);
+      idleWebs = idleWebs.filter(web => !removedIds.has(web.owner));
       spiders = spiders.slice(0, activeCount);
     }
     const el = document.getElementById('stat-spiders');
@@ -289,19 +297,28 @@
   function syncViewport(frame) {
     const x = window.scrollX || 0, y = window.scrollY || 0;
     const dx = x - lastScrollX, dy = y - lastScrollY;
+    const width = window.innerWidth || 1, height = window.innerHeight || 1;
+    if (lastViewportWidth && (width !== lastViewportWidth || height !== lastViewportHeight)) {
+      // Las decoraciones pertenecen a la pantalla, no a los paneles ni al documento.
+      spiders.filter(sp => sp.phase === 'IDLE').forEach(sp => {
+        sp.x = sp.x / lastViewportWidth * width; sp.y = sp.y / lastViewportHeight * height; sp.idle = null;
+      });
+      idleWebs = [];
+    }
     if (dx || dy) {
-      // Las posiciones se dibujan en el viewport, pero pertenecen a la página.
-      spiders.forEach(sp => { sp.x -= dx; sp.y -= dy; });
+      // Solo las tareas reales permanecen ancladas a la página al desplazarse.
+      spiders.filter(sp => sp.phase !== 'IDLE').forEach(sp => { sp.x -= dx; sp.y -= dy; });
       shockwaves.forEach(sw => { sw.x -= dx; sw.y -= dy; });
     } else if (frame && lastLayout && frame.signature !== lastLayout.signature) {
       // Al cambiar de columnas a filas, conserva la posición relativa en el panel.
-      spiders.forEach(sp => {
+      spiders.filter(sp => sp.phase !== 'IDLE').forEach(sp => {
         const useDoc = within(sp, lastLayout.doc) || (!within(sp, lastLayout.arena) &&
           distanceToRect(sp, lastLayout.doc) <= distanceToRect(sp, lastLayout.arena));
         projectBetween(sp, useDoc ? lastLayout.doc : lastLayout.arena, useDoc ? frame.doc : frame.arena);
         sp.route = null;
       });
     }
+    lastViewportWidth = width; lastViewportHeight = height;
     lastScrollX = x; lastScrollY = y; lastLayout = frame;
   }
   function travel(sp, target, toDocument, dt) {
@@ -318,15 +335,111 @@
     sp.legPhase += dt * 18;
     return move.done;
   }
-  function dockAtQueen(sp, dt) {
-    const frame = layout();
-    if (!frame) return;
-    const { arena } = frame, size = Math.min(arena.width, arena.height * 1.15);
-    const angle = Math.max(0, spiders.indexOf(sp)) * Math.PI * 2 / Math.max(1, activeCount) + .3;
-    const target = { x: arena.left + arena.width * .19 + Math.cos(angle) * size * .085,
-      y: arena.top + arena.height * .46 + Math.sin(angle) * size * .085 };
-    if (Math.hypot(sp.x - target.x, sp.y - target.y) < 2) { sp.docking = false; return; }
-    sp.docking = !travel(sp, target, false, dt);
+  // ── Reposo visual ────────────────────────────────────────────────────────
+  // El paseo usa coordenadas del viewport y un reloj propio. Ningún hilo o
+  // destino decorativo es una frase, una reserva, un nodo ni un patrón.
+  function clearIdleAnimations() {
+    if (!idleWebs.length && !spiders.some(sp => sp.idle)) return;
+    idleWebs = [];
+    spiders.forEach(sp => { sp.idle = null; });
+  }
+  function chooseIdleDestination(sp) {
+    const width = Math.max(1, window.innerWidth), height = Math.max(1, window.innerHeight);
+    const first = !sp.idleStarted, startNearby = first && spiders.indexOf(sp) % 2 === 0;
+    let radius = Math.min(62, Math.max(12, Math.min(width, height) * (.09 + Math.random() * .035)));
+    if (startNearby) radius = Math.min(radius, 24); // Un primer tejido rápido; las demás ya salen a pasear.
+    const insetX = Math.min(width / 2, radius + 18), insetY = Math.min(height / 2, radius + 18);
+    const bound = root.NCSpiderPaths.bound;
+    sp.x = bound(sp.x, 16, Math.max(16, width - 16));
+    sp.y = bound(sp.y, 16, Math.max(16, height - 16));
+    let x = startNearby ? bound(sp.x + (Math.random() - .5) * 48, insetX, width - insetX) :
+      insetX + Math.random() * Math.max(0, width - insetX * 2);
+    let y = startNearby ? bound(sp.y + (Math.random() - .5) * 48, insetY, height - insetY) :
+      insetY + Math.random() * Math.max(0, height - insetY * 2);
+    if (!startNearby && Math.hypot(x - sp.x, y - sp.y) < Math.min(width, height) * .18) {
+      x = width - x; y = height - y;
+    }
+    sp.idleStarted = true;
+    sp.idle = { kind: 'travel', target: { x, y }, radius };
+  }
+  function beginIdleWeb(sp, radius) {
+    const center = { x: sp.x, y: sp.y }, points = 7;
+    const rotation = Math.random() * Math.PI * 2;
+    const web = { owner: sp.id, strokes: [], expiresAt: null };
+    const steps = [];
+    let previous = center;
+    const point = (fraction, i) => ({ x: center.x + Math.cos(rotation + i * Math.PI * 2 / points) * radius * fraction,
+      y: center.y + Math.sin(rotation + i * Math.PI * 2 / points) * radius * fraction });
+    function step(next, draw) {
+      const stroke = draw ? { x1: previous.x, y1: previous.y, x2: next.x, y2: next.y, progress: 0 } : null;
+      if (stroke) web.strokes.push(stroke);
+      steps.push({ x: next.x, y: next.y, stroke });
+      previous = next;
+    }
+    // Primero los radios; después dos anillos. La araña recorre el mismo trazo
+    // que aparece, en vez de crear de golpe una red de datos ficticia.
+    for (let i = 0; i < points; i++) { step(point(1, i), true); step(center, false); }
+    step(point(.45, 0), true);
+    for (let i = 1; i <= points; i++) step(point(.45, i), true);
+    step(point(1, 0), true);
+    for (let i = 1; i <= points; i++) step(point(1, i), true);
+    idleWebs.push(web);
+    if (idleWebs.length > 8) idleWebs.shift();
+    sp.idle = { kind: 'weave', web, steps, index: 0 };
+  }
+  function moveIdle(sp, target, distance) {
+    const dx = target.x - sp.x, dy = target.y - sp.y, length = Math.hypot(dx, dy);
+    const moved = Math.min(length, distance);
+    if (length > .001) {
+      sp.angle = Math.atan2(dy, dx);
+      sp.x += dx / length * moved; sp.y += dy / length * moved;
+      sp.legPhase += moved * .12;
+    }
+    return { arrived: length - moved < .01, remaining: Math.max(0, distance - moved) };
+  }
+  function updateIdle(sp, dt) {
+    let remaining = 160 * dt, guard = 0;
+    while (remaining > .001 && guard++ < 80) {
+      if (!sp.idle) chooseIdleDestination(sp);
+      const idle = sp.idle;
+      if (idle.kind === 'travel') {
+        const move = moveIdle(sp, idle.target, remaining); remaining = move.remaining;
+        if (!move.arrived) break;
+        beginIdleWeb(sp, idle.radius);
+      } else {
+        const step = idle.steps[idle.index];
+        if (!step) {
+          idle.web.expiresAt = idleTime + 20000;
+          sp.idle = null;
+          continue;
+        }
+        const move = moveIdle(sp, step, remaining); remaining = move.remaining;
+        if (step.stroke) {
+          const total = Math.hypot(step.stroke.x2 - step.stroke.x1, step.stroke.y2 - step.stroke.y1);
+          const left = Math.hypot(step.stroke.x2 - sp.x, step.stroke.y2 - sp.y);
+          step.stroke.progress = total ? Math.max(0, Math.min(1, 1 - left / total)) : 1;
+        }
+        if (!move.arrived) break;
+        if (step.stroke) step.stroke.progress = 1;
+        idle.index++;
+      }
+    }
+  }
+  function drawIdleWebs() {
+    ctx.save();
+    ctx.strokeStyle = '#83cce0'; ctx.lineWidth = .8; ctx.lineCap = 'round';
+    idleWebs.forEach(web => {
+      const fade = web.expiresAt === null ? 1 : Math.max(0, Math.min(1, (web.expiresAt - idleTime) / 5000));
+      ctx.globalAlpha = .35 * fade;
+      web.strokes.forEach(stroke => {
+        if (stroke.progress <= 0) return;
+        ctx.beginPath(); ctx.moveTo(stroke.x1, stroke.y1);
+        ctx.lineTo(stroke.x1 + (stroke.x2 - stroke.x1) * stroke.progress,
+          stroke.y1 + (stroke.y2 - stroke.y1) * stroke.progress);
+        ctx.stroke();
+      });
+    });
+    ctx.restore();
   }
   function beginScan(sp, element, now) {
     scanOwner = sp;
@@ -375,14 +488,12 @@
     if (sp.phase !== 'IDLE' && now - sp.phaseStart > 30000) { cancelTarget(sp); return; }
     if (sp.targetSentence && !S.getSentence(sp.targetSentence.id)) { cancelTarget(sp); return; }
     if (sp.phase === 'IDLE') {
-      // Las arañas libres descansan junto a la reina visual, sin crear trabajo ficticio.
-      dockAtQueen(sp, dt);
-      // Una araña sin trabajo no debe escanear el corpus 60 veces por segundo.
+      // El trabajo real tiene prioridad sobre el paseo; no recorrer el corpus 60 veces/s.
       if (now < sp.nextPickAt) return;
       sp.nextPickAt = now + 300;
       const sent = pickNextSentence(sp);
       if (!sent) return;
-      sp.targetSentence = sent; sp.phase = 'IR_A_PALABRA'; sp.phaseStart = now; sp.route = null; sp.docking = false;
+      sp.targetSentence = sent; sp.phase = 'IR_A_PALABRA'; sp.phaseStart = now; sp.route = null;
       return;
     }
     if (sp.phase === 'IR_A_PALABRA') {
@@ -451,6 +562,12 @@
     ctx.save();
     ctx.translate(sp.x, sp.y);
 
+    if (sp.phase === 'IDLE' && sp.idle?.kind === 'travel') {
+      // Un hilo tenue acompaña el paseo, sin textos ni señales de cosecha.
+      ctx.strokeStyle = '#b6e3ed'; ctx.globalAlpha = .24; ctx.lineWidth = .8;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-Math.cos(sp.angle) * 19, -Math.sin(sp.angle) * 19); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
     if (sp.phase === 'ARRASTRAR_A_RED' && sp.extractedPattern) {
       // La cápsula contiene palabras reales del pasaje que viaja al nodo.
       const label = U.truncate(sp.extractedPattern.label || 'pasaje', 26);
@@ -484,7 +601,7 @@
     const lit = sp.phase === 'EXTRAER_DATOS' || (sp.phase === 'ARRASTRAR_A_RED' && sp.extractedPattern);
     root.NCSpiderVisual.draw(ctx, { x: 0, y: 0, angle: sp.angle, size,
       color: lit ? sp.color : '#bee8ff', core: lit ? sp.color : null,
-      phase: sp.legPhase, moving: !isReduced() && (sp.phase === 'IR_A_PALABRA' || sp.phase === 'EXTRAER_DATOS' || sp.phase === 'ARRASTRAR_A_RED' || sp.docking),
+      phase: sp.legPhase, moving: !isReduced() && (sp.phase === 'IR_A_PALABRA' || sp.phase === 'EXTRAER_DATOS' || sp.phase === 'ARRASTRAR_A_RED' || (sp.phase === 'IDLE' && !!sp.idle)),
       time: isReduced() ? 0 : animationTime / 1000 });
     ctx.restore();
   }
@@ -502,11 +619,23 @@
     if (ctx) { ctx.setTransform(ratio, 0, 0, ratio, 0, 0); ctx.clearRect(0, 0, window.innerWidth, window.innerHeight); }
     const frame = layout();
     syncViewport(frame);
-    if (!paused && !document.hidden) {
+    const running = !paused && !document.hidden;
+    if (running) {
       animationTime += dt * 1000;
       spiders.forEach(sp => updateSpider(sp, animationTime, dt));
     }
+    const working = spiders.some(sp => sp.phase !== 'IDLE');
+    if (working) clearIdleAnimations();
+    else if (running && !isReduced()) {
+      idleTime += dt * 1000;
+      spiders.forEach(sp => updateIdle(sp, dt));
+      idleWebs = idleWebs.filter(web => web.expiresAt === null || web.expiresAt > idleTime);
+    }
     if (ctx) {
+      // El reposo puede aparecer en cualquier punto visible y no intercepta clics.
+      if (!working) drawIdleWebs();
+      spiders.filter(sp => sp.phase === 'IDLE').forEach(drawSpider);
+      // El trabajo real sigue limitado al visor, la red y su corredor.
       ctx.save(); ctx.beginPath();
       if (frame) {
         const { doc, arena } = frame;
@@ -517,10 +646,10 @@
           ctx.rect(bridge.left, bridge.top, bridge.right - bridge.left, bridge.bottom - bridge.top);
       }
       ctx.clip();
-      spiders.forEach(drawSpider);
+      spiders.filter(sp => sp.phase !== 'IDLE').forEach(drawSpider);
       shockwaves = shockwaves.filter(sw => sw.alpha > .05);
       shockwaves.forEach(sw => {
-        if (!paused && !document.hidden) { sw.r += 1.8; sw.alpha *= .9; }
+        if (running) { sw.r += 1.8; sw.alpha *= .9; }
         ctx.strokeStyle = sw.color; ctx.globalAlpha = sw.alpha; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(sw.x, sw.y, sw.r, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
       });
@@ -535,6 +664,7 @@
     if (!S) return;
     initMicroBrains();
     lastScrollX = window.scrollX || 0; lastScrollY = window.scrollY || 0; lastLayout = layout();
+    lastViewportWidth = window.innerWidth || 1; lastViewportHeight = window.innerHeight || 1;
     canvas = document.getElementById('spider-canvas');
     if (canvas) {
       ctx = canvas.getContext('2d');
@@ -600,7 +730,7 @@
     });
 
     S.on('system:reset', () => {
-      spiders.forEach(cancelTarget); spiders = []; shockwaves = []; scanOwner = null;
+      spiders.forEach(cancelTarget); spiders = []; shockwaves = []; idleWebs = []; idleTime = 0; scanOwner = null;
       resetMicroBrains(); setSpiderCount(1); setPaused(false); emitProgress(animationTime, true);
     });
     emitProgress(animationTime, true);
