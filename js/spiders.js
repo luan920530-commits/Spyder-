@@ -4,12 +4,47 @@
  */
 (function () {
   const AGENT_SPECS = [
-    { id: 'SPDR-01', role: 'DEF-AI', cluster: 'AGT-01', color: '#00f0ff' },
-    { id: 'SPDR-02', role: 'CAUSAL-AI', cluster: 'AGT-02', color: '#a855f7' },
-    { id: 'SPDR-03', role: 'QUANT-AI', cluster: 'AGT-03', color: '#f59e0b' },
-    { id: 'SPDR-04', role: 'SYNTH-AI', cluster: 'AGT-04', color: '#10b981' },
-    { id: 'SPDR-05', role: 'CORE-AI', cluster: 'AGT-01', color: '#f43f5e' }
+    { id: 'SPDR-01', role: 'DEF-AI', cluster: 'AGT-01', color: '#00f0ff', seeds: ['definición', 'concepto', 'arquitectura', 'modelo', 'sistema', 'red'] },
+    { id: 'SPDR-02', role: 'CAUSAL-AI', cluster: 'AGT-02', color: '#a855f7', seeds: ['cuando', 'porque', 'entonces', 'protocolo', 'función', 'causa'] },
+    { id: 'SPDR-03', role: 'QUANT-AI', cluster: 'AGT-03', color: '#f59e0b', seeds: ['porcentaje', 'métrica', 'latencia', 'épocas', 'tasa', 'valor'] },
+    { id: 'SPDR-04', role: 'SYNTH-AI', cluster: 'AGT-04', color: '#10b981', seeds: ['resumen', 'conclusión', 'contraste', 'además', 'permite', 'embargo'] },
+    { id: 'SPDR-05', role: 'CORE-AI', cluster: 'AGT-01', color: '#f43f5e', seeds: ['sinapsis', 'grafo', 'conocimiento', 'núcleo', 'agente', 'memoria'] }
   ];
+
+  const MICRO_AI_KEY = 'neural_spider_microai_v1';
+  const microBrains = {};
+
+  function initMicroBrains() {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(MICRO_AI_KEY) || '{}'); } catch (_) {}
+    AGENT_SPECS.forEach(spec => {
+      const weights = new Map(Object.entries(saved[spec.id] || {}));
+      spec.seeds.forEach(w => { if (!weights.has(w)) weights.set(w, 1.5); });
+      microBrains[spec.id] = { weights, learnedTokens: weights.size };
+    });
+  }
+
+  function saveMicroBrains() {
+    try {
+      const out = {};
+      Object.keys(microBrains).forEach(id => {
+        out[id] = Object.fromEntries(Array.from(microBrains[id].weights.entries()).slice(0, 120));
+      });
+      localStorage.setItem(MICRO_AI_KEY, JSON.stringify(out));
+    } catch (_) {}
+  }
+
+  function learnFromPattern(sp, text, reward = 1.0) {
+    const brain = microBrains[sp.id];
+    if (!brain) return;
+    const tokens = text.toLowerCase().replace(/[^a-z0-9áéíóúñü\s]/g, ' ').split(/\s+/).filter(w => w.length > 3);
+    tokens.forEach(t => {
+      const prev = brain.weights.get(t) || 0.2;
+      brain.weights.set(t, Math.min(5.0, prev + 0.25 * reward));
+    });
+    brain.learnedTokens = brain.weights.size;
+    saveMicroBrains();
+  }
 
   let canvas, ctx;
   let spiders = [];
@@ -60,11 +95,19 @@
 
   function scoreSentenceForSpider(sp, text) {
     const t = text.toLowerCase();
-    if (sp.role === 'DEF-AI') return /(es un|define|significa|concepto|modelo|sistema|arquitectura)/i.test(t) ? 3 : 1;
-    if (sp.role === 'CAUSAL-AI') return /(cuando|si |entonces|porque|por lo tanto|causa|función|protocolo)/i.test(t) ? 3 : 1;
-    if (sp.role === 'QUANT-AI') return /(\d+%|\d+\s*(ms|s|kb|mb|épocas|años)|métrica|tasa)/i.test(t) ? 4 : 1;
-    if (sp.role === 'SYNTH-AI') return /(en resumen|en contraste|conclusión|sin embargo|además|permite)/i.test(t) ? 3 : 1;
-    return 2; // CORE-AI
+    let score = 0;
+    if (sp.role === 'DEF-AI' && /(es un|define|significa|concepto|modelo|sistema|arquitectura)/i.test(t)) score += 3;
+    if (sp.role === 'CAUSAL-AI' && /(cuando|si |entonces|porque|por lo tanto|causa|función|protocolo)/i.test(t)) score += 3;
+    if (sp.role === 'QUANT-AI' && /(\d+%|\d+\s*(ms|s|kb|mb|épocas|años)|métrica|tasa)/i.test(t)) score += 4;
+    if (sp.role === 'SYNTH-AI' && /(en resumen|en contraste|conclusión|sin embargo|además|permite)/i.test(t)) score += 3;
+
+    // Inferencia con Micro-IA local (pesos aprendidos)
+    const brain = microBrains[sp.id];
+    if (brain) {
+      const tokens = t.replace(/[^a-z0-9áéíóúñü\s]/g, ' ').split(/\s+/);
+      tokens.forEach(tok => { if (brain.weights.has(tok)) score += brain.weights.get(tok); });
+    }
+    return score;
   }
 
   function pickNextSentence(spider) {
@@ -203,13 +246,15 @@
     if (sp.phase === 'ALIMENTAR_NODO') {
       if (sp.extractedPattern) {
         window.NeuralGraph.addPatternNode(sp.extractedPattern);
+        learnFromPattern(sp, sp.extractedPattern.text, 1.0);
         shockwaves.push({ x: sp.x, y: sp.y, r: 4, maxR: 38, color: sp.color, alpha: 1 });
         sp.harvestedCount = (sp.harvestedCount || 0) + 1;
+        const vocab = microBrains[sp.id]?.learnedTokens || 0;
         window.NeuralStore.emit('spider:thought', {
           spiderId: sp.id,
           role: sp.role,
           color: sp.color,
-          text: `${sp.id} (${sp.role}) consolidó "${sp.extractedPattern.label}" [Total: ${sp.harvestedCount}]`
+          text: `${sp.id} (${sp.role}) aprendió "${sp.extractedPattern.label}" [Vocab: ${vocab}]`
         });
       }
       sp.extractedPattern = null;
@@ -352,6 +397,7 @@
   }
 
   function init() {
+    initMicroBrains();
     canvas = document.getElementById('spider-canvas');
     if (!canvas) return;
     ctx = canvas.getContext('2d');
