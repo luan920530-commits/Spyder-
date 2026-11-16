@@ -7,6 +7,7 @@
 
   const brain = {
     cooccurrence: {}, // { wordA: { wordB: weight } }
+    markov: {},       // { wordA: { nextWord: weight } } para generación N-gram natural
     evolutionXP: 0,
     level: 1,
     totalInferences: 0
@@ -46,8 +47,16 @@
       .filter(w => w.length > 3);
   }
 
-  // Aprendizaje Hebbiano: "Neuronas que disparan juntas, se conectan juntas"
+  // Aprendizaje Hebbiano + N-gram (Markov) secuencial
   function trainOnPattern(text, boost = 1.0) {
+    const rawWords = (text || '').toLowerCase().replace(/[^a-z0-9áéíóúñü\s]/g, ' ').split(/\s+/).filter(Boolean);
+    for (let i = 0; i < rawWords.length - 1; i++) {
+      const curr = rawWords[i];
+      const next = rawWords[i + 1];
+      if (!brain.markov[curr]) brain.markov[curr] = {};
+      brain.markov[curr][next] = Math.max(0.1, (brain.markov[curr][next] || 0) + 1.0 * boost);
+    }
+
     const tokens = Array.from(new Set(tokenize(text))).slice(0, 12);
     for (let i = 0; i < tokens.length; i++) {
       const a = tokens[i];
@@ -82,9 +91,32 @@
       .map(([word, weight]) => ({ word, weight: weight.toFixed(1) }));
   }
 
+  function generateNaturalText(query, maxWords = 20) {
+    const qTokens = tokenize(query);
+    let curr = qTokens.find(t => brain.markov[t]) || Object.keys(brain.markov)[0];
+    if (!curr) return '';
+
+    const out = [curr];
+    for (let i = 0; i < maxWords - 1; i++) {
+      const nextMap = brain.markov[curr];
+      if (!nextMap) break;
+      const entries = Object.entries(nextMap).sort((a, b) => b[1] - a[1]);
+      if (!entries.length) break;
+      // Elegir entre las 2 transiciones sinápticas más fuertes para evitar bucles
+      const pool = entries.slice(0, Math.min(2, entries.length));
+      const picked = pool[Math.floor(Math.random() * pool.length)][0];
+      if (out.includes(picked) && out.length > 6) break;
+      out.push(picked);
+      curr = picked;
+    }
+    const sentence = out.join(' ');
+    return sentence.charAt(0).toUpperCase() + sentence.slice(1) + '.';
+  }
+
   function reason(query) {
     brain.totalInferences++;
     const associated = getAssociatedConcepts(query, 5);
+    const naturalSynthesis = generateNaturalText(query, 18);
     const intent = /por qu[eé]|causa|c[oó]mo/i.test(query) ? 'CAUSAL'
       : /cu[aá]nto|m[eé]trica|porcentaje|datos/i.test(query) ? 'QUANT'
       : /qu[eé] es|define|concepto/i.test(query) ? 'DEF' : 'SYNTH';
@@ -93,6 +125,7 @@
     return {
       intent,
       associated,
+      naturalSynthesis,
       level: brain.level,
       xp: brain.evolutionXP,
       vocabSize: Object.keys(brain.cooccurrence).length
@@ -100,5 +133,5 @@
   }
 
   load();
-  window.KimiAuxModel = { trainOnPattern, getAssociatedConcepts, reason, brain };
+  window.KimiAuxModel = { trainOnPattern, getAssociatedConcepts, generateNaturalText, reason, brain };
 })();

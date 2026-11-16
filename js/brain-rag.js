@@ -223,7 +223,10 @@
 
     const aux = window.KimiAuxModel ? window.KimiAuxModel.reason(query) : null;
     if (aux && aux.associated.length) {
-      html += `<br/>🧬 <strong>Inferencia Auxiliar (${aux.intent} · Nv.${aux.level}):</strong> Conceptos asociados por aprendizaje hebbiano: ${aux.associated.map(a => `<code>${a.word}</code>`).join(', ')}`;
+      html += `<br/>🧬 <strong>Inferencia Auxiliar (${aux.intent} · Nv.${aux.level}):</strong> Conceptos asociados: ${aux.associated.map(a => `<code>${a.word}</code>`).join(', ')}`;
+      if (aux.naturalSynthesis) {
+        html += `<br/>🗣️ <strong>Síntesis N-gram:</strong> <em>"${aux.naturalSynthesis}"</em>`;
+      }
     }
 
     return {
