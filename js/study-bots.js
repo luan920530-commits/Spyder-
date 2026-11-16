@@ -100,6 +100,46 @@
           }
         });
       });
+    } else if (activeBot === 'charts') {
+      const counts = { 'AGT-01': 0, 'AGT-02': 0, 'AGT-03': 0, 'AGT-04': 0 };
+      nodes.forEach(n => { if (counts[n.cluster] !== undefined) counts[n.cluster] += (n.weight || 1); });
+      stage.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <span style="color:var(--emerald); font-size:11px;">📊 Bot Generador de Gráficas e Imágenes</span>
+          <button class="btn-mini" id="btn-dl-chart">⬇ .PNG</button>
+        </div>
+        <canvas id="bot-chart-canvas" width="320" height="200" style="width:100%; background:#04070d; border:1px solid var(--border-hud); border-radius:4px;"></canvas>
+      `;
+      const c = document.getElementById('bot-chart-canvas');
+      if (c) {
+        const cx = c.getContext('2d');
+        const entries = [
+          { label: 'DEF', val: counts['AGT-01'], color: '#00f0ff' },
+          { label: 'CAUSAL', val: counts['AGT-02'], color: '#a855f7' },
+          { label: 'QUANT', val: counts['AGT-03'], color: '#f59e0b' },
+          { label: 'SYNTH', val: counts['AGT-04'], color: '#10b981' }
+        ];
+        const maxVal = Math.max(1, ...entries.map(e => e.val));
+        entries.forEach((e, i) => {
+          const barH = (e.val / maxVal) * 130;
+          const x = 35 + i * 70;
+          const y = 165 - barH;
+          cx.fillStyle = e.color;
+          cx.fillRect(x, y, 42, barH);
+          cx.fillStyle = '#e2e8f0';
+          cx.font = 'bold 10px monospace';
+          cx.textAlign = 'center';
+          cx.fillText(e.val, x + 21, y - 6);
+          cx.fillText(e.label, x + 21, 184);
+        });
+      }
+      document.getElementById('btn-dl-chart')?.addEventListener('click', () => {
+        if (!c) return;
+        const a = document.createElement('a');
+        a.href = c.toDataURL('image/png');
+        a.download = 'Neural_Knowledge_Chart.png';
+        a.click();
+      });
     } else if (activeBot === 'sqlite') {
       const patterns = store.state.patterns;
       stage.innerHTML = `

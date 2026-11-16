@@ -308,6 +308,7 @@
     }
 
     ctx.rotate(sp.angle);
+    ctx.scale(1.35, 1.35);
 
     // 8 patas angulares estilo emblema Spider-Man
     ctx.strokeStyle = sp.color;

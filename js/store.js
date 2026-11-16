@@ -138,6 +138,15 @@
     };
     req.onsuccess = e => {
       idb = e.target.result;
+      try {
+        const tx = idb.transaction('patterns', 'readonly');
+        const getAll = tx.objectStore('patterns').getAll();
+        getAll.onsuccess = () => {
+          if (Array.isArray(getAll.result) && getAll.result.length) {
+            emit('db:restored', getAll.result);
+          }
+        };
+      } catch (_) {}
     };
   }
 

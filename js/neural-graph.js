@@ -158,8 +158,20 @@
 
     const nodeEnter = nodeSel.enter().append('g')
       .attr('class', 'node-group')
-      .style('cursor', 'pointer')
-      .on('click', (_, d) => openInspector(d));
+      .style('cursor', 'grab')
+      .style('filter', d => `drop-shadow(0 0 6px ${d.color || '#00f0ff'})`)
+      .on('click', (_, d) => openInspector(d))
+      .call(window.d3.drag()
+        .on('start', (event, d) => {
+          if (!event.active && simulation) simulation.alphaTarget(0.3).restart();
+          d.fx = d.x; d.fy = d.y;
+        })
+        .on('drag', (event, d) => { d.fx = event.x; d.fy = event.y; })
+        .on('end', (event, d) => {
+          if (!event.active && simulation) simulation.alphaTarget(0);
+          if (!d.isHub) { d.fx = null; d.fy = null; }
+        })
+      );
 
     nodeEnter.append('circle')
       .attr('r', d => d.isHub ? 14 : Math.min(18, 7 + (d.weight || 1) * 2))
@@ -342,6 +354,9 @@
       if (window.NeuralStore.state.nodes.length === 0) resetGraph();
     });
     window.NeuralStore.on('spider:manualPattern', data => addPatternNode(data));
+    window.NeuralStore.on('db:restored', rows => {
+      rows.slice(-40).forEach(r => addPatternNode(r));
+    });
   }
 
   window.NeuralGraph = { init, addPatternNode, getHubScreenPos, highlightPath };
