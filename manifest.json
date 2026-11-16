@@ -1,0 +1,9 @@
+{
+  "name": "NEURAL COMMAND // AI SPIDER OS",
+  "short_name": "SpiderOS",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#05080f",
+  "theme_color": "#00f0ff",
+  "orientation": "any"
+}

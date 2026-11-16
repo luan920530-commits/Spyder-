@@ -3,6 +3,28 @@
  * js/brain-rag.js - Cerebro conversacional local (KIMI-CORE) + BM25 + TextRank + Ollama
  */
 (function () {
+  function cosineSim(a, b) {
+    let dot = 0, na = 0, nb = 0;
+    for (let i = 0; i < a.length; i++) {
+      dot += a[i] * b[i];
+      na += a[i] * a[i];
+      nb += b[i] * b[i];
+    }
+    return dot / (Math.sqrt(na) * Math.sqrt(nb) || 1);
+  }
+
+  function detectContradictions(sentences) {
+    const byDoc = {};
+    sentences.forEach(s => {
+      if (!byDoc[s.docName]) byDoc[s.docName] = [];
+      const nums = s.text.match(/\d+(?:\.\d+)?%?/g);
+      if (nums) byDoc[s.docName].push({ nums, text: s.text });
+    });
+    const docs = Object.keys(byDoc);
+    if (docs.length < 2) return null;
+    return `🔍 Comparación multi-documento activa (${docs.length} archivos).`;
+  }
+
   function tokenize(text) {
     return text.toLowerCase()
       .replace(/[^a-z0-9áéíóúñü\s]/g, ' ')
