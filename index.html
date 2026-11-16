@@ -1,255 +1,205 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#04070c">
+  <meta name="description" content="Espacio de estudio privado con motor de recuperación independiente y local.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>NEURAL COMMAND // AI SPIDER OS</title>
-  <link rel="manifest" href="manifest.json" />
-  <link rel="stylesheet" href="css/hud.css" />
-  <!-- Librerías externas con respaldo offline automático -->
-  <script>
-    window.__CDN_STATUS = { d3: false, pdfjs: false, mammoth: false, jszip: false, tesseract: false };
-  </script>
-  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"
-    onload="window.__CDN_STATUS.d3 = true"
-    onerror="console.warn('[OFFLINE] D3 CDN no disponible, usando motor de respaldo local.')"></script>
-  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"
-    onload="window.__CDN_STATUS.pdfjs = true; if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';}"
-    onerror="console.warn('[OFFLINE] PDF.js CDN no disponible, usando FlateDecode nativo.')"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"
-    onload="window.__CDN_STATUS.mammoth = true"
-    onerror="console.warn('[OFFLINE] Mammoth CDN no disponible.')"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"
-    onload="window.__CDN_STATUS.jszip = true"
-    onerror="console.warn('[OFFLINE] JSZip CDN no disponible, usando empaquetador ZIP nativo.')"></script>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"
-    onload="window.__CDN_STATUS.tesseract = true"
-    onerror="console.warn('[OFFLINE] Tesseract CDN no disponible.')"></script>
-  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"
-    onload="window.__CDN_STATUS.sqljs = true"
-    onerror="console.warn('[OFFLINE] sql.js CDN no disponible, usando IndexedDB.')"></script>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="stylesheet" href="css/hud.css">
+  <script defer src="vendor/d3/d3.min.js"></script>
+  <script defer src="vendor/jszip/jszip.min.js"></script>
+  <script defer src="vendor/mammoth/mammoth.browser.min.js"></script>
+  <script defer src="js/util.js"></script>
+  <script defer src="js/retrieval.js"></script>
+  <script defer src="js/analysis.js"></script>
+  <script defer src="js/srs.js"></script>
+  <script defer src="js/db.js"></script>
+  <script defer src="js/embeddings.js"></script>
+  <script defer src="js/store.js"></script>
+  <script defer src="js/parsers.js"></script>
+  <script defer src="js/memory.js"></script>
+  <script defer src="js/providers.js"></script>
+  <script defer src="js/rag.js"></script>
+  <script defer src="js/kimi-aux-model.js"></script>
+  <script defer src="js/viewer.js"></script>
+  <script defer src="js/neural-graph.js"></script>
+  <script defer src="js/spiders.js"></script>
+  <script defer src="js/eval.js"></script>
+  <script defer src="js/brain-rag.js"></script>
+  <script defer src="js/study-bots.js"></script>
+  <script defer src="js/app.js"></script>
 </head>
 <body>
-  <!-- TOP HUD BAR -->
   <header id="hud-topbar">
-    <div class="hud-brand">
-      <span class="pulse-dot"></span>
-      <span class="brand-title">NEURAL COMMAND // AI SPIDER OS</span>
-      <span class="badge badge-cyan" id="hud-mode-badge">OFFLINE-READY</span>
+    <div class="hud-brand" aria-label="Spyder Neural Command">
+      <span class="brand-diamond" aria-hidden="true">◆</span><span class="brand-name">SPYDER</span>
+      <span class="brand-slash">/</span><span class="brand-title">NEURAL COMMAND</span>
     </div>
-
-    <div class="hud-telemetry">
-      <div class="tele-item" title="Arañas activas">
-        <span class="tele-label">ARAÑAS</span>
-        <span class="tele-val cyan" id="stat-spiders">1/5</span>
-      </div>
-      <div class="tele-item" title="Nodos en red neuronal">
-        <span class="tele-label">NODOS</span>
-        <span class="tele-val violet" id="stat-nodes">0</span>
-      </div>
-      <div class="tele-item" title="Patrones cosechados">
-        <span class="tele-label">PATRONES</span>
-        <span class="tele-val emerald" id="stat-patterns">0</span>
-      </div>
-      <div class="tele-item" title="Rendimiento">
-        <span class="tele-label">FPS</span>
-        <span class="tele-val amber" id="stat-fps">60</span>
-      </div>
-    </div>
-
-    <div class="hud-actions">
-      <button class="btn-hud btn-cyan" id="btn-load-demo" title="Cargar documento académico de prueba">⚡ Demo</button>
-      <button class="btn-hud btn-violet" id="btn-mitosis" title="Forzar mitosis de arañas (1 a 5)">🕷️ +Mitosis</button>
-      <button class="btn-hud btn-amber" id="btn-toggle-spiders" title="Pausar/Reanudar enjambre">⏸ Pausar</button>
-      <button class="btn-hud btn-coral" id="btn-reset-all" title="Reiniciar sesión">↺ Reset</button>
+    <nav class="workspace-nav" aria-label="Secciones principales">
+      <button class="workspace-step active" data-workspace="extract" aria-pressed="true"><span>1</span> · EXTRAER</button>
+      <button class="workspace-step" data-workspace="network" aria-pressed="false"><span>2</span> · ANALIZAR</button>
+      <button class="workspace-step" data-workspace="chat" aria-pressed="false"><span>3</span> · ASISTENTE</button>
+      <button class="workspace-step" data-workspace="study" aria-pressed="false"><span>4</span> · ESTUDIO</button>
+    </nav>
+    <div class="top-status">
+      <div class="status-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="system-time"><span id="system-clock">--:--:--</span><span class="clock-divider"> / </span><span id="hud-mode-badge" title="Procesamiento en tu dispositivo">LOCAL</span></div>
+      <button class="icon-button settings-button" id="btn-settings" aria-label="Abrir ajustes" title="Ajustes">⚙</button>
     </div>
   </header>
 
-  <!-- MAIN 3-COLUMN HUD WORKSPACE -->
   <main id="hud-workspace">
-    <!-- COLUMNA 1: VISOR DOCUMENTAL -->
-    <section id="panel-doc" class="hud-panel">
-      <div class="panel-header">
-        <span class="panel-title">📄 VISOR DOCUMENTAL</span>
-        <div class="panel-controls">
-          <label class="btn-hud btn-cyan file-label" title="Cargar archivos (PDF, DOCX, PPTX, XLSX, TXT, MD, PY, JS, IMG, MP4)">
-            + Archivo
-            <input type="file" id="file-input" multiple hidden />
-          </label>
-          <button class="btn-hud btn-ghost" id="btn-paste-modal" title="Pegar texto manual">📋 Pegar</button>
+    <aside id="left-column" class="workspace-column" aria-label="Documentos y actividad">
+      <section id="panel-doc" class="hud-panel scan-panel" aria-label="Visor documental">
+        <div class="panel-heading">
+          <span class="heading-title"><span class="heading-dot cyan-bg"></span> DOCUMENTO</span>
+          <span id="doc-stat-pages">0 PÁGINAS</span><span id="stat-sentences">0</span><span>PASAJES</span>
         </div>
-      </div>
-
-      <!-- Barra de documentos cargados -->
-      <div id="doc-tabs" class="doc-tabs"></div>
-
-      <!-- Barra de paginación anti-saturación -->
-      <div id="doc-pagination" class="doc-pagination">
-        <button class="btn-mini" id="btn-prev-page" disabled>◀</button>
-        <span id="page-indicator">Pág 0 / 0</span>
-        <button class="btn-mini" id="btn-next-page" disabled>▶</button>
-        <label class="auto-page-toggle" title="Avance automático de páginas para cosecha continua">
-          <input type="checkbox" id="chk-auto-page" checked />
-          <span>Auto-Pág</span>
-        </label>
-      </div>
-
-      <!-- Zona de Drop + Contenido Paginado -->
-      <div id="doc-dropzone" class="doc-dropzone">
-        <div id="doc-empty-state" class="empty-state">
-          <div class="empty-icon">🕸️</div>
-          <p>Arrastra archivos aquí, usa <strong>+ Archivo</strong> o pulsa <strong>⚡ Demo</strong>.</p>
-          <small>Soporta .pdf, .docx, .pptx, .xlsx, .txt, .md, .py, .js, .csv, .srt, imágenes (OCR) y video.</small>
+        <div class="doc-actions">
+          <label class="btn-hud btn-cyan file-label" title="Seleccionar archivos locales" tabindex="0" role="button" aria-label="Seleccionar archivos locales">+ ARCHIVO<input type="file" id="file-input" multiple hidden></label>
+          <button class="btn-hud btn-ghost" id="btn-paste-modal">PEGAR</button>
+          <button class="btn-hud btn-ghost" id="btn-load-demo">DEMO</button>
         </div>
-
-        <!-- Visor multimedia (Imagen con láser OCR / Video con captura de fotogramas) -->
-        <div id="media-viewer" class="media-viewer hidden"></div>
-
-        <!-- Texto paginado (~1600 chars) -->
-        <article id="doc-content" class="doc-content"></article>
-      </div>
-    </section>
-
-    <!-- COLUMNA 2: ARENA CENTRAL (RED NEURONAL + ESFERA 3D) -->
-    <section id="panel-arena" class="hud-panel">
-      <div class="panel-header">
-        <span class="panel-title">🧠 ARENA NEURONAL // KIMI-CORE</span>
-        <div class="panel-controls">
-          <span class="cluster-pill c-def" title="AGT-01 Definiciones">DEF</span>
-          <span class="cluster-pill c-causal" title="AGT-02 Causal/Código">CAUSAL</span>
-          <span class="cluster-pill c-quant" title="AGT-03 Cuantitativo">QUANT</span>
-          <span class="cluster-pill c-synth" title="AGT-04 Síntesis">SYNTH</span>
+        <div id="doc-tabs" class="doc-tabs" aria-label="Documentos"></div>
+        <div id="doc-pagination" class="doc-pagination">
+          <button class="btn-mini" id="btn-prev-page" aria-label="Página anterior" disabled>‹</button>
+          <span id="page-indicator">Pág 0 / 0</span>
+          <button class="btn-mini" id="btn-next-page" aria-label="Página siguiente" disabled>›</button>
+          <label class="auto-page-toggle"><input type="checkbox" id="chk-auto-page" checked> AUTO</label>
         </div>
-      </div>
+        <div class="doc-status"><span id="doc-section">Sin documento</span><span id="ingest-status" role="status">Esperando material</span></div>
+        <div id="doc-dropzone" class="doc-dropzone">
+          <div id="doc-empty-state" class="empty-state">
+            <div class="empty-emblem" aria-hidden="true"><span>+</span></div>
+            <p>Tu conocimiento comienza aquí</p>
+            <small>Arrastra un archivo, pega tus apuntes o carga la demo.</small>
+            <span class="file-types">PDF · DOCX · EPUB · TXT</span>
+          </div>
+          <div id="media-viewer" class="media-viewer hidden"></div>
+          <article id="doc-content" class="doc-content"></article>
+        </div>
+        <div class="harvest-status"><span id="harvest-label">0/0 PASAJES</span><div class="harvest-track"><div id="harvest-bar"></div></div><span id="harvest-rate">0/s</span></div>
+      </section>
+      <section id="pattern-ticker" class="hud-panel pattern-ticker scan-panel" aria-label="Registro de actividad">
+        <div class="panel-heading"><span class="heading-title"><span class="heading-dot emerald-bg"></span> ACTIVIDAD · REGISTRO</span><span id="ticker-hashes">0 PATRONES</span></div>
+        <div id="ticker-list" class="ticker-list"><p class="ticker-empty">— Esperando actividad del enjambre</p></div>
+      </section>
+    </aside>
 
+    <section id="panel-arena" class="hud-panel arena-panel" aria-label="Red de conocimiento">
       <div id="arena-stage" class="arena-stage">
-        <canvas id="core-3d-canvas"></canvas>
-        <svg id="neural-svg"></svg>
-
-        <!-- Tarjeta Inspectora de Nodo -->
+        <canvas id="core-3d-canvas" aria-hidden="true"></canvas>
+        <svg id="neural-svg" role="group" aria-label="Grafo de conceptos cosechados"></svg>
+        <div id="graph-fallback" class="graph-fallback hidden"></div>
+        <div class="arena-corner top-left"></div><div class="arena-corner top-right"></div><div class="arena-corner bottom-left"></div><div class="arena-corner bottom-right"></div>
+        <div class="arena-tools" aria-label="Filtrar conceptos">
+          <button class="cluster-pill c-def" data-cluster="AGT-01" aria-pressed="false" title="Filtrar definiciones" aria-label="Filtrar definiciones">DEF</button>
+          <button class="cluster-pill c-causal" data-cluster="AGT-02" aria-pressed="false" title="Filtrar relaciones causales" aria-label="Filtrar relaciones causales">CAUSAL</button>
+          <button class="cluster-pill c-quant" data-cluster="AGT-03" aria-pressed="false" title="Filtrar métricas" aria-label="Filtrar métricas">QUANT</button>
+          <button class="cluster-pill c-synth" data-cluster="AGT-04" aria-pressed="false" title="Filtrar síntesis" aria-label="Filtrar síntesis">SYNTH</button>
+          <button class="btn-mini" id="btn-center-net" aria-label="Centrar red" title="Centrar red">◎</button>
+        </div>
+        <div class="orbit-label label-def"><span class="orbit-name">AGT-01 · DEFINICIONES</span><span class="orbit-state" data-orbit="AGT-01">EN ESPERA</span></div>
+        <div class="orbit-icon icon-def" aria-hidden="true">✳</div>
+        <div class="orbit-icon icon-causal" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M20 4 37 34H3Z"/><path d="M9 28h22"/></svg></div>
+        <div class="orbit-label label-causal"><span class="orbit-name">AGT-02 · CAUSAL</span><span class="orbit-state" data-orbit="AGT-02">EN ESPERA</span></div>
+        <div class="network-tag">DOCUMENTO · TEXTO</div>
+        <div class="core-label"><span>NEURAL CORE</span><small>índice local · conocimiento</small></div>
+        <div class="orbit-label label-synth"><span class="orbit-name">AGT-04 · SÍNTESIS</span><span class="orbit-state" data-orbit="AGT-04">EN ESPERA</span></div>
+        <div class="orbit-icon icon-synth" aria-hidden="true">✣</div>
+        <div class="orbit-icon icon-quant" aria-hidden="true">▦</div>
+        <div class="orbit-label label-quant"><span class="orbit-name">AGT-03 · MÉTRICAS</span><span class="orbit-state" data-orbit="AGT-03">EN ESPERA</span></div>
+        <div class="graph-timeline" aria-hidden="true">
+          <div><i class="timeline-cyan"></i></div><div><i class="timeline-violet"></i></div><div><i class="timeline-amber"></i></div><div><i class="timeline-green"></i></div><div><i class="timeline-white"></i></div>
+        </div>
+        <div class="timeline-key" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
         <div id="node-inspector" class="node-inspector hidden">
-          <div class="inspector-head">
-            <span id="insp-cluster" class="badge">AGT-01</span>
-            <span id="insp-weight" class="insp-weight">×1</span>
-            <button id="btn-close-inspector" class="btn-mini">✕</button>
-          </div>
-          <h4 id="insp-label">Concepto</h4>
-          <p id="insp-text" class="insp-text"></p>
-          <div id="insp-citations" class="insp-citations"></div>
+          <div class="inspector-head"><span id="insp-cluster" class="badge">AGT-01</span><span id="insp-weight" class="insp-weight">×1</span><button id="btn-close-inspector" class="btn-mini" aria-label="Cerrar inspector">✕</button></div>
+          <h4 id="insp-label"></h4><p id="insp-text" class="insp-text"></p><div id="insp-citations" class="insp-citations"></div>
+          <button class="btn-mini" id="btn-insp-ask">Preguntar por este concepto</button>
         </div>
-      </div>
-
-      <!-- LIVE PATTERN TICKER (Estilo KIMI-SWARM / Swarm-Site) -->
-      <div id="pattern-ticker" class="pattern-ticker">
-        <div class="ticker-head">
-          <span>▸ LIVE PATTERN TICKER // KNOWLEDGE COMMITS</span>
-          <span id="ticker-hashes" class="cyan">0 hashes únicos</span>
-        </div>
-        <div id="ticker-list" class="ticker-list"></div>
       </div>
     </section>
 
-    <!-- COLUMNA 3: CEREBRO CONVERSACIONAL & BOTS DE ESTUDIO -->
-    <section id="panel-brain" class="hud-panel">
-      <div class="panel-header">
-        <div class="tab-switcher">
-          <button class="tab-btn active" data-tab="chat">💬 KIMI-CORE</button>
-          <button class="tab-btn" data-tab="writer">✍️ Redacción</button>
-          <button class="tab-btn" data-tab="bots">🎓 BOTS</button>
+    <aside id="right-column" class="workspace-column" aria-label="Agentes, métricas y herramientas">
+      <section id="agents-panel" class="hud-panel scan-panel">
+        <div class="panel-heading"><span class="heading-title"><span class="heading-dot cyan-bg"></span> AGENTES</span><span>4 UNIDADES</span></div>
+        <div class="agent-list">
+          <article class="agent-card agent-def" data-agent="AGT-01">
+            <div class="agent-avatar" aria-hidden="true">✳</div><div class="agent-content"><div class="agent-heading"><span><strong>AGT-01</strong> · DEFINICIONES</span><i class="agent-indicator"></i></div><div class="agent-status">EN ESPERA</div><div class="agent-meter"><div class="agent-progress"><i></i></div><span class="agent-bars" aria-hidden="true"></span></div><div class="agent-count">0 PATRONES</div></div>
+          </article>
+          <article class="agent-card agent-causal" data-agent="AGT-02">
+            <div class="agent-avatar" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M20 5 36 33H4Z"/></svg></div><div class="agent-content"><div class="agent-heading"><span><strong>AGT-02</strong> · CAUSAL</span><i class="agent-indicator"></i></div><div class="agent-status">EN ESPERA</div><div class="agent-meter"><div class="agent-progress"><i></i></div><span class="agent-bars" aria-hidden="true"></span></div><div class="agent-count">0 PATRONES</div></div>
+          </article>
+          <article class="agent-card agent-quant" data-agent="AGT-03">
+            <div class="agent-avatar" aria-hidden="true">▦</div><div class="agent-content"><div class="agent-heading"><span><strong>AGT-03</strong> · CUANTITATIVO</span><i class="agent-indicator"></i></div><div class="agent-status">EN ESPERA</div><div class="agent-meter"><div class="agent-progress"><i></i></div><span class="agent-bars" aria-hidden="true"></span></div><div class="agent-count">0 PATRONES</div></div>
+          </article>
+          <article class="agent-card agent-synth" data-agent="AGT-04">
+            <div class="agent-avatar" aria-hidden="true">✣</div><div class="agent-content"><div class="agent-heading"><span><strong>AGT-04</strong> · SÍNTESIS</span><i class="agent-indicator"></i></div><div class="agent-status">EN ESPERA</div><div class="agent-meter"><div class="agent-progress"><i></i></div><span class="agent-bars" aria-hidden="true"></span></div><div class="agent-count">0 PATRONES</div></div>
+          </article>
         </div>
-        <div style="display:flex; gap:4px;">
-          <button class="btn-mini" id="btn-onnx-cfg" title="Activar modelo neuronal ligero ONNX (<100 MB)">🧬</button>
-          <button class="btn-mini" id="btn-ollama-cfg" title="Configurar puente Ollama local">🦙</button>
+      </section>
+      <section id="metrics-panel" class="hud-panel scan-panel">
+        <div class="panel-heading"><span class="heading-title"><span class="heading-dot violet-bg"></span> MÉTRICAS · SISTEMA</span><span>EN DIRECTO</span></div>
+        <div class="metric-grid">
+          <div class="metric-card"><span>ARAÑAS ACTIVAS</span><strong id="stat-spiders">1/5</strong></div>
+          <div class="metric-card"><span>PASAJES COSECHADOS</span><strong id="stat-harvested">0</strong></div>
+          <div class="metric-card"><span>NODOS EN RED</span><strong id="stat-nodes">0</strong></div>
+          <div class="metric-card"><span>PATRONES ÚNICOS</span><strong id="stat-patterns">0</strong></div>
         </div>
-      </div>
-
-      <!-- TAB 1: CHAT RAG LOCAL -->
-      <div id="tab-chat" class="tab-pane active">
-        <div id="chat-messages" class="chat-messages">
-          <div class="msg msg-system">
-            <strong>KIMI-CORE v2.0</strong> inicializado en modo 100% local. Carga un documento o pulsa <em>⚡ Demo</em> para que las arañas tejan la red neuronal.
-          </div>
+        <div class="metric-visuals">
+          <div class="harvest-chart-wrap"><span>COSECHA · HISTORIAL LOCAL</span><svg id="harvest-chart" viewBox="0 0 200 90" preserveAspectRatio="none" role="img" aria-label="Historial reciente de pasajes cosechados"><path class="chart-grid" d="M0 20H200 M0 45H200 M0 70H200"/><path id="chart-area" class="chart-area"/><polyline id="chart-line" class="chart-line"/></svg><span class="chart-caption">PASAJES / TIEMPO</span></div>
+          <div class="matrix-wrap"><span>PROGRESO</span><div id="progress-matrix" class="progress-matrix" aria-hidden="true"></div><button class="run-button" id="btn-toggle-spiders" aria-label="Pausar enjambre" title="Pausar enjambre">Ⅱ</button></div>
         </div>
-
-        <div class="chat-quick-actions">
-          <button class="btn-chip" data-prompt="Resume y analiza el documento completo">📊 Analizar Doc</button>
-          <button class="btn-chip" data-prompt="¿Qué conceptos clave ha encontrado la red?">🕸️ Conceptos</button>
-          <button class="btn-chip" data-prompt="Aprende que ">💡 Enseñar</button>
+        <div class="system-actions"><button class="btn-mini" id="btn-mitosis" title="Cambiar cantidad de arañas">+ ARAÑA</button><button class="btn-mini" id="btn-reset-all" title="Borrar datos locales">↺ RESET</button><span class="fps-label"><span id="stat-fps">—</span> FPS</span></div>
+      </section>
+      <section id="panel-brain" class="hud-panel hidden" aria-label="Asistente y estudio">
+        <div class="panel-heading brain-heading"><span class="heading-title"><span class="heading-dot cyan-bg"></span> ESPACIO DE ESTUDIO</span><button class="btn-mini" id="btn-close-brain" aria-label="Volver al panel de agentes">✕</button></div>
+        <div class="brain-tabs tab-switcher" role="tablist" aria-label="Herramientas">
+          <button class="tab-btn active" role="tab" aria-selected="true" data-tab="chat">CHAT</button>
+          <button class="tab-btn" role="tab" aria-selected="false" data-tab="writer">REDACCIÓN</button>
+          <button class="tab-btn" role="tab" aria-selected="false" data-tab="bots">ESTUDIO</button>
         </div>
-
-        <form id="chat-form" class="chat-form">
-          <button type="button" id="btn-voice-mic" class="btn-mini" title="Dictar por voz (Web Speech API)">🎙️</button>
-          <input type="text" id="chat-input" placeholder="Pregunta sobre el documento, calcula o enseña ('Aprende que...')..." autocomplete="off" />
-          <button type="submit" class="btn-hud btn-cyan">Enviar</button>
-        </form>
-      </div>
-
-      <!-- TAB 2: REDACCIÓN COLABORATIVA DEL ENJAMBRE -->
-      <div id="tab-writer" class="tab-pane">
-        <div style="padding:8px 10px; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; gap:6px;">
-          <input type="text" id="writer-prompt" placeholder="Orden de redacción (ej. Redacta un ensayo sobre la red)..." style="flex:1; background:var(--bg-void); border:1px solid var(--border-hud); color:var(--text-main); padding:6px 8px; border-radius:4px; font-family:var(--font-mono); font-size:11.5px;" />
-          <button class="btn-hud btn-cyan" id="btn-run-writer">🕷️ Redactar</button>
+        <div id="tab-chat" class="tab-pane active" role="tabpanel">
+          <div class="mode-bar"><label for="mode-select">MODO</label><select id="mode-select"></select><button class="btn-mini" id="btn-clear-chat" title="Borrar conversación">BORRAR</button></div>
+          <div id="chat-messages" class="chat-messages" aria-live="polite" aria-relevant="additions"></div>
+          <div class="chat-quick-actions"><button class="btn-chip" data-prompt="Resume y analiza el documento completo">RESUMIR</button><button class="btn-chip" data-prompt="Detecta contradicciones en el documento">CONTRASTAR</button><button class="btn-chip" data-prompt="Aprende que ">ENSEÑAR</button></div>
+          <form id="chat-form" class="chat-form"><label class="sr-only" for="chat-input">Pregunta</label><input type="text" id="chat-input" placeholder="Pregunta sobre tus documentos…" autocomplete="off"><button type="submit" id="btn-send" class="btn-hud btn-cyan">ENVIAR</button></form>
         </div>
-        <div id="writer-output" style="flex:1; overflow-y:auto; padding:10px; font-size:12px; line-height:1.6; color:#e2e8f0;">
-          <span style="color:var(--text-dim);">Escribe una orden arriba y las 5 arañas redactarán el texto en tiempo real según su especialidad (DEF, CAUSAL, QUANT, SYNTH, CORE).</span>
+        <div id="tab-writer" class="tab-pane" role="tabpanel">
+          <div class="writer-bar"><label class="sr-only" for="writer-prompt">Tema de redacción</label><input type="text" id="writer-prompt" placeholder="Tema o instrucción de redacción…"><button class="btn-hud btn-cyan" id="btn-run-writer">REDACTAR</button></div>
+          <div id="writer-output" class="writer-output"><p class="muted">Crea un borrador extractivo a partir de tus documentos. Comprueba las fuentes antes de usarlo.</p></div>
         </div>
-      </div>
-
-      <!-- TAB 3: SUITE BOTS DE ESTUDIO -->
-      <div id="tab-bots" class="tab-pane">
-        <div class="bots-nav">
-          <button class="bot-btn active" data-bot="guide">📘 Guía</button>
-          <button class="bot-btn" data-bot="flashcards">🃏 Flashcards</button>
-          <button class="bot-btn" data-bot="quiz">📝 Quiz</button>
-          <button class="bot-btn" data-bot="charts">📊 Gráficas</button>
-          <button class="bot-btn" data-bot="sqlite">🗄️ SQLite</button>
-          <button class="bot-btn" data-bot="export">📦 .ZIP</button>
+        <div id="tab-bots" class="tab-pane" role="tabpanel">
+          <nav class="bots-nav" aria-label="Funciones de estudio"><button class="bot-btn active" data-bot="guide">GUÍA</button><button class="bot-btn" data-bot="flashcards">TARJETAS</button><button class="bot-btn" data-bot="quiz">QUIZ</button><button class="bot-btn" data-bot="vault">BÓVEDA</button><button class="bot-btn" data-bot="metrics">MÉTRICAS</button><button class="bot-btn" data-bot="backup">RESPALDO</button></nav>
+          <div id="bot-stage" class="bot-stage"></div>
         </div>
-        <div id="bot-stage" class="bot-stage"></div>
-      </div>
-    </section>
+      </section>
+    </aside>
   </main>
 
-  <!-- CANVAS OVERLAY GLOBAL PARA ARAÑAS (Con recorte estricto ctx.clip y pointer-events: none) -->
-  <canvas id="spider-canvas"></canvas>
-
-  <!-- MODAL PARA PEGAR TEXTO MANUAL -->
-  <div id="paste-modal" class="modal hidden">
-    <div class="modal-card">
-      <div class="modal-head">
-        <span>📋 Pegar Texto Manual</span>
-        <button id="btn-close-paste" class="btn-mini">✕</button>
-      </div>
-      <input type="text" id="paste-title" placeholder="Título del documento (ej. Apuntes Clase 4)" />
-      <textarea id="paste-body" rows="8" placeholder="Pega aquí tus apuntes, código o texto académico..."></textarea>
-      <div class="modal-foot">
-        <button id="btn-confirm-paste" class="btn-hud btn-cyan">Indexar Texto</button>
-      </div>
+  <canvas id="spider-canvas" aria-hidden="true"></canvas>
+  <div id="node-tooltip" class="node-tooltip hidden" role="tooltip"></div>
+  <div id="hud-toast" class="hud-toast hidden" role="status"><span id="hud-toast-msg"></span></div>
+  <div id="paste-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="paste-title-label">
+    <div class="modal-card"><div class="modal-head"><span id="paste-title-label">PEGAR TEXTO</span><button id="btn-close-paste" class="btn-mini" aria-label="Cerrar">✕</button></div>
+      <label for="paste-title">Título</label><input type="text" id="paste-title" placeholder="Apuntes de clase">
+      <label for="paste-body">Contenido</label><textarea id="paste-body" rows="8" placeholder="Pega tus apuntes o texto académico…"></textarea>
+      <div class="modal-foot"><button id="btn-confirm-paste" class="btn-hud btn-cyan">INDEXAR TEXTO</button></div>
     </div>
   </div>
-
-  <!-- MÓDULOS DE LA APLICACIÓN -->
-  <script src="js/store.js"></script>
-  <script src="js/kimi-aux-model.js"></script>
-  <script src="js/parsers.js"></script>
-  <script src="js/neural-graph.js"></script>
-  <script src="js/spiders.js"></script>
-  <script src="js/brain-rag.js"></script>
-  <script src="js/study-bots.js"></script>
-  <script>
-    // Registro de Service Worker para modo 100% Offline-First
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js').catch(() => {});
-    }
-    // Inicialización coordinada del sistema
-    window.addEventListener('DOMContentLoaded', () => {
-      if (window.NeuralStore) window.NeuralStore.init();
-      if (window.NeuralGraph) window.NeuralGraph.init();
-      if (window.SpiderEngine) window.SpiderEngine.init();
-      if (window.DocParsers) window.DocParsers.init();
-      if (window.BrainRAG) window.BrainRAG.init();
-      if (window.StudyBots) window.StudyBots.init();
-    });
-  </script>
+  <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-heading">
+    <div class="modal-card"><div class="modal-head"><span id="settings-heading">AJUSTES LOCALES</span><button id="btn-close-settings" class="btn-mini" aria-label="Cerrar ajustes">✕</button></div>
+      <p class="muted">Motor extractivo independiente: no usa servidores, claves ni modelos descargados. La capa vectorial es una proyección local, no un LLM preentrenado.</p>
+      <label class="check-row"><input id="cfg-dense" type="checkbox"> Búsqueda híbrida vectorial</label><label class="check-row"><input id="cfg-fuzzy" type="checkbox"> Coincidencia difusa</label><label class="check-row"><input id="cfg-reduced" type="checkbox"> Reducir animaciones</label>
+      <label for="cfg-topk">Máximo de fuentes</label><select id="cfg-topk"><option>3</option><option>4</option><option>5</option><option>6</option><option>8</option><option>10</option></select>
+      <label for="cfg-window">Contexto vecino</label><select id="cfg-window"><option value="0">Solo el pasaje</option><option value="1">Una oración a cada lado</option><option value="2">Dos oraciones a cada lado</option></select>
+      <p id="storage-status" class="muted small" role="status"></p>
+    </div>
+  </div>
 </body>
 </html>

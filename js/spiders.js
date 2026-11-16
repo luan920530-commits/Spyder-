@@ -1,25 +1,51 @@
 /**
- * NEURAL COMMAND // AI SPIDER OS
- * js/spiders.js - Enjambre de 5 arañas IA con ciclo físico DOM-to-Canvas
+ * NEURAL COMMAND // AI SPIDER OS — v11
+ * js/spiders.js — Enjambre de agentes: ciclo físico DOM→lienzo, micro-IA por agente,
+ * cola de cosecha global (todos los documentos y páginas) y telemetría de rendimiento.
+ *
+ * Mejoras v11:
+ *  · scoring normalizado (antes el ruido dominaba con vocabularios grandes)
+ *  · SPDR-05 CORE-AI con reglas propias
+ *  · los claims se Liberan al terminar (antes quedaban reservados para siempre)
+ *  · cola global con presupuesto por frame y cambio de página automático
+ *  · respeta prefers-reduced-motion y pausa al ocultar la pestaña
  */
-(function () {
+(function (root) {
+  'use strict';
+
+  const U = root.NCUtil;
+
   const AGENT_SPECS = [
-    { id: 'SPDR-01', role: 'DEF-AI', persona: 'Kimi-Ontology', cluster: 'AGT-01', color: '#00f0ff', seeds: ['definición', 'concepto', 'arquitectura', 'modelo', 'sistema', 'red'] },
-    { id: 'SPDR-02', role: 'CAUSAL-AI', persona: 'DeepSeek-R1', cluster: 'AGT-02', color: '#a855f7', seeds: ['cuando', 'porque', 'entonces', 'protocolo', 'función', 'causa'] },
-    { id: 'SPDR-03', role: 'QUANT-AI', persona: 'GPT-Quant', cluster: 'AGT-03', color: '#f59e0b', seeds: ['porcentaje', 'métrica', 'latencia', 'épocas', 'tasa', 'valor'] },
-    { id: 'SPDR-04', role: 'SYNTH-AI', persona: 'Claude-Synth', cluster: 'AGT-04', color: '#10b981', seeds: ['resumen', 'conclusión', 'contraste', 'además', 'permite', 'embargo'] },
-    { id: 'SPDR-05', role: 'CORE-AI', persona: 'Codex-Core', cluster: 'AGT-01', color: '#f43f5e', seeds: ['sinapsis', 'grafo', 'conocimiento', 'núcleo', 'agente', 'memoria'] }
+    { id: 'SPDR-01', role: 'DEF-AI', cluster: 'AGT-01', color: '#00f0ff', seeds: ['definicion', 'concepto', 'arquitectura', 'modelo', 'sistema', 'red'] },
+    { id: 'SPDR-02', role: 'CAUSAL-AI', cluster: 'AGT-02', color: '#a855f7', seeds: ['cuando', 'porque', 'entonces', 'protocolo', 'funcion', 'causa'] },
+    { id: 'SPDR-03', role: 'QUANT-AI', cluster: 'AGT-03', color: '#f59e0b', seeds: ['porcentaje', 'metrica', 'latencia', 'epocas', 'tasa', 'valor'] },
+    { id: 'SPDR-04', role: 'SYNTH-AI', cluster: 'AGT-04', color: '#10b981', seeds: ['resumen', 'conclusion', 'contraste', 'ademas', 'permite', 'embargo'] },
+    { id: 'SPDR-05', role: 'CORE-AI', cluster: 'AGT-01', color: '#f43f5e', seeds: ['sinapsis', 'grafo', 'conocimiento', 'nucleo', 'agente', 'memoria'] }
   ];
 
-  const MICRO_AI_KEY = 'neural_spider_microai_v1';
+  const MICRO_AI_KEY = 'neural_spider_microai_v2';
   const microBrains = {};
 
+  let canvas, ctx;
+  let spiders = [];
+  let shockwaves = [];
+  let paused = false;
+  let activeCount = 1;
+  let lastFrameTime = 0;
+  let fpsCounter = 60;
+  let posCache = new Map();
+  let harvestWindow = { at: Date.now(), count: 0 };
+  let lastProgressEmit = 0;
+
+  const store = () => root.NeuralStore;
+
+  // ── Micro-IA ─────────────────────────────────────────────────────────────
   function initMicroBrains() {
     let saved = {};
     try { saved = JSON.parse(localStorage.getItem(MICRO_AI_KEY) || '{}'); } catch (_) {}
     AGENT_SPECS.forEach(spec => {
-      const weights = new Map(Object.entries(saved[spec.id] || {}));
-      spec.seeds.forEach(w => { if (!weights.has(w)) weights.set(w, 1.5); });
+      const weights = new Map(Object.entries(saved[spec.id] || {}).filter(([k, v]) => /^[a-z0-9%]{1,64}$/.test(k) && Number.isFinite(v) && v >= 0 && v <= 5));
+      spec.seeds.forEach(w => { if (!weights.has(U.stem(w))) weights.set(U.stem(w), 1.5); });
       microBrains[spec.id] = { weights, learnedTokens: weights.size };
     });
   }
@@ -28,130 +54,181 @@
     try {
       const out = {};
       Object.keys(microBrains).forEach(id => {
-        out[id] = Object.fromEntries(Array.from(microBrains[id].weights.entries()).slice(0, 120));
+        const entries = Array.from(microBrains[id].weights.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 120);
+        out[id] = Object.fromEntries(entries);
       });
       localStorage.setItem(MICRO_AI_KEY, JSON.stringify(out));
     } catch (_) {}
   }
 
-  function learnFromPattern(sp, text, reward = 1.0) {
+  function learnFromPattern(sp, text, reward) {
     const brain = microBrains[sp.id];
     if (!brain) return;
-    const tokens = text.toLowerCase().replace(/[^a-z0-9áéíóúñü\s]/g, ' ').split(/\s+/).filter(w => w.length > 3);
-    tokens.forEach(t => {
+    U.tokens(text).forEach(t => {
       const prev = brain.weights.get(t) || 0.2;
-      brain.weights.set(t, Math.min(5.0, prev + 0.25 * reward));
+      brain.weights.set(t, Math.min(5, prev + 0.25 * (reward || 1)));
     });
     brain.learnedTokens = brain.weights.size;
     saveMicroBrains();
   }
 
-  let canvas, ctx;
-  let spiders = [];
-  let shockwaves = [];
-  let paused = false;
-  let activeCount = 1;
-  let lastFrameTime = performance.now();
-  let fpsCounter = 60;
+  function resetMicroBrains() {
+    try { localStorage.removeItem(MICRO_AI_KEY); } catch (_) {}
+    initMicroBrains();
+  }
 
-  function createSpider(specIdx) {
-    const spec = AGENT_SPECS[specIdx % AGENT_SPECS.length];
-    const arenaRect = document.getElementById('panel-arena')?.getBoundingClientRect() || { left: 400, top: 200, width: 300, height: 300 };
-    return {
-      ...spec,
-      x: arenaRect.left + arenaRect.width * 0.5 + (Math.random() - 0.5) * 40,
-      y: arenaRect.top + arenaRect.height * 0.5 + (Math.random() - 0.5) * 40,
-      vx: 0,
-      vy: 0,
+  // ── Puntuación de afinidad (normalizada) ─────────────────────────────────
+  const RULES = {
+    'DEF-AI': { re: /(es un|es una|se define|significa|concepto|modelo|sistema|arquitectura|consiste)/i, weight: 3.2 },
+    'CAUSAL-AI': { re: /(cuando|si .* entonces|porque|por lo tanto|debido|causa|funcion|protocolo|implica)/i, weight: 3.2 },
+    'QUANT-AI': { re: /(\d+(?:[.,]\d+)?\s*%|\d+\s*(ms|milisegundos|s|kb|mb|gb|epocas|años|nodos|veces)|\d{2,})/i, weight: 4.0 },
+    'SYNTH-AI': { re: /(en resumen|en sintesis|en contraste|conclusion|sin embargo|ademas|permite|por ultimo)/i, weight: 3.0 },
+    'CORE-AI': { re: /(sinapsis|grafo|red neuronal|conocimiento|nucleo|agente|memoria|indice|ontolog)/i, weight: 3.0 }
+  };
+
+  function scoreSentenceForSpider(sp, text, sentenceIndex) {
+    const t = text;
+    let score = 0;
+    const rule = RULES[sp.role];
+    if (rule && rule.re.test(t)) score += rule.weight;
+
+    const brain = microBrains[sp.id];
+    if (brain) {
+      const toks = U.tokens(t);
+      let learned = 0, hits = 0;
+      toks.forEach(tok => {
+        if (brain.weights.has(tok)) { learned += brain.weights.get(tok); hits++; }
+      });
+      // Normalización: media por token presente, con techo, para que el tamaño del vocabulario no domine
+      if (hits) score += Math.min(3.5, (learned / Math.sqrt(hits)) * 0.6);
+    }
+    // Bonificación por posición temprana (los documentos suelen definir al principio)
+    if (sentenceIndex < 3) score += 0.6;
+    // Penaliza fragmentos vacíos o sin contenido semántico
+    if (t.length < 40) score -= 1.2;
+    return score;
+  }
+
+  // ── Cola de cosecha global ───────────────────────────────────────────────
+  function candidates() {
+    const S = store();
+    if (!S) return [];
+    return S.state.allSentences || [];
+  }
+
+  function pickNextSentence(sp) {
+    const S = store();
+    if (!S) return null;
+    const doc = S.getActiveDoc();
+    const activePage = S.state.activePage;
+    const list = candidates();
+    if (!list.length) return null;
+
+    const available = list.filter(s => !s.harvested && !S.state.claimedTargets.has(s.id));
+    if (!available.length) return null;
+
+    // Prioriza la página visible (para que la animación tenga un destino real)
+    const local = available.filter(s => doc && s.docId === doc.id && s.pageNum === activePage);
+    const auto = document.getElementById('chk-auto-page');
+    const mayNavigate = (!auto || auto.checked) && Date.now() >= (S.state.autoNavigationPausedUntil || 0);
+    const pool = local.length ? local : (mayNavigate ? available : []);
+    if (!pool.length) return null;
+
+    let best = null, bestScore = -Infinity;
+    // Muestreo acotado para mantener el coste por frame bajo
+    const step = Math.max(1, Math.floor(pool.length / 40));
+    for (let i = 0; i < pool.length; i += step) {
+      const s = pool[i];
+      const sc = scoreSentenceForSpider(sp, s.text, i) + Math.random() * 0.35;
+      if (sc > bestScore) { bestScore = sc; best = s; }
+    }
+    if (!best) return null;
+
+    // Si el objetivo no está en la página visible, se navega (si hay auto-página)
+    if ((!doc || best.docId !== doc.id) && mayNavigate) S.setActiveDoc(best.docId, best.pageNum);
+    else if (best.pageNum !== activePage && mayNavigate) S.setActivePage(best.pageNum);
+
+    S.state.claimedTargets.add(best.id);
+    sp.thought = `${sp.id} [${sp.role}]: analizando «${U.truncate(best.text, 34)}»`;
+    return best;
+  }
+
+  function getSentenceScreenPos(sentenceId) {
+    const cached = posCache.get(sentenceId);
+    if (cached && Date.now() - cached.at < 600) return cached.pos;
+    const el = Array.from(document.querySelectorAll('.sentence-block')).find(x => x.dataset.sid === sentenceId);
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width && !rect.height) return { x: rect.left, y: rect.top };
+    const zone = document.getElementById('doc-dropzone')?.getBoundingClientRect();
+    if (zone && (rect.bottom < zone.top || rect.top > zone.bottom)) {
+      try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+    }
+    const pos = { x: rect.left + Math.min(rect.width * 0.5, 130), y: rect.top + rect.height * 0.5 };
+    if (posCache.size > 600) posCache.clear();
+    posCache.set(sentenceId, { pos, at: Date.now() });
+    return pos;
+  }
+
+  // ── Ciclo de vida ────────────────────────────────────────────────────────
+  function createSpider(index) {
+    const spec = AGENT_SPECS[index % AGENT_SPECS.length];
+    const arena = document.getElementById('panel-arena')?.getBoundingClientRect() || { left: 400, top: 200, width: 300, height: 300 };
+    return Object.assign({}, spec, {
+      x: arena.left + arena.width * 0.5 + (Math.random() - 0.5) * 50,
+      y: arena.top + arena.height * 0.5 + (Math.random() - 0.5) * 50,
       angle: 0,
-      phase: 'IDLE', // IDLE | IR_A_PALABRA | EXTRAER_DATOS | ARRASTRAR_A_RED | ALIMENTAR_NODO
+      phase: 'IDLE',
       phaseStart: performance.now(),
       targetSentence: null,
       targetPos: null,
       extractedPattern: null,
-      legPhase: Math.random() * Math.PI * 2
-    };
+      legPhase: Math.random() * Math.PI * 2,
+      harvestedCount: 0
+    });
   }
 
   function setSpiderCount(count) {
-    activeCount = Math.max(1, Math.min(5, count));
-    while (spiders.length < activeCount) {
-      spiders.push(createSpider(spiders.length));
-    }
+    const S = store();
+    const max = 5;
+    activeCount = Math.max(1, Math.min(max, count));
+    while (spiders.length < activeCount) spiders.push(createSpider(spiders.length));
     if (spiders.length > activeCount) {
+      spiders.slice(activeCount).forEach(sp => {
+        if (sp.targetSentence && S) S.state.claimedTargets.delete(sp.targetSentence.id);
+      });
       spiders = spiders.slice(0, activeCount);
     }
     const el = document.getElementById('stat-spiders');
-    if (el) el.textContent = `${spiders.length}/5`;
+    if (el) el.textContent = `${spiders.length}/${max}`;
+    if (S) S.emit('spiders:count', { count: spiders.length });
   }
 
-  function extractMultiWordPattern(sentenceText) {
-    const words = sentenceText.trim().split(/\s+/).filter(Boolean);
-    if (words.length <= 14) return words.join(' ');
-    return words.slice(0, 14).join(' ') + '…';
+  function releaseClaim(sp) {
+    const S = store();
+    if (S && sp.targetSentence) S.state.claimedTargets.delete(sp.targetSentence.id);
   }
 
-  function scoreSentenceForSpider(sp, text) {
-    const t = text.toLowerCase();
-    let score = 0;
-    if (sp.role === 'DEF-AI' && /(es un|define|significa|concepto|modelo|sistema|arquitectura)/i.test(t)) score += 3;
-    if (sp.role === 'CAUSAL-AI' && /(cuando|si |entonces|porque|por lo tanto|causa|función|protocolo)/i.test(t)) score += 3;
-    if (sp.role === 'QUANT-AI' && /(\d+%|\d+\s*(ms|s|kb|mb|épocas|años)|métrica|tasa)/i.test(t)) score += 4;
-    if (sp.role === 'SYNTH-AI' && /(en resumen|en contraste|conclusión|sin embargo|además|permite)/i.test(t)) score += 3;
-
-    // Inferencia con Micro-IA local (pesos aprendidos)
-    const brain = microBrains[sp.id];
-    if (brain) {
-      const tokens = t.replace(/[^a-z0-9áéíóúñü\s]/g, ' ').split(/\s+/);
-      tokens.forEach(tok => { if (brain.weights.has(tok)) score += brain.weights.get(tok); });
-    }
-    return score;
-  }
-
-  function pickNextSentence(spider) {
-    const store = window.NeuralStore;
-    const doc = store.getActiveDoc();
-    if (!doc) return null;
-    const page = doc.pages[store.state.activePage - 1];
-    if (!page) return null;
-
-    const available = page.sentences.filter(s => !s.harvested && !store.state.claimedTargets.has(s.id));
-    if (available.length === 0) {
-      // Auto-Pág si está activado
-      const autoChk = document.getElementById('chk-auto-page');
-      if (autoChk?.checked && store.state.activePage < doc.pages.length) {
-        store.setActivePage(store.state.activePage + 1);
-      }
-      return null;
-    }
-
-    // Especialización semántica: elegir la oración con mayor afinidad para este agente
-    available.sort((a, b) => scoreSentenceForSpider(spider, b.text) - scoreSentenceForSpider(spider, a.text));
-    const topPool = available.slice(0, Math.min(2, available.length));
-    const chosen = topPool[Math.floor(Math.random() * topPool.length)];
-    store.state.claimedTargets.add(chosen.id);
-    spider.thought = `${spider.id} [${spider.role}]: Analizando "${chosen.text.slice(0, 32)}..."`;
-    return chosen;
-  }
-
-  function getSentenceScreenPos(sentenceId) {
-    const el = document.querySelector(`.sentence-block[data-sid="${sentenceId}"]`);
-    if (!el) return null;
-    const rect = el.getBoundingClientRect();
-    const docZone = document.getElementById('doc-dropzone')?.getBoundingClientRect();
-    if (!docZone || rect.bottom < docZone.top || rect.top > docZone.bottom) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+  function extractPattern(sentence) {
+    const label = U.words3(sentence.text).replace(/[.,;:]$/, '');
     return {
-      x: rect.left + Math.min(rect.width * 0.5, 120),
-      y: rect.top + rect.height * 0.5
+      cluster: null,
+      label,
+      text: U.truncate(sentence.text, 240),
+      pageNum: sentence.pageNum,
+      sentenceId: sentence.id,
+      section: sentence.section || ''
     };
   }
 
   function updateSpider(sp, now, dt) {
-    // Watchdog de 3.0 segundos por estado
-    if (sp.phase !== 'IDLE' && now - sp.phaseStart > 3000) {
-      if (sp.targetSentence) window.NeuralStore.state.claimedTargets.delete(sp.targetSentence.id);
+    const S = store();
+    if (!S) return;
+
+    if (sp.phase !== 'IDLE' && now - sp.phaseStart > 3200) {
+      releaseClaim(sp);
       sp.phase = 'IDLE';
       sp.targetSentence = null;
       sp.extractedPattern = null;
@@ -160,32 +237,31 @@
 
     if (sp.phase === 'IDLE') {
       const sent = pickNextSentence(sp);
-      if (sent) {
-        sp.targetSentence = sent;
-        sp.targetPos = getSentenceScreenPos(sent.id);
-        if (sp.targetPos) {
-          sp.phase = 'IR_A_PALABRA';
-          sp.phaseStart = now;
-        } else {
-          window.NeuralStore.state.claimedTargets.delete(sent.id);
-        }
+      if (!sent) return;
+      sp.targetSentence = sent;
+      sp.targetPos = getSentenceScreenPos(sent.id);
+      if (sp.targetPos) {
+        sp.phase = 'IR_A_PALABRA';
+        sp.phaseStart = now;
+      } else {
+        S.state.claimedTargets.delete(sent.id);
       }
       return;
     }
 
     if (sp.phase === 'IR_A_PALABRA') {
       const pos = getSentenceScreenPos(sp.targetSentence.id) || sp.targetPos;
-      if (!pos) { sp.phase = 'IDLE'; return; }
-      const dx = pos.x - sp.x;
-      const dy = pos.y - sp.y;
+      if (!pos) { releaseClaim(sp); sp.phase = 'IDLE'; return; }
+      const dx = pos.x - sp.x, dy = pos.y - sp.y;
       const dist = Math.hypot(dx, dy);
       sp.angle = Math.atan2(dy, dx);
-
-      if (dist < 14) {
+      const snap = isReduced();
+      if (dist < 16 || snap) {
+        sp.x = pos.x; sp.y = pos.y;
         sp.phase = 'EXTRAER_DATOS';
         sp.phaseStart = now;
       } else {
-        const speed = 260 * dt;
+        const speed = 300 * dt;
         sp.x += (dx / dist) * speed;
         sp.y += (dy / dist) * speed;
         sp.legPhase += dt * 18;
@@ -195,45 +271,27 @@
 
     if (sp.phase === 'EXTRAER_DATOS') {
       sp.legPhase += dt * 10;
-      if (now - sp.phaseStart > 550) {
-        const frag = extractMultiWordPattern(sp.targetSentence.text);
-        const hash = window.NeuralStore.hashPattern(frag);
-        if (!window.NeuralStore.state.visitedPatternHashes.has(hash)) {
-          window.NeuralStore.state.visitedPatternHashes.add(hash);
-          const label = frag.split(/\s+/).slice(0, 3).join(' ');
-          sp.extractedPattern = {
-            cluster: sp.cluster,
-            label,
-            text: frag,
-            pageNum: sp.targetSentence.pageNum,
-            sentenceId: sp.targetSentence.id,
-            color: sp.color
-          };
-          sp.targetSentence.harvested = true;
-          const el = document.querySelector(`.sentence-block[data-sid="${sp.targetSentence.id}"]`);
-          if (el) el.classList.add('sentence-harvested');
-          sp.phase = 'ARRASTRAR_A_RED';
-          sp.phaseStart = now;
-        } else {
-          sp.targetSentence.harvested = true;
-          sp.phase = 'IDLE';
-        }
+      if (now - sp.phaseStart > 420) {
+        const pattern = extractPattern(sp.targetSentence);
+        pattern.cluster = sp.cluster;
+        pattern.color = sp.color;
+        sp.extractedPattern = pattern;
+        sp.phase = 'ARRASTRAR_A_RED';
+        sp.phaseStart = now;
       }
       return;
     }
 
     if (sp.phase === 'ARRASTRAR_A_RED') {
-      const hubPos = window.NeuralGraph.getHubScreenPos(sp.cluster);
-      const dx = hubPos.x - sp.x;
-      const dy = hubPos.y - sp.y;
+      const hub = root.NeuralGraph.getHubScreenPos(sp.cluster);
+      const dx = hub.x - sp.x, dy = hub.y - sp.y;
       const dist = Math.hypot(dx, dy);
       sp.angle = Math.atan2(dy, dx);
-
-      if (dist < 18) {
+      if (dist < 20 || isReduced()) {
         sp.phase = 'ALIMENTAR_NODO';
         sp.phaseStart = now;
       } else {
-        const speed = 280 * dt;
+        const speed = 320 * dt;
         sp.x += (dx / dist) * speed;
         sp.y += (dy / dist) * speed;
         sp.legPhase += dt * 18;
@@ -243,60 +301,70 @@
 
     if (sp.phase === 'ALIMENTAR_NODO') {
       if (sp.extractedPattern) {
-        window.NeuralGraph.addPatternNode(sp.extractedPattern);
-        learnFromPattern(sp, sp.extractedPattern.text, 1.0);
-        if (window.KimiAuxModel) window.KimiAuxModel.trainOnPattern(sp.extractedPattern.text, 1.0);
-        shockwaves.push({ x: sp.x, y: sp.y, r: 4, maxR: 38, color: sp.color, alpha: 1 });
-        sp.harvestedCount = (sp.harvestedCount || 0) + 1;
-        const vocab = microBrains[sp.id]?.learnedTokens || 0;
-        window.NeuralStore.emit('spider:thought', {
-          spiderId: sp.id,
-          role: sp.role,
-          color: sp.color,
-          text: `${sp.id} (${sp.role}) aprendió "${sp.extractedPattern.label}" [Vocab: ${vocab}]`
+        const p = sp.extractedPattern;
+        sp.targetSentence.harvested = true;
+        Array.from(document.querySelectorAll('.sentence-block')).find(x => x.dataset.sid === sp.targetSentence.id)?.classList.add('sentence-harvested');
+        S.addPattern({
+          cluster: p.cluster, label: p.label, text: p.text,
+          pageNum: p.pageNum, sentenceId: p.sentenceId, color: p.color, section: p.section
         });
+        learnFromPattern(sp, p.text + ' ' + p.label, 1);
+        if (root.KimiAuxModel) root.KimiAuxModel.trainOnPattern(p.text, 1);
+        if (root.NCMemory) root.NCMemory.vaultAdd({
+          phrase: p.label, detail: p.text, cluster: p.cluster,
+          pageNum: p.pageNum, sentenceId: p.sentenceId,
+          docName: sp.targetSentence.docName
+        });
+        shockwaves.push({ x: sp.x, y: sp.y, r: 4, maxR: 38, color: sp.color, alpha: 1 });
+        sp.harvestedCount++;
+        harvestWindow.count++;
+        const vocab = microBrains[sp.id]?.learnedTokens || 0;
+        S.emit('spider:thought', {
+          spiderId: sp.id, role: sp.role, color: sp.color,
+          text: `${sp.id} (${sp.role}) aprendió «${p.label}» [vocab ${vocab}]`
+        });
+        releaseClaim(sp);
       }
       sp.extractedPattern = null;
       sp.targetSentence = null;
       sp.phase = 'IDLE';
       sp.phaseStart = now;
+      emitProgress(now);
     }
   }
 
-  function applyRepulsion() {
-    for (let i = 0; i < spiders.length; i++) {
-      for (let j = i + 1; j < spiders.length; j++) {
-        const dx = spiders[j].x - spiders[i].x;
-        const dy = spiders[j].y - spiders[i].y;
-        const dist = Math.hypot(dx, dy) || 1;
-        if (dist < 28) {
-          const push = (28 - dist) * 0.25;
-          spiders[i].x -= (dx / dist) * push;
-          spiders[i].y -= (dy / dist) * push;
-          spiders[j].x += (dx / dist) * push;
-          spiders[j].y += (dy / dist) * push;
-        }
-      }
-    }
+  function isReduced() {
+    const S = store();
+    if (S && S.getSetting && S.getSetting('reduceMotion')) return true;
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   }
 
+  function emitProgress(now) {
+    if (now - lastProgressEmit < 900) return;
+    lastProgressEmit = now;
+    const S = store();
+    if (!S) return;
+    const total = S.state.allSentences.length || 0;
+    const harvested = S.state.allSentences.filter(s => s.harvested).length;
+    const elapsed = Math.max(1, (now - harvestWindow.at) / 1000);
+    const rate = harvestWindow.count / elapsed;
+    harvestWindow = { at: now, count: 0 };
+    S.emit('harvest:progress', { harvested, total, rate, spiders: spiders.length });
+  }
+
+  // ── Dibujo ───────────────────────────────────────────────────────────────
   function drawSpider(sp) {
     ctx.save();
     ctx.translate(sp.x, sp.y);
 
-    // Hilo de seda y cápsula si está arrastrando
     if (sp.phase === 'ARRASTRAR_A_RED' && sp.extractedPattern) {
-      ctx.save();
       ctx.fillStyle = sp.color;
       ctx.shadowColor = sp.color;
       ctx.shadowBlur = 10;
       ctx.beginPath();
       ctx.arc(-Math.cos(sp.angle) * 16, -Math.sin(sp.angle) * 16, 5, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
     }
-
-    // Láser de escaneo en EXTRAER_DATOS
     if (sp.phase === 'EXTRAER_DATOS') {
       ctx.strokeStyle = sp.color;
       ctx.lineWidth = 1.5;
@@ -307,12 +375,11 @@
     }
 
     ctx.rotate(sp.angle);
-    ctx.scale(1.35, 1.35);
+    ctx.scale(1.3, 1.3);
 
-    // 8 patas largas finas multicolor con puntos luminosos en las puntas (estilo v8.0)
     const legColors = ['#00f0ff', '#a855f7', '#f59e0b', '#10b981'];
     ctx.lineWidth = 1.4;
-    for (let side of [-1, 1]) {
+    for (const side of [-1, 1]) {
       for (let i = 0; i < 4; i++) {
         const lc = legColors[i];
         const baseAngle = side * (0.45 + i * 0.36);
@@ -336,7 +403,6 @@
       }
     }
 
-    // Abdomen hexagonal oscuro con borde neón blanco/cian
     ctx.shadowColor = '#00f0ff';
     ctx.shadowBlur = 8;
     ctx.fillStyle = '#05080f';
@@ -345,139 +411,170 @@
     ctx.beginPath();
     for (let k = 0; k < 6; k++) {
       const a = (k * Math.PI) / 3;
-      const hx = -6 + Math.cos(a) * 6.5;
-      const hy = Math.sin(a) * 6.5;
+      const hx = -6 + Math.cos(a) * 6.5, hy = Math.sin(a) * 6.5;
       if (k === 0) ctx.moveTo(hx, hy); else ctx.lineTo(hx, hy);
     }
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
-    // Cefalotórax hexagonal frontal
     ctx.beginPath();
     for (let k = 0; k < 6; k++) {
       const a = (k * Math.PI) / 3;
-      const hx = 4 + Math.cos(a) * 4.5;
-      const hy = Math.sin(a) * 4.5;
+      const hx = 4 + Math.cos(a) * 4.5, hy = Math.sin(a) * 4.5;
       if (k === 0) ctx.moveTo(hx, hy); else ctx.lineTo(hx, hy);
     }
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
-    // Núcleo central blanco brillante
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
     ctx.arc(4, 0, 1.8, 0, Math.PI * 2);
     ctx.fill();
-    ctx.shadowBlur = 0;
-
     ctx.restore();
   }
 
   function loop(now) {
-    const dt = Math.min(0.05, (now - lastFrameTime) / 1000);
+    const dt = Math.min(0.05, (lastFrameTime ? (now - lastFrameTime) / 1000 : 0.016));
     fpsCounter = Math.round(fpsCounter * 0.9 + (1 / Math.max(0.001, dt)) * 0.1);
     lastFrameTime = now;
 
     const fpsEl = document.getElementById('stat-fps');
-    if (fpsEl && Math.random() < 0.1) fpsEl.textContent = Math.min(60, fpsCounter);
+    if (fpsEl && Math.random() < 0.08) fpsEl.textContent = Math.min(60, fpsCounter);
 
-    if (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight) {
+    if (canvas && (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight)) {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
     }
+    if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Recorte estricto (ctx.clip) a #panel-doc y #panel-arena para jamás flotar sobre chat o botones móviles
     const docRect = document.getElementById('panel-doc')?.getBoundingClientRect();
     const arenaRect = document.getElementById('panel-arena')?.getBoundingClientRect();
-    ctx.save();
-    ctx.beginPath();
-    if (docRect) ctx.rect(docRect.left, docRect.top, docRect.width, docRect.height);
-    if (arenaRect) ctx.rect(arenaRect.left, arenaRect.top, arenaRect.width, arenaRect.height);
-    ctx.clip();
+    if (ctx) {
+      ctx.save();
+      ctx.beginPath();
+      if (docRect) ctx.rect(docRect.left, docRect.top, docRect.width, docRect.height);
+      if (arenaRect) ctx.rect(arenaRect.left, arenaRect.top, arenaRect.width, arenaRect.height);
+      ctx.clip();
+    }
 
-    if (!paused) {
+    if (!paused && !document.hidden) {
       spiders.forEach(sp => updateSpider(sp, now, dt));
       applyRepulsion();
     }
 
-    spiders.forEach(drawSpider);
+    if (ctx) {
+      spiders.forEach(sp => drawSpider(sp));
 
-    // Ondas expansivas
-    shockwaves = shockwaves.filter(sw => sw.alpha > 0.05);
-    shockwaves.forEach(sw => {
-      sw.r += 1.6;
-      sw.alpha *= 0.9;
-      ctx.strokeStyle = sw.color;
-      ctx.globalAlpha = sw.alpha;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(sw.x, sw.y, sw.r, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    });
+      shockwaves = shockwaves.filter(sw => sw.alpha > 0.05);
+      shockwaves.forEach(sw => {
+        sw.r += 1.8;
+        sw.alpha *= 0.9;
+        ctx.strokeStyle = sw.color;
+        ctx.globalAlpha = sw.alpha;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(sw.x, sw.y, sw.r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      });
+      ctx.restore();
+    }
 
-    ctx.restore();
     requestAnimationFrame(loop);
   }
 
+  function applyRepulsion() {
+    for (let i = 0; i < spiders.length; i++) {
+      for (let j = i + 1; j < spiders.length; j++) {
+        const dx = spiders[j].x - spiders[i].x;
+        const dy = spiders[j].y - spiders[i].y;
+        const dist = Math.hypot(dx, dy) || 1;
+        if (dist < 28) {
+          const push = (28 - dist) * 0.25;
+          spiders[i].x -= (dx / dist) * push;
+          spiders[i].y -= (dy / dist) * push;
+          spiders[j].x += (dx / dist) * push;
+          spiders[j].y += (dy / dist) * push;
+        }
+      }
+    }
+  }
+
+  // ── Arranque ─────────────────────────────────────────────────────────────
   function init() {
+    const S = store();
+    if (!S) return;
     initMicroBrains();
     canvas = document.getElementById('spider-canvas');
-    if (!canvas) return;
-    ctx = canvas.getContext('2d');
+    if (canvas) {
+      ctx = canvas.getContext('2d');
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
     setSpiderCount(1);
+    if (ctx) requestAnimationFrame(loop);
 
     document.getElementById('btn-mitosis')?.addEventListener('click', () => {
       setSpiderCount(activeCount < 5 ? activeCount + 1 : 1);
+      S.emit('spiders:mitosis', { count: activeCount });
     });
 
     const btnPause = document.getElementById('btn-toggle-spiders');
     btnPause?.addEventListener('click', () => {
       paused = !paused;
-      btnPause.textContent = paused ? '▶ Reanudar' : '⏸ Pausar';
+      btnPause.textContent = paused ? '▶' : 'Ⅱ';
+      btnPause.setAttribute('aria-label', paused ? 'Reanudar enjambre' : 'Pausar enjambre');
+      btnPause.title = paused ? 'Reanudar enjambre' : 'Pausar enjambre';
+      S.emit('spiders:paused', { paused });
     });
 
-    // Mitosis automática según densidad del documento
-    window.NeuralStore.on('doc:added', doc => {
-      const totalChars = doc.pages.reduce((acc, p) => acc + p.text.length, 0);
-      const target = Math.min(5, Math.max(2, Math.ceil(totalChars / 1500)));
+    S.on('doc:added', doc => {
+      const totalChars = (doc.pages || []).reduce((acc, p) => acc + (p.text || '').length, 0);
+      const target = Math.min(5, Math.max(1, Math.ceil(totalChars / 2200)));
       setSpiderCount(target);
+      emitProgress(performance.now());
+      if (S.getSetting('autoHarvest', true) === false) paused = true;
     });
 
-    // Despacho instantáneo al hacer clic en una palabra o fallar un quiz
-    window.NeuralStore.on('spider:dispatchToSentence', ({ sentence }) => {
+    S.on('spider:dispatchToSentence', ({ sentence }) => {
       if (!sentence) return;
       const sp = spiders[0];
       if (!sp) return;
+      if (sp.targetSentence) S.state.claimedTargets.delete(sp.targetSentence.id);
       sp.targetSentence = sentence;
       sp.targetPos = getSentenceScreenPos(sentence.id);
       sp.phase = 'IR_A_PALABRA';
       sp.phaseStart = performance.now();
+      S.state.claimedTargets.add(sentence.id);
     });
 
-    // Búsqueda visual en vivo al hacer una consulta en el chat
-    window.NeuralStore.on('spider:queryVisual', () => {
+    S.on('spider:queryVisual', ({ nodeIds }) => {
       const sp = spiders[spiders.length - 1] || spiders[0];
       if (!sp) return;
       shockwaves.push({ x: sp.x, y: sp.y, r: 6, maxR: 54, color: '#fbbf24', alpha: 1 });
-      const hubPos = window.NeuralGraph.getHubScreenPos(sp.cluster);
-      sp.targetPos = hubPos;
-      sp.angle = Math.atan2(hubPos.y - sp.y, hubPos.x - sp.x);
+      const hub = root.NeuralGraph.getHubScreenPos(sp.cluster);
+      sp.targetPos = hub;
+      sp.angle = Math.atan2(hub.y - sp.y, hub.x - sp.x);
+      if (nodeIds && nodeIds.length) root.NeuralGraph.highlightPath(nodeIds);
     });
 
-    requestAnimationFrame(loop);
+    S.on('system:reset', () => {
+      resetMicroBrains();
+      posCache.clear();
+      setSpiderCount(1);
+      paused = false;
+      if (btnPause) { btnPause.textContent = 'Ⅱ'; btnPause.title = 'Pausar enjambre'; btnPause.setAttribute('aria-label', 'Pausar enjambre'); }
+    });
 
-    // Ciclo de Sueño automático en espera (cada 15s consolida episodios en memoria)
+    // Ciclo de sueño: consolidación periódica de la bóveda
     setInterval(() => {
-      if (!paused && spiders.every(s => s.phase === 'IDLE') && window.KimiAuxModel && window.NeuralStore.state.nodes.length > 4) {
-        window.KimiAuxModel.runSleepCycle(window.NeuralStore.state.nodes);
-      }
-    }, 15000);
+      if (document.hidden) return;
+      if (root.NCMemory && S.state.vault.length > 20) root.NCMemory.consolidate();
+    }, 45000);
   }
 
-  window.SpiderEngine = { init, setSpiderCount };
-})();
+  root.SpiderEngine = { init, setSpiderCount, AGENT_SPECS, microBrains, reloadMicroBrains: initMicroBrains,
+    getStatus: () => ({ paused, spiders: spiders.map(({ id, role, cluster, phase }) => ({ id, role, cluster, phase })) }) };
+})(typeof window !== 'undefined' ? window : globalThis);
