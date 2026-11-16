@@ -635,12 +635,12 @@ html, body {
   #hud-workspace {
     grid-template-columns: 1fr 1fr;
     grid-template-rows: 48% 52%;
-    height: calc(100vh - 52px);
+    height: calc(100dvh - 52px);
     gap: 4px;
     padding: 4px;
   }
 
-  #panel-doc { grid-column: 1 / 2; grid-row: 1 / 2; }
-  #panel-arena { grid-column: 2 / 3; grid-row: 1 / 2; }
-  #panel-brain { grid-column: 1 / 3; grid-row: 2 / 3; }
+  #panel-doc { grid-column: 1 / 2; grid-row: 1 / 2; min-height: 0; }
+  #panel-arena { grid-column: 2 / 3; grid-row: 1 / 2; min-height: 0; }
+  #panel-brain { grid-column: 1 / 3; grid-row: 2 / 3; min-height: 0; height: 100%; }
 }

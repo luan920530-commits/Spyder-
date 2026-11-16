@@ -365,11 +365,11 @@
         appendMessage('system', '🧬 Motor ONNX <strong>DESACTIVADO</strong>. Usando KIMI-CORE 0 MB.');
         return;
       }
-      appendMessage('system', '🧬 Cargando modelo neuronal ligero ONNX (<code>SmolLM2-135M</code>, ~90 MB) en el navegador...');
+      appendMessage('system', '🧬 Cargando modelo de embeddings ONNX (<code>Xenova/all-MiniLM-L6-v2</code>, ~22 MB) en el navegador...');
       try {
         const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
-        onnxPipe = await pipeline('text-generation', 'HuggingFaceTB/SmolLM2-135M-Instruct');
-        appendMessage('system', '✅ Modelo <strong>ONNX SmolLM2-135M</strong> listo en memoria local.');
+        onnxPipe = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+        appendMessage('system', '✅ Modelo <strong>ONNX all-MiniLM-L6-v2</strong> listo en memoria local.');
       } catch (err) {
         appendMessage('system', `⚠️ No se pudo cargar ONNX (${err.message}). Continuando con KIMI-CORE local.`);
       }

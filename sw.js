@@ -1,4 +1,4 @@
-const CACHE_NAME = 'neural-spider-os-v2';
+const CACHE_NAME = 'neural-spider-os-v3';
 const ASSETS = [
   './',
   './index.html',
