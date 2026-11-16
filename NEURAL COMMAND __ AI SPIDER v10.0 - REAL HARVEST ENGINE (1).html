@@ -1,0 +1,3020 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+  <title>NEURAL COMMAND // AI SPIDER v10.0 - REAL HARVEST ENGINE</title>
+
+  <!-- Tailwind CSS para diseño HUD cyberpunk ultrarresponsivo -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Tipografías HUD con respaldo local offline -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Librerías Externas (D3.js v7, PDF.js, Mammoth.js, Tesseract.js OCR, Marked.js, JSZip) con respaldo 100% offline -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+  <script>
+    if (window.tailwind) {
+      window.tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+              mono: ['JetBrains Mono', 'Consolas', 'Courier New', 'monospace'],
+            }
+          }
+        }
+      };
+    }
+    if (window.pdfjsLib) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+  </script>
+
+  <style>
+    /* =========================================================================
+       NEURAL COMMAND // AI SPIDER v10.0 - REAL HARVEST ENGINE
+       ESTÉTICA HUD CYBERPUNK OSCURA (#040812) + ARENA SIMULTÁNEA PC & MÓVIL
+       ========================================================================= */
+    :root {
+      --bg-void: #040812;
+      --bg-panel: #070d1c;
+      --bg-card: #050a16;
+      --border-hud: #16294a;
+      --cyan-neon: #00f0ff;
+      --purple-neon: #a855f7;
+      --amber-neon: #f59e0b;
+      --emerald-neon: #10b981;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      margin: 0;
+      background-color: var(--bg-void);
+      color: #e2e8f0;
+      background-image:
+        radial-gradient(circle at 50% 38%, rgba(0, 240, 255, 0.055) 0%, transparent 65%),
+        linear-gradient(rgba(0, 240, 255, 0.022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 240, 255, 0.022) 1px, transparent 1px);
+      background-size: 100% 100%, 24px 24px, 24px 24px;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+
+    /* Layout Responsivo Crítico: Visibilidad Simultánea Documento + Red Neuronal */
+    @media (max-width: 899px) {
+      body {
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+      }
+      #arenaContainer {
+        position: sticky;
+        top: 44px;
+        height: 56dvh;
+        min-height: 360px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 6px;
+        background-color: var(--bg-void);
+        z-index: 20;
+        border-bottom: 1px solid #1c355e;
+      }
+      #docPanel {
+        height: calc(50% - 3px);
+        flex-shrink: 0;
+      }
+      #neuralPanel {
+        height: calc(50% - 3px);
+        flex-shrink: 0;
+      }
+      #studioPanel {
+        flex: 1;
+        min-height: 48dvh;
+        padding: 6px;
+        z-index: 10;
+      }
+    }
+
+    @media (min-width: 900px) {
+      body {
+        height: 100vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      #mainWorkspace {
+        flex: 1;
+        display: flex;
+        flex-direction: row;
+        gap: 10px;
+        padding: 10px;
+        overflow: hidden;
+      }
+      #arenaContainer {
+        width: 65%;
+        height: 100%;
+        display: flex;
+        flex-direction: row;
+        gap: 10px;
+      }
+      #docPanel {
+        width: 48%;
+        height: 100%;
+      }
+      #neuralPanel {
+        width: 52%;
+        height: 100%;
+      }
+      #studioPanel {
+        width: 35%;
+        height: 100%;
+      }
+    }
+
+    /* Paneles HUD con esquinas iluminadas */
+    .hud-frame {
+      position: relative;
+      background-color: var(--bg-panel);
+      border: 1px solid var(--border-hud);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.75), inset 0 0 18px rgba(0, 240, 255, 0.02);
+    }
+
+    .hud-frame::before,
+    .hud-frame::after {
+      content: '';
+      position: absolute;
+      width: 9px;
+      height: 9px;
+      pointer-events: none;
+      z-index: 15;
+    }
+
+    .hud-frame::before {
+      top: -1px;
+      left: -1px;
+      border-top: 2px solid var(--cyan-neon);
+      border-left: 2px solid var(--cyan-neon);
+      border-top-left-radius: 0.75rem;
+    }
+
+    .hud-frame::after {
+      bottom: -1px;
+      right: -1px;
+      border-bottom: 2px solid var(--cyan-neon);
+      border-right: 2px solid var(--cyan-neon);
+      border-bottom-right-radius: 0.75rem;
+    }
+
+    .hud-header {
+      border-bottom: 1px solid var(--border-hud);
+      background: linear-gradient(90deg, rgba(0, 240, 255, 0.085) 0%, rgba(7, 13, 28, 0) 100%);
+    }
+
+    /* Disparador nativo de archivos a prueba de móviles Android/iOS y sandbox */
+    .native-file-trigger {
+      position: relative;
+      overflow: hidden;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .native-file-trigger input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0.001;
+      width: 100%;
+      height: 100%;
+      cursor: pointer;
+      z-index: 20;
+      font-size: 100px;
+    }
+
+    /* Estilos del Visor de Texto y Palabras en Tiempo Real */
+    .doc-para {
+      margin-bottom: 0.75rem;
+      line-height: 1.72;
+    }
+
+    .doc-sentence {
+      border-radius: 4px;
+      padding: 1px 2px;
+      transition: background-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .doc-word {
+      display: inline;
+      border-radius: 3px;
+      padding: 0 1px;
+      cursor: pointer;
+      transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .doc-word:hover {
+      background-color: rgba(0, 240, 255, 0.22);
+      color: #ffffff;
+    }
+
+    /* Iluminación neón en vivo cuando la araña posa sus 8 patas y extrae las palabras */
+    .harvesting-now {
+      background-color: rgba(0, 240, 255, 0.26) !important;
+      box-shadow: 0 0 0 1px #00f0ff, 0 0 12px rgba(0, 240, 255, 0.55) !important;
+      color: #ffffff !important;
+      font-weight: 600;
+    }
+
+    .harvesting-now-AGT-02 {
+      background-color: rgba(168, 85, 247, 0.28) !important;
+      box-shadow: 0 0 0 1px #a855f7, 0 0 12px rgba(168, 85, 247, 0.6) !important;
+    }
+
+    .harvesting-now-AGT-03 {
+      background-color: rgba(245, 158, 11, 0.28) !important;
+      box-shadow: 0 0 0 1px #f59e0b, 0 0 12px rgba(245, 158, 11, 0.6) !important;
+    }
+
+    .harvesting-now-AGT-04 {
+      background-color: rgba(16, 185, 129, 0.28) !important;
+      box-shadow: 0 0 0 1px #10b981, 0 0 12px rgba(16, 185, 129, 0.6) !important;
+    }
+
+    /* Frase ya cosechada por una araña */
+    .harvested-phrase {
+      border-radius: 4px;
+      padding: 0 3px;
+      box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
+    }
+
+    .harvested-AGT-01 {
+      background: rgba(0, 240, 255, 0.13);
+      border-bottom: 1.5px solid #00f0ff;
+      color: #cffafe;
+    }
+
+    .harvested-AGT-02 {
+      background: rgba(168, 85, 247, 0.15);
+      border-bottom: 1.5px solid #a855f7;
+      color: #f3e8ff;
+    }
+
+    .harvested-AGT-03 {
+      background: rgba(245, 158, 11, 0.15);
+      border-bottom: 1.5px solid #f59e0b;
+      color: #fef3c7;
+    }
+
+    .harvested-AGT-04 {
+      background: rgba(16, 185, 129, 0.15);
+      border-bottom: 1.5px solid #10b981;
+      color: #d1fae5;
+    }
+
+    .sent-cited-flash {
+      background: rgba(251, 191, 36, 0.25) !important;
+      box-shadow: 0 0 0 1px #fbbf24 !important;
+    }
+
+    /* Markdown Kimi */
+    .kimi-md h3 {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #00f0ff;
+      border-bottom: 1px solid #16294a;
+      padding-bottom: 0.22rem;
+      margin-bottom: 0.4rem;
+    }
+    .kimi-md p { margin-bottom: 0.4rem; }
+    .kimi-md ul, .kimi-md ol { padding-left: 1.15rem; margin-bottom: 0.4rem; list-style-type: disc; }
+    .kimi-md li { margin-bottom: 0.2rem; }
+    .kimi-md strong { color: #67e8f9; font-weight: 600; }
+    .kimi-md blockquote {
+      border-left: 2px solid #00f0ff;
+      padding-left: 0.55rem;
+      color: #cbd5e1;
+      background: rgba(0, 240, 255, 0.05);
+      border-radius: 0 6px 6px 0;
+      margin: 0.35rem 0;
+    }
+    .kimi-md code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      background: #040812;
+      border: 1px solid #16294a;
+      padding: 0.05rem 0.28rem;
+      border-radius: 4px;
+      color: #a5f3fc;
+    }
+
+    /* Flashcards 3D */
+    .flashcard-scene { perspective: 1100px; }
+    .flashcard-inner {
+      position: relative;
+      width: 100%;
+      min-height: 195px;
+      transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+      transform-style: preserve-3d;
+    }
+    .flashcard-inner.is-flipped { transform: rotateY(180deg); }
+    .flashcard-face {
+      position: absolute;
+      inset: 0;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+    }
+    .flashcard-back { transform: rotateY(180deg); }
+
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #040812; }
+    ::-webkit-scrollbar-thumb { background: #1a3054; border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #00f0ff; }
+  </style>
+</head>
+<body class="selection:bg-cyan-400/25 selection:text-cyan-100">
+
+  <!-- CANVAS TRANSPARENTE DE ARAÑAS IK (SUPERPUESTO SOBRE #arenaContainer) -->
+  <canvas id="spiderCanvas" style="position: fixed; inset: 0; pointer-events: none; z-index: 45;"></canvas>
+
+  <!-- TOAST DE TELEMETRÍA TÁCTICA -->
+  <div id="hudToast" class="fixed bottom-4 right-4 z-[95] pointer-events-none opacity-0 translate-y-2 transition-all duration-300 max-w-[92vw]">
+    <div class="bg-[#070d1c]/95 border border-[#00f0ff]/80 text-cyan-200 px-3.5 py-2 rounded-lg shadow-2xl font-mono text-xs flex items-center gap-2 backdrop-blur-md">
+      <span class="w-2 h-2 rounded-full bg-[#00f0ff] animate-ping shrink-0"></span>
+      <span id="hudToastMsg" class="truncate">REAL HARVEST ENGINE v10.0 EN LÍNEA</span>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       BARRA SUPERIOR HUD
+       ========================================================================= -->
+  <header id="topHudHeader" class="w-full min-h-[44px] border-b border-[#16294a] bg-[#040812]/95 backdrop-blur-md px-2.5 sm:px-4 py-1.5 flex flex-wrap items-center justify-between gap-1.5 sticky top-0 z-50">
+    <div class="flex flex-wrap items-center gap-2">
+      <div class="flex items-center gap-1.5">
+        <span class="w-2.5 h-2.5 rounded-full bg-[#00f0ff] shadow-[0_0_10px_#00f0ff] animate-pulse"></span>
+        <h1 class="font-mono text-[11px] sm:text-xs font-bold tracking-wider text-slate-100">
+          NEURAL COMMAND <span class="text-[#00f0ff]">//</span> <span class="text-cyan-300">AI SPIDER</span>
+          <span class="text-[9.5px] px-1.5 py-0.5 ml-1 rounded bg-[#00f0ff]/15 border border-[#00f0ff]/45 text-[#00f0ff]">v10.0</span>
+        </h1>
+      </div>
+
+      <div class="flex items-center gap-1.5 font-mono text-[9.5px]">
+        <span id="hudNodesFedBadge" class="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-400/50 text-emerald-300 font-bold">
+          NODOS ALIMENTADOS: 0
+        </span>
+        <span id="hudDocProgressBadge" class="hidden sm:inline-block px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-400/40 text-cyan-200">
+          COSECHA: 0%
+        </span>
+      </div>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-1.5 font-mono text-[9.5px]">
+      <label for="fileInput" class="native-file-trigger px-2.5 py-1 rounded-lg bg-[#00f0ff]/20 hover:bg-[#00f0ff]/30 border border-[#00f0ff] text-[#00f0ff] font-bold transition shadow-[0_0_10px_rgba(0,240,255,0.2)]">
+        <span>📂 Subir Archivo</span>
+        <input type="file" id="fileInput" multiple accept=".pdf,.docx,.pptx,.xlsx,.txt,.md,.csv,.json,.html,.xml,.py,.js,.ts,.java,.cpp,.png,.jpg,.jpeg,.webp" />
+      </label>
+
+      <button id="btnOpenPasteModal" type="button" class="px-2 py-1 rounded-lg bg-purple-600/20 hover:bg-purple-600/35 border border-purple-400/60 text-purple-200 font-semibold transition cursor-pointer">
+        📋 Pegar Texto
+      </button>
+
+      <button id="btnHarvestBurst" type="button" class="px-2 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/65 text-amber-200 font-bold transition cursor-pointer">
+        ⚡ Cosechar (+5)
+      </button>
+    </div>
+  </header>
+
+  <!-- =========================================================================
+       ESPACIO DE TRABAJO PRINCIPAL (3 COLUMNAS EN PC / ARENA DIVIDIDA EN MÓVIL)
+       ========================================================================= -->
+  <main id="mainWorkspace">
+
+    <!-- ARENA SIMULTÁNEA: DOCUMENTO + RED NEURONAL (SIEMPRE VISIBLES JUNTOS) -->
+    <div id="arenaContainer">
+
+      <!-- =====================================================================
+           PANEL 1: VISOR DE DOCUMENTO (#docPanel)
+           ===================================================================== -->
+      <section id="docPanel" class="hud-frame rounded-xl flex flex-col overflow-hidden">
+        <div class="hud-header px-2.5 py-1.5 space-y-1 shrink-0">
+          <div class="flex items-center justify-between gap-1.5">
+            <select id="docSelect" aria-label="Documento activo" class="flex-1 min-w-0 bg-[#040812] border border-[#16294a] focus:border-[#00f0ff] rounded px-1.5 py-0.5 font-mono text-[10px] text-cyan-200 focus:outline-none truncate"></select>
+
+            <button id="btnToggleAutoPage" type="button" class="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/60 font-mono text-[9px] text-emerald-200 font-bold shrink-0 cursor-pointer">
+              Auto-Pág: ON
+            </button>
+          </div>
+
+          <div class="flex items-center justify-between gap-1 font-mono text-[9.5px]">
+            <div class="flex items-center gap-1">
+              <button id="btnPrevPage" type="button" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-cyan-500/20 border border-slate-700 text-cyan-200 disabled:opacity-35 cursor-pointer">◀</button>
+              <span class="text-slate-400">Pág</span>
+              <select id="pageJumpSelect" aria-label="Página actual" class="bg-[#040812] border border-[#16294a] rounded px-1 py-0.5 text-cyan-300 font-bold focus:outline-none"></select>
+              <span id="totalPagesSpan" class="text-slate-400">/ 8</span>
+              <button id="btnNextPage" type="button" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-cyan-500/20 border border-slate-700 text-cyan-200 disabled:opacity-35 cursor-pointer">▶</button>
+            </div>
+
+            <span id="pageHarvestProgress" class="text-cyan-300 truncate">0/0 oraciones</span>
+          </div>
+        </div>
+
+        <!-- Cuerpo de Texto con Palabras Individuales Tocables -->
+        <div id="docBody" class="flex-1 overflow-y-auto px-3 py-2 text-[12.5px] sm:text-[13px] text-slate-200 select-none"></div>
+
+        <div class="border-t border-[#16294a] bg-[#02050b] px-2.5 py-1 flex items-center justify-between font-mono text-[9px] text-slate-400 shrink-0">
+          <span id="parserMethodBadge" class="truncate text-emerald-300">Parser: KIMI-UTF8</span>
+          <span class="text-cyan-300 shrink-0">👆 Toca una palabra para enviar araña</span>
+        </div>
+      </section>
+
+      <!-- =====================================================================
+           PANEL 2: RED NEURONAL INTERACTIVA D3-FORCE (#neuralPanel)
+           ===================================================================== -->
+      <section id="neuralPanel" class="hud-frame rounded-xl flex flex-col overflow-hidden relative">
+        <div class="hud-header px-2.5 py-1.5 flex items-center justify-between gap-1 shrink-0 z-10">
+          <div class="flex items-center gap-1.5 min-w-0">
+            <span class="w-2 h-2 rounded-full bg-[#00f0ff] animate-ping shrink-0"></span>
+            <h2 class="font-mono text-[10px] font-bold tracking-wider text-slate-100 uppercase truncate">
+              RED NEURONAL // REAL HARVEST
+            </h2>
+          </div>
+
+          <div class="flex items-center gap-1 font-mono text-[9px] shrink-0">
+            <button id="btnPauseSwarm" type="button" class="px-1.5 py-0.5 rounded bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/50 text-cyan-200 cursor-pointer">⏸</button>
+            <button id="btnCenterNet" type="button" class="px-1.5 py-0.5 rounded bg-purple-500/15 hover:bg-purple-500/25 border border-purple-400/50 text-purple-200 cursor-pointer" title="Centrar red">🎯</button>
+            <button id="btnResetHarvest" type="button" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-300 cursor-pointer" title="Reiniciar cosecha desde cero">↺</button>
+          </div>
+        </div>
+
+        <!-- Contenedor del Canvas Neuronal D3 -->
+        <div id="neuralCanvasWrap" class="relative flex-1 w-full h-full touch-none overflow-hidden">
+          <canvas id="neuralCanvas" class="block w-full h-full cursor-grab active:cursor-grabbing"></canvas>
+
+          <!-- Leyenda Compacta de los 4 Clústeres Maestros -->
+          <div class="absolute top-1.5 left-1.5 right-1.5 flex flex-wrap items-center justify-between gap-1 pointer-events-none font-mono text-[8px]">
+            <div class="flex flex-wrap gap-1.5 bg-[#040812]/90 border border-[#16294a] px-1.5 py-0.5 rounded backdrop-blur-sm">
+              <span class="text-[#67e8f9] font-bold">◉ KIMI-CORE</span>
+              <span class="text-[#00f0ff]">● DEF</span>
+              <span class="text-[#a855f7]">● CAUSAL</span>
+              <span class="text-[#f59e0b]">● DATO</span>
+              <span class="text-[#10b981]">● SÍNTESIS</span>
+            </div>
+            <span id="d3StatusTag" class="bg-[#040812]/90 border border-[#16294a] text-slate-400 px-1.5 py-0.5 rounded">D3-FORCE v7</span>
+          </div>
+
+          <!-- Tooltip Flotante Hover -->
+          <div id="nodeHoverTooltip" class="hidden pointer-events-none absolute z-20 max-w-[220px] bg-[#040812]/95 border border-[#00f0ff]/80 rounded-lg px-2 py-1 shadow-xl font-mono text-[9px] text-slate-100 backdrop-blur-md"></div>
+
+          <!-- Tarjeta Inspectora al Tocar un Nodo Creado -->
+          <div id="nodeInspectorCard" class="hidden absolute bottom-1.5 left-1.5 right-1.5 z-20 bg-[#070d1c]/95 border border-[#00f0ff]/85 rounded-xl p-2.5 shadow-2xl backdrop-blur-md space-y-1.5 max-h-[76%] overflow-y-auto">
+            <div class="flex items-center justify-between gap-1 border-b border-[#16294a] pb-1">
+              <div class="flex items-center gap-1.5 min-w-0">
+                <span id="inspDot" class="w-2 h-2 rounded-full bg-[#00f0ff] shrink-0"></span>
+                <span id="inspTitle" class="font-mono text-[10px] font-bold text-cyan-300 truncate">NODO COSECHADO</span>
+              </div>
+              <button id="btnCloseNodeInsp" type="button" class="font-mono text-xs text-slate-400 hover:text-white px-1 cursor-pointer">✕</button>
+            </div>
+            <div id="inspPhrase" class="p-1.5 rounded bg-[#040812] border border-[#16294a] text-[11.5px] font-semibold text-white leading-snug"></div>
+            <div id="inspFullSent" class="text-[10.5px] text-slate-300 leading-snug"></div>
+            <div id="inspSynapses" class="font-mono text-[8.5px] text-cyan-200"></div>
+            <div class="flex items-center justify-between gap-1.5 pt-0.5 font-mono text-[9.5px]">
+              <button id="btnInspGoText" type="button" class="px-2 py-1 rounded bg-emerald-500/20 border border-emerald-400/60 text-emerald-200 font-bold cursor-pointer">📍 Ver en Texto</button>
+              <button id="btnInspAskKimi" type="button" class="px-2 py-1 rounded bg-[#00f0ff]/20 border border-[#00f0ff] text-[#00f0ff] font-bold cursor-pointer">🧠 Preguntar a Kimi</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bitácora en Vivo de Alimentación Neuronal -->
+        <div class="border-t border-[#16294a] bg-[#02050b] px-2 py-1 h-[54px] sm:h-[68px] flex flex-col shrink-0">
+          <div class="flex items-center justify-between font-mono text-[8.5px] text-slate-400">
+            <span class="text-[#00f0ff] font-bold">▸ BITÁCORA DE COSECHA EN VIVO</span>
+            <span id="liveHarvestRate" class="text-emerald-400">0 nodos</span>
+          </div>
+          <div id="liveHarvestLog" class="flex-1 overflow-y-auto font-mono text-[9px] space-y-0.5 text-slate-300"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- =======================================================================
+         PANEL 3: CEREBRO KIMI, VAULT PERSISTENTE Y ESTUDIO (#studioPanel)
+         ======================================================================= -->
+    <section id="studioPanel" class="hud-frame rounded-xl flex flex-col overflow-hidden">
+      <!-- Franja Superior de Telemetría de los 5 Agentes -->
+      <div class="border-b border-[#16294a] bg-[#040812] p-1.5 shrink-0">
+        <div id="agentsStatusGrid" class="grid grid-cols-5 gap-1"></div>
+      </div>
+
+      <!-- Barra de 3 Pestañas -->
+      <div class="hud-header p-1.5 grid grid-cols-3 gap-1.5 font-mono text-[10px] shrink-0">
+        <button type="button" data-stab="kimi" class="stab-btn py-1.5 px-2 rounded-lg bg-[#00f0ff]/20 border border-[#00f0ff]/65 text-[#00f0ff] font-bold truncate cursor-pointer">
+          💬 Cerebro Kimi
+        </button>
+        <button type="button" data-stab="vault" class="stab-btn py-1.5 px-2 rounded-lg bg-[#040812] hover:bg-slate-800 border border-[#16294a] text-slate-300 truncate cursor-pointer">
+          🧠 Vault (<span id="vaultTabCount">0</span>)
+        </button>
+        <button type="button" data-stab="study" class="stab-btn py-1.5 px-2 rounded-lg bg-[#040812] hover:bg-slate-800 border border-[#16294a] text-slate-300 truncate cursor-pointer">
+          🎯 Estudio & Quiz
+        </button>
+      </div>
+
+      <!-- PESTAÑA 1: 💬 CEREBRO KIMI CONVERSACIONAL -->
+      <div id="stab-kimi" class="stab-panel flex-1 flex flex-col overflow-hidden p-2.5 space-y-2">
+        <div id="kimiChatMessages" class="flex-1 overflow-y-auto space-y-2 pr-1 text-xs"></div>
+
+        <!-- Chips de Prompts Rápidos -->
+        <div class="flex flex-wrap gap-1 font-mono text-[9px] shrink-0">
+          <button type="button" data-kprompt="Resume todo el documento" class="kprompt-btn px-2 py-1 rounded bg-[#00f0ff]/15 hover:bg-[#00f0ff]/25 border border-[#00f0ff]/55 text-cyan-200 font-semibold cursor-pointer">
+            📄 Resume todo el documento
+          </button>
+          <button type="button" data-kprompt="¿Qué han recolectado las arañas?" class="kprompt-btn px-2 py-1 rounded bg-[#040812] hover:bg-purple-500/15 border border-[#16294a] text-purple-200 cursor-pointer">
+            🕷️ ¿Qué han recolectado las arañas?
+          </button>
+          <button type="button" data-kprompt="Relaciona con documentos anteriores" class="kprompt-btn px-2 py-1 rounded bg-purple-500/15 hover:bg-purple-500/25 border border-purple-400/50 text-purple-200 cursor-pointer">
+            🔗 Relacionar con Vault
+          </button>
+          <button type="button" data-kprompt="Aprende que: Las arañas cosechan frases reales para construir grafos neuronales sin alucinaciones." class="kprompt-btn px-2 py-1 rounded bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/50 text-emerald-200 cursor-pointer">
+            💡 Enseñar concepto
+          </button>
+        </div>
+
+        <!-- Formulario de Chat -->
+        <form id="kimiChatForm" class="flex gap-1.5 pt-1 border-t border-[#16294a] shrink-0">
+          <input
+            id="kimiChatInput"
+            type="text"
+            autocomplete="off"
+            placeholder="Pregunta sobre el texto o escribe 'Aprende que...'..."
+            class="flex-1 bg-[#040812] border border-[#16294a] focus:border-[#00f0ff] rounded-lg px-2.5 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none"
+          />
+          <button type="submit" class="px-3 py-2 rounded-lg bg-[#00f0ff]/20 hover:bg-[#00f0ff]/30 border border-[#00f0ff] text-[#00f0ff] font-mono text-xs font-bold cursor-pointer shrink-0">
+            Enviar
+          </button>
+        </form>
+      </div>
+
+      <!-- PESTAÑA 2: 🧠 VAULT PERSISTENTE DE CONOCIMIENTO -->
+      <div id="stab-vault" class="stab-panel hidden flex-1 flex flex-col overflow-hidden p-2.5 space-y-2">
+        <div class="space-y-1.5 border-b border-[#16294a] pb-2 shrink-0">
+          <div class="flex items-center justify-between font-mono text-[9.5px]">
+            <span class="text-emerald-300 font-bold">MEMORIA PERSISTENTE MULTI-DOCUMENTO</span>
+            <button id="btnExportZip" type="button" class="px-2 py-0.5 rounded bg-[#00f0ff]/20 hover:bg-[#00f0ff]/30 border border-[#00f0ff] text-[#00f0ff] font-bold cursor-pointer">
+              📦 Exportar .ZIP
+            </button>
+          </div>
+          <div class="flex gap-1">
+            <input id="vaultSearchInp" type="search" placeholder="Filtrar conceptos consolidados..." class="flex-1 bg-[#040812] border border-[#16294a] rounded px-2 py-1 font-mono text-[10px] text-slate-200 focus:outline-none focus:border-[#00f0ff]" />
+            <select id="vaultCatFilter" aria-label="Categoría Vault" class="bg-[#040812] border border-[#16294a] rounded px-1.5 py-1 font-mono text-[10px] text-cyan-200 focus:outline-none">
+              <option value="ALL">Todos</option>
+              <option value="DEF">DEF</option>
+              <option value="CAUSAL">CAUSAL</option>
+              <option value="DATO">DATO</option>
+              <option value="SÍNTESIS">SÍNTESIS</option>
+            </select>
+            <button id="btnClearVault" type="button" class="px-2 py-1 rounded bg-rose-500/15 border border-rose-400/50 font-mono text-[9.5px] text-rose-200 cursor-pointer" title="Limpiar memoria">🗑️</button>
+          </div>
+        </div>
+        <div id="vaultItemsContainer" class="flex-1 overflow-y-auto space-y-1.5 pr-1 text-xs"></div>
+      </div>
+
+      <!-- PESTAÑA 3: 🎯 ESTUDIO & QUIZ -->
+      <div id="stab-study" class="stab-panel hidden flex-1 flex flex-col overflow-y-auto p-2.5 space-y-3">
+        <!-- Guía Sintetizada -->
+        <div class="space-y-1">
+          <div class="flex items-center justify-between font-mono text-[10px]">
+            <span class="text-cyan-300 font-bold">📝 GUÍA DE ESTUDIO EN VIVO</span>
+            <button id="btnRegenStudy" type="button" class="px-2 py-0.5 rounded bg-slate-800 border border-slate-600 text-slate-200 cursor-pointer">↻ Actualizar</button>
+          </div>
+          <div id="studyGuideBox" class="kimi-md max-h-[140px] overflow-y-auto p-2 rounded-xl bg-[#040812] border border-[#16294a] text-xs text-slate-200"></div>
+        </div>
+
+        <!-- Flashcards 3D -->
+        <div class="border-t border-[#16294a] pt-2 space-y-1.5">
+          <div class="flex items-center justify-between font-mono text-[10px]">
+            <span class="text-amber-300 font-bold">🗂️ FLASHCARDS 3D (LEITNER)</span>
+            <span id="fcProgressSpan" class="text-slate-400">0/0</span>
+          </div>
+          <div id="fcSceneBox" class="flashcard-scene cursor-pointer select-none">
+            <div id="fcInnerCard" class="flashcard-inner">
+              <div class="flashcard-face rounded-2xl bg-gradient-to-br from-[#0d182f] to-[#040812] border border-[#00f0ff]/55 p-3 flex flex-col justify-between shadow-xl">
+                <div class="flex items-center justify-between font-mono text-[9px] text-cyan-300">
+                  <span id="fcBadge">[DEF]</span>
+                  <span id="fcBoxLevel" class="px-1.5 py-0.5 rounded bg-[#00f0ff]/15">Caja 1</span>
+                </div>
+                <div id="fcQuestionText" class="text-center font-bold text-xs text-slate-100">Esperando cosecha de arañas...</div>
+                <div class="text-center font-mono text-[9px] text-slate-400">↻ Toca para voltear</div>
+              </div>
+              <div class="flashcard-face flashcard-back rounded-2xl bg-gradient-to-br from-[#16102e] to-[#040812] border border-purple-400/60 p-3 flex flex-col justify-between shadow-xl">
+                <div class="flex items-center justify-between font-mono text-[9px] text-purple-300">
+                  <span>EVIDENCIA COSECHADA</span>
+                  <button id="btnFcGoSource" type="button" class="text-emerald-300 underline cursor-pointer">[Pág 1]</button>
+                </div>
+                <div id="fcAnswerText" class="text-xs text-slate-200 leading-relaxed overflow-y-auto max-h-[110px]">...</div>
+                <div class="text-center font-mono text-[9px] text-purple-300">Evalúa abajo</div>
+              </div>
+            </div>
+          </div>
+          <div class="grid grid-cols-3 gap-1.5 font-mono text-[9.5px]">
+            <button id="btnFcAgain" type="button" class="py-1 rounded-lg bg-rose-500/15 border border-rose-400/50 text-rose-200 cursor-pointer">↻ Repasar</button>
+            <button id="btnFcKnow" type="button" class="py-1 rounded-lg bg-emerald-500/20 border border-emerald-400/60 text-emerald-200 font-bold cursor-pointer">✓ Dominada</button>
+            <button id="btnFcNextCard" type="button" class="py-1 rounded-lg bg-[#040812] border border-[#16294a] text-slate-300 cursor-pointer">Siguiente →</button>
+          </div>
+        </div>
+
+        <!-- Quiz Interactivo -->
+        <div class="border-t border-[#16294a] pt-2 space-y-1.5">
+          <div class="flex items-center justify-between font-mono text-[10px]">
+            <span class="text-rose-400 font-bold">🎯 QUIZ DE EVALUACIÓN</span>
+            <span id="quizScoreSpan" class="px-2 py-0.5 rounded bg-rose-500/15 border border-rose-400/40 text-rose-200">Nota: 0/0</span>
+          </div>
+          <div id="quizContainer" class="space-y-2 text-xs"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- MODAL: PEGAR TEXTO EXTENSO -->
+  <div id="pasteModal" class="hidden fixed inset-0 z-[85] bg-black/80 backdrop-blur-sm flex items-center justify-center p-3">
+    <div class="hud-frame w-full max-w-xl rounded-2xl overflow-hidden shadow-2xl flex flex-col">
+      <div class="hud-header px-4 py-3 flex items-center justify-between">
+        <span class="font-mono text-xs sm:text-sm font-bold text-cyan-200">📋 PEGAR DOCUMENTO O APUNTES PARA COSECHA REAL</span>
+        <button id="btnClosePasteModal" type="button" class="font-mono text-xs text-slate-400 hover:text-white px-2 py-1 rounded bg-slate-900 border border-slate-700 cursor-pointer">✕</button>
+      </div>
+      <div class="p-4 space-y-3">
+        <input id="pasteTitleInp" type="text" value="apuntes_estudio.md" class="w-full bg-[#040812] border border-[#16294a] rounded-lg px-3 py-2 font-mono text-xs text-cyan-200 focus:outline-none focus:border-[#00f0ff]" />
+        <textarea id="pasteBodyInp" rows="8" class="w-full bg-[#040812] border border-[#16294a] rounded-xl p-3 font-mono text-xs text-slate-200 focus:outline-none focus:border-[#00f0ff]" placeholder="Pega aquí cualquier artículo, paper, ley o apuntes de clase..."></textarea>
+        <div class="flex justify-end">
+          <button id="btnConfirmPaste" type="button" class="font-mono text-xs px-4 py-2 rounded-lg bg-[#00f0ff]/20 hover:bg-[#00f0ff]/30 border border-[#00f0ff] text-[#00f0ff] font-bold cursor-pointer">
+            🕷️ Iniciar Cosecha Real
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       MOTOR JAVASCRIPT COMPLETO — NEURAL COMMAND // AI SPIDER v10.0
+       ========================================================================= -->
+  <script>
+    (() => {
+      // =======================================================================
+      // 1. DEFINICIÓN DE LOS 5 AGENTES ARAÑA (4 COSECHADORES + 1 ROUTER CORE)
+      // =======================================================================
+      const AGENTS = [
+        { id: 'AGT-01', spiderId: 'SPDR-01', code: 'DEF', color: '#00f0ff', clusterPos: { rx: 0.22, ry: 0.24 }, arcBias: -55 },
+        { id: 'AGT-02', spiderId: 'SPDR-02', code: 'CAUSAL', color: '#a855f7', clusterPos: { rx: 0.78, ry: 0.24 }, arcBias: -20 },
+        { id: 'AGT-03', spiderId: 'SPDR-03', code: 'DATO', color: '#f59e0b', clusterPos: { rx: 0.78, ry: 0.76 }, arcBias: 20 },
+        { id: 'AGT-04', spiderId: 'SPDR-04', code: 'SÍNTESIS', color: '#10b981', clusterPos: { rx: 0.22, ry: 0.76 }, arcBias: 55 },
+        { id: 'AGT-05', spiderId: 'SPDR-05', code: 'CORE', color: '#67e8f9', clusterPos: { rx: 0.50, ry: 0.50 }, arcBias: 0 }
+      ];
+
+      const VAULT_KEY = 'neural_command_real_harvest_vault_v10';
+      const CHARS_PER_PAGE = 1200;
+
+      // =======================================================================
+      // 2. DOCUMENTO DEMO ENRIQUECIDO DE 8 PÁGINAS (~1,200 CHARS/PÁG)
+      // =======================================================================
+      const DEMO_8_PAGES = [
+        `La arquitectura Kimi-K2.5 Agent Swarm se define como un sistema multimodal entrenado sobre 15 billones de tokens que sustituye la ejecución secuencial por un enjambre coordinado de subagentes paralelos. A diferencia de los flujos rígidos tradicionales, el controlador descompone problemas extensos en ramas independientes ejecutadas de forma concurrente.\n\nEl aprendizaje por refuerzo paralelo PARL permite acelerar investigaciones complejas hasta 4.5x frente a agentes individuales evitando cuellos de botella.`,
+        `La métrica de Critical Steps consiste en medir la latencia total sumando únicamente el tiempo del subagente más lento en cada etapa paralela en lugar de contar todas las llamadas. Por lo tanto, el sistema evita el colapso serial donde los agentes permanecen bloqueados esperando turnos innecesarios.\n\nEn pruebas con más de 1,500 llamadas simultáneas a herramientas, PARL redujo los pasos críticos en un 40% y disminuyó la latencia global en un 78%.`,
+        `El motor Kimi-K2 Thinking se define como un sistema deliberativo que genera trazas explícitas de pensamiento interno antes de invocar herramientas de búsqueda, código o verificación documental. Cuando detecta ambigüedad conceptual, ejecuta ciclos iterativos de hipótesis y comprobación cruzada.\n\nCon un presupuesto de razonamiento de 96,000 tokens internos, Kimi-K2 Thinking alcanzó un 96.1% de precisión en AIME 2025 reduciendo el cómputo en un 76%.`,
+        `Las conexiones residuales tradicionales en Transformers acumulan capas previas mediante suma uniforme h_l = h_{l-1} + f(h_{l-1}), lo que provoca una dilución progresiva O(L) de las representaciones tempranas. Sin embargo, Attention Residuals (AttnRes) sustituye esa suma fija por atención softmax aprendida sobre capas anteriores.\n\nLa ecuación de Full AttnRes se expresa como h_l = sum(alpha_{i->l} * v_i) para recuperar selectivamente información temprana.`,
+        `El diseño Block AttnRes consiste en agrupar las L capas de una red profunda en N bloques contiguos y aplicar atención residual únicamente entre resúmenes de bloques completados. Como consecuencia directa, el consumo de memoria baja desde O(Ld) hasta O(Nd) manteniendo toda la capacidad expresiva.\n\nEn el modelo Kimi Linear de 48B parámetros, Block AttnRes logró una ventaja de cómputo de 1.25x y elevó GPQA-Diamond hasta 44.4%.`,
+        `Una red Mixture-of-Experts (MoE) se define como una arquitectura donde cada capa feed-forward se divide en cientos de expertos especializados y un enrutador dinámico activa únicamente una fracción mínima por token. Este mecanismo desacopla el conocimiento almacenado del costo por inferencia.\n\nCon 384 expertos totales y 8 expertos activos por token, la activación dispersa reduce los FLOPs en un 85%.`,
+        `La Recuperación Aumentada por Grafos (Graph-RAG) consiste en combinar búsqueda léxica BM25 con grafos semánticos donde cada nodo representa una frase cosechada y cada arista codifica relaciones conceptuales. Si una pregunta usa sinónimos distintos al texto original, la propagación sináptica recupera los nodos vinculados.\n\nEn pruebas sobre apuntes universitarios, Graph-RAG incrementó la precisión factual en un 34.8% y eliminó alucinaciones.`,
+        `En conclusión, la convergencia entre enjambres paralelos Kimi-K2.5, trazas auditables Kimi-K2 Thinking y atención residual selectiva transforma documentos estáticos en redes neuronales vivas.\n\nCada frase recolectada por las arañas alimenta nodos físicos en el grafo y consolida conocimiento duradero entre múltiples archivos de estudio.`
+      ];
+
+      // =======================================================================
+      // 3. ESTADO GLOBAL DEL MOTOR DE COSECHA REAL
+      // =======================================================================
+      const state = {
+        documents: [],
+        activeDocId: 'demo_kimi_8p',
+        activeTitle: '',
+        rawText: '',
+        autoPage: true,
+        autoPageTimer: 0,
+
+        // Paginación y Oraciones 100% Cosechables
+        pages: [],          // [{ pageNum, paragraphs: [{ pIdx, sentences: [...] }] }]
+        currentPage: 1,
+        allSentences: [],   // [{ sIdx, num, pageNum, text, wordsRaw, stems, category, phraseText, startWordIdx, endWordIdx, keywords, harvested, claimedBy, nodeId }]
+        sentenceByIdx: new Map(),
+        idfMap: new Map(),
+        avgSentLen: 14,
+
+        // Nodos Creados ÚNICAMENTE tras Cosecha Real
+        harvestedNodes: [], // [{ id, sIdx, code, agentId, spiderId, color, phraseText, shortLabel, fullSentence, pageNum, sentenceNum, keywords, links[] }]
+        nodeById: new Map(),
+        selectedNodeId: null,
+        selectedAgentFilter: null,
+
+        // Bóveda Persistente (localStorage)
+        knowledgeVault: [],
+
+        // Red Neuronal D3-Force
+        arena: {
+          simulation: null,
+          coreNode: null,
+          clusterHubs: [],
+          nodes: [],        // Empieza SOLO con coreNode + 4 clusterHubs (CERO nodos de conocimiento)
+          links: [],        // Empieza SOLO con 4 enlaces troncales hacia KIMI-CORE
+          sphereParticles: [],
+          sphereRotY: 0,
+          sphereRotX: 0.25,
+          highlightedNodeIds: new Set(),
+          highlightedLinkIds: new Set(),
+          draggingNode: null
+        },
+
+        // Enjambre de 5 Arañas con Máquina de Estados de 4 Fases
+        spiders: [],
+        ripples: [],
+        swarmPaused: false,
+
+        // Chat Kimi & Estudio
+        chatMessages: [],
+        fcCards: [],
+        fcIndex: 0,
+        fcFlipped: false,
+        examQuestions: [],
+        examScore: 0
+      };
+
+      // =======================================================================
+      // 4. UTILIDADES DE TEXTO, NLP Y TOASTS
+      // =======================================================================
+      let toastTimer = null;
+      function showHudToast(msg) {
+        const el = document.getElementById('hudToast');
+        const txt = document.getElementById('hudToastMsg');
+        if (!el || !txt) return;
+        txt.textContent = msg;
+        el.classList.remove('opacity-0', 'translate-y-2');
+        el.classList.add('opacity-100', 'translate-y-0');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+          el.classList.add('opacity-0', 'translate-y-2');
+          el.classList.remove('opacity-100', 'translate-y-0');
+        }, 2500);
+      }
+
+      function escapeHtml(str) {
+        return String(str || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      const STOPWORDS = new Set([
+        'el','la','los','las','un','una','unos','unas','de','del','al','y','o','en','con','por','para','que','se','su','sus',
+        'como','es','son','fue','era','sobre','entre','hasta','desde','hacia','mediante','durante','mas','pero','sin','no','si',
+        'este','esta','estos','estas','ese','esa','donde','cuando','cual','cuales','ademas','finalmente','embargo','otro','lado',
+        'quien','quienes','acerca','dice','explica','dame','hazme','favor','tambien','puede','pueden','tiene','tienen','cada',
+        'todo','toda','todos','todas','resumir','resume','resumen','analiza','analisis','documento','texto','completo','kimi',
+        'aprende','consolida','relaciona','anteriores','vault','han','recolectado','aranas'
+      ]);
+
+      function normalizeStr(s) {
+        return String(s || '')
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9_%+.-]/g, '');
+      }
+
+      function stemWord(w) {
+        const t = normalizeStr(w).replace(/[^a-z0-9]/g, '');
+        if (t.length <= 4) return t;
+        return t
+          .replace(/(aciones|iciones|amiento|imiento|idades|adores|adoras)$/g, '')
+          .replace(/(acion|icion|mente|adora|ador|ante|encia|ancia|able|ible|idad|ivos|ivas|ismo|ista)$/g, '')
+          .replace(/(ando|iendo|aron|ieron|aban|ian|adas|idos|es|os|as|a|o|e)$/g, '');
+      }
+
+      function extractKeywords(phrase) {
+        const seen = new Set();
+        const out = [];
+        phrase.split(/\s+/).forEach(w => {
+          const clean = normalizeStr(w).replace(/[^a-z0-9]/g, '');
+          if (clean.length >= 4 && !STOPWORDS.has(clean)) {
+            const st = stemWord(clean);
+            if (!seen.has(st)) { seen.add(st); out.push(clean); }
+          }
+        });
+        return out.slice(0, 5);
+      }
+
+      function makeShortLabel(phrase) {
+        const words = phrase.split(/\s+/).filter(w => w.length > 2);
+        const sub = words.slice(0, 3).join(' ');
+        return sub.length > 18 ? sub.slice(0, 16) + '…' : sub;
+      }
+
+      // =======================================================================
+      // 5. PERSISTENCIA EN BÓVEDA DE CONOCIMIENTO (LOCALSTORAGE)
+      // =======================================================================
+      function loadVault() {
+        try {
+          const raw = localStorage.getItem(VAULT_KEY);
+          if (raw) {
+            const arr = JSON.parse(raw);
+            if (Array.isArray(arr)) state.knowledgeVault = arr;
+          }
+        } catch (_) {
+          state.knowledgeVault = [];
+        }
+        document.getElementById('vaultTabCount').textContent = state.knowledgeVault.length;
+      }
+
+      function saveVault() {
+        try {
+          localStorage.setItem(VAULT_KEY, JSON.stringify(state.knowledgeVault.slice(0, 200)));
+        } catch (_) {}
+        document.getElementById('vaultTabCount').textContent = state.knowledgeVault.length;
+      }
+
+      function consolidateIntoVault({ code, color, phraseText, detail, sourceDoc, pageNum }) {
+        const clean = (phraseText || '').trim();
+        if (!clean) return null;
+        const normKey = normalizeStr(clean).slice(0, 60);
+        const kws = extractKeywords(clean);
+        const srcTag = `${sourceDoc || state.activeTitle} (Pág ${pageNum || 1})`;
+
+        const existing = state.knowledgeVault.find(item => {
+          if (item.normKey === normKey) return true;
+          if (!kws.length || !item.keywords || !item.keywords.length) return false;
+          const shared = kws.filter(k => item.keywords.some(ik => stemWord(k) === stemWord(ik))).length;
+          return shared >= Math.min(3, Math.max(2, kws.length));
+        });
+
+        if (existing) {
+          existing.reinforcement = (existing.reinforcement || 1) + 1;
+          if (!existing.sources.includes(srcTag)) existing.sources.push(srcTag);
+          if (detail && detail.length > existing.detail.length) existing.detail = detail;
+          saveVault();
+          renderVaultTab();
+          return existing;
+        }
+
+        const item = {
+          id: 'v_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5),
+          normKey,
+          code: code || 'DEF',
+          color: color || '#00f0ff',
+          phraseText: clean,
+          detail: detail || clean,
+          keywords: kws,
+          sources: [srcTag],
+          reinforcement: 1
+        };
+        state.knowledgeVault.unshift(item);
+        saveVault();
+        renderVaultTab();
+        return item;
+      }
+
+      // =======================================================================
+      // 6. EXTRACTORES MULTI-FORMATO (PDF, DOCX/PPTX/XLSX, OCR IMÁGENES, TXT)
+      // =======================================================================
+      async function parseUploadedFile(file) {
+        const name = file.name || 'archivo.txt';
+        const ext = (name.split('.').pop() || '').toLowerCase();
+        const mime = (file.type || '').toLowerCase();
+        const arrayBuffer = await file.arrayBuffer();
+
+        // 1. PDF (PDF.js + Fallback Binario FlateDecode)
+        if (ext === 'pdf' || mime.includes('pdf')) {
+          if (window.pdfjsLib) {
+            try {
+              const pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+              const pagesOut = [];
+              for (let p = 1; p <= pdf.numPages; p++) {
+                const page = await pdf.getPage(p);
+                const tc = await page.getTextContent();
+                const str = tc.items.map(it => it.str).join(' ').replace(/\s{2,}/g, ' ').trim();
+                if (str) pagesOut.push(str);
+              }
+              if (pagesOut.length > 0) {
+                return { text: pagesOut.join('\n\n'), parser: `PDF.js (${pdf.numPages} págs)` };
+              }
+            } catch (_) {}
+          }
+          const binPdf = await extractPdfFlateFallback(arrayBuffer);
+          return {
+            text: binPdf || `Documento PDF "${name}" cargado. Si es un PDF escaneado como imagen, pega su texto usando "Pegar Texto".`,
+            parser: 'PDF-FLATE-NATIVE'
+          };
+        }
+
+        // 2. Office ZIP XML (.docx, .pptx, .xlsx) con Mammoth.js + Fallback ZIP nativo
+        if (['docx', 'pptx', 'xlsx', 'odt'].includes(ext) || mime.includes('officedocument')) {
+          if (ext === 'docx' && window.mammoth) {
+            try {
+              const res = await window.mammoth.extractRawText({ arrayBuffer });
+              if (res && res.value && res.value.trim().length > 5) {
+                return { text: res.value.trim(), parser: 'Mammoth.js DOCX' };
+              }
+            } catch (_) {}
+          }
+          const zipText = await extractOfficeZipNative(arrayBuffer);
+          return { text: zipText || `Archivo Office "${name}" sin texto visible.`, parser: `ZIP-XML (${ext.toUpperCase()})` };
+        }
+
+        // 3. Imágenes con OCR (Tesseract.js)
+        if (['png', 'jpg', 'jpeg', 'webp'].includes(ext) || mime.startsWith('image/')) {
+          if (window.Tesseract && window.Tesseract.recognize) {
+            try {
+              showHudToast(`🔍 EJECUTANDO OCR EN IMAGEN "${name}"...`);
+              const blob = new Blob([arrayBuffer], { type: mime || 'image/png' });
+              const res = await window.Tesseract.recognize(blob, 'spa+eng');
+              const ocrText = res && res.data && res.data.text ? res.data.text.trim() : '';
+              return {
+                text: ocrText || `Imagen "${name}" procesada sin texto legible detectado.`,
+                parser: 'Tesseract OCR'
+              };
+            } catch (_) {}
+          }
+          return { text: `Imagen "${name}" cargada en modo offline.`, parser: 'IMAGE-OFFLINE' };
+        }
+
+        // 4. Texto plano / Código / Markdown / CSV / JSON
+        let decoded = '';
+        try { decoded = new TextDecoder('utf-8', { fatal: true }).decode(arrayBuffer); }
+        catch (_) { decoded = new TextDecoder('windows-1252').decode(arrayBuffer); }
+        return { text: decoded.trim() || `Archivo "${name}" vacío.`, parser: `UTF8-${ext.toUpperCase() || 'TXT'}` };
+      }
+
+      async function extractPdfFlateFallback(arrayBuffer) {
+        if (typeof DecompressionStream === 'undefined') return '';
+        const bytes = new Uint8Array(arrayBuffer);
+        const latin = new TextDecoder('latin1').decode(bytes);
+        const out = [];
+        let pos = 0;
+        while (pos < latin.length) {
+          const st = latin.indexOf('stream', pos);
+          if (st === -1) break;
+          let dStart = st + 6;
+          if (latin[dStart] === '\r' && latin[dStart + 1] === '\n') dStart += 2;
+          else if (latin[dStart] === '\n') dStart += 1;
+          else { pos = dStart; continue; }
+          const en = latin.indexOf('endstream', dStart);
+          if (en === -1) break;
+          try {
+            const ds = new DecompressionStream('deflate');
+            const w = ds.writable.getWriter();
+            w.write(bytes.slice(dStart, en));
+            w.close();
+            const r = ds.readable.getReader();
+            const chunks = [];
+            while (true) {
+              const { done, value } = await r.read();
+              if (done) break;
+              chunks.push(new TextDecoder('latin1').decode(value));
+            }
+            const joined = chunks.join('');
+            const matches = joined.match(/\((?:\\.|[^\\()])*\)\s*Tj/g) || [];
+            const txt = matches.map(m => m.replace(/\)\s*Tj$/, '').slice(1)).join(' ');
+            if (txt.trim()) out.push(txt.trim());
+          } catch (_) {}
+          pos = en + 9;
+        }
+        return out.join('\n\n');
+      }
+
+      async function extractOfficeZipNative(arrayBuffer) {
+        if (typeof DecompressionStream === 'undefined') return '';
+        const bytes = new Uint8Array(arrayBuffer);
+        const view = new DataView(arrayBuffer);
+        const utf8 = new TextDecoder('utf-8');
+        let ptr = 0;
+        const texts = [];
+        while (ptr + 30 < bytes.length) {
+          if (view.getUint32(ptr, true) !== 0x04034b50) { ptr++; continue; }
+          const method = view.getUint16(ptr + 8, true);
+          const compSize = view.getUint32(ptr + 18, true);
+          const nameLen = view.getUint16(ptr + 26, true);
+          const extraLen = view.getUint16(ptr + 28, true);
+          const fname = utf8.decode(bytes.slice(ptr + 30, ptr + 30 + nameLen));
+          const dataStart = ptr + 30 + nameLen + extraLen;
+          if ((fname === 'word/document.xml' || /^ppt\/slides\/slide\d+\.xml$/i.test(fname) || fname === 'xl/sharedStrings.xml') && dataStart + compSize <= bytes.length) {
+            const slice = bytes.slice(dataStart, dataStart + compSize);
+            let xml = '';
+            if (method === 0) xml = utf8.decode(slice);
+            else if (method === 8) {
+              try {
+                const ds = new DecompressionStream('deflate-raw');
+                const w = ds.writable.getWriter();
+                w.write(slice);
+                w.close();
+                const r = ds.readable.getReader();
+                const parts = [];
+                while (true) {
+                  const { done, value } = await r.read();
+                  if (done) break;
+                  parts.push(utf8.decode(value, { stream: true }));
+                }
+                xml = parts.join('');
+              } catch (_) {}
+            }
+            if (xml) {
+              texts.push(xml.replace(/<\/(?:w:p|a:p|si)>/gi, '\n\n').replace(/<[^>]+>/g, ' ').replace(/[ \t]+/g, ' ').trim());
+            }
+          }
+          ptr = dataStart + Math.max(1, compSize);
+        }
+        return texts.join('\n\n').trim();
+      }
+
+      // =======================================================================
+      // 7. INDEXACIÓN 100% COSECHABLE (TODAS LAS ORACIONES TIENEN FRASE CLAVE)
+      // =======================================================================
+      function splitTextIntoPages(text, maxChars) {
+        const paras = text.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+        const pages = [];
+        let bucket = [];
+        let len = 0;
+        paras.forEach(p => {
+          if (len + p.length > maxChars && bucket.length > 0) {
+            pages.push(bucket.join('\n\n'));
+            bucket = [];
+            len = 0;
+          }
+          bucket.push(p);
+          len += p.length;
+        });
+        if (bucket.length > 0 || pages.length === 0) pages.push(bucket.join('\n\n'));
+        return pages;
+      }
+
+      // Garantiza que el 100% de las oraciones reciban una categoría y una frase clave real (3 a 10 palabras)
+      function analyzeSentence100PercentHarvestable(sentText, wordsRaw, sIdx) {
+        const lower = sentText.toLowerCase();
+        let category = 'DEF';
+        let anchorIdx = -1;
+
+        if (/\d+(?:[.,]\d+)?(?:%|x|\b)|O\([A-Za-z0-9^]+\)/.test(sentText)) {
+          category = 'DATO';
+          anchorIdx = wordsRaw.findIndex(w => /\d+(?:[.,]\d+)?(?:%|x|\b)|O\([A-Za-z0-9^]+\)/.test(w));
+        } else if (/\b(porque|por lo tanto|permite|reduce|evita|cuando|mediante|ecuacion|como consecuencia|logra)\b/.test(lower) || sentText.includes('=')) {
+          category = 'CAUSAL';
+          anchorIdx = wordsRaw.findIndex(w => /^(porque|tanto|permite|reduce|evita|cuando|mediante|ecuacion|consecuencia|logra)$/i.test(normalizeStr(w)) || w.includes('='));
+        } else if (/\b(a diferencia|sin embargo|por el contrario|en conclusion|mientras que|frente a|convergencia)\b/.test(lower)) {
+          category = 'SÍNTESIS';
+          anchorIdx = wordsRaw.findIndex(w => /^(diferencia|embargo|contrario|conclusion|mientras|frente|convergencia)$/i.test(normalizeStr(w)));
+        } else if (/\b(se define|consiste en|es un|es una|arquitectura|modelo|sistema|paradigma|red|conexion)\b/.test(lower)) {
+          category = 'DEF';
+          anchorIdx = wordsRaw.findIndex(w => /^(define|consiste|arquitectura|modelo|sistema|paradigma|red|conexion)$/i.test(normalizeStr(w)));
+        } else {
+          // Asignación determinista equilibrada para que NINGUNA oración quede sin categoría
+          const cats = ['DEF', 'CAUSAL', 'DATO', 'SÍNTESIS'];
+          category = cats[sIdx % 4];
+          anchorIdx = wordsRaw.findIndex((w, i) => i > 0 && normalizeStr(w).length >= 5 && !STOPWORDS.has(normalizeStr(w)));
+        }
+
+        if (anchorIdx < 0) anchorIdx = Math.min(wordsRaw.length - 1, Math.floor(wordsRaw.length * 0.35));
+
+        let startWordIdx = Math.max(0, anchorIdx - 2);
+        let endWordIdx = Math.min(wordsRaw.length - 1, startWordIdx + 6);
+        if (endWordIdx - startWordIdx + 1 < 3 && wordsRaw.length >= 3) {
+          startWordIdx = 0;
+          endWordIdx = Math.min(wordsRaw.length - 1, 5);
+        }
+        if (endWordIdx - startWordIdx + 1 > 10) {
+          endWordIdx = startWordIdx + 9;
+        }
+
+        const phraseText = wordsRaw
+          .slice(startWordIdx, endWordIdx + 1)
+          .join(' ')
+          .replace(/^[,.;:()]+|[,.;:()]+$/g, '')
+          .trim() || sentText.slice(0, 48);
+
+        return {
+          category,
+          phraseText,
+          startWordIdx,
+          endWordIdx,
+          keywords: extractKeywords(phraseText)
+        };
+      }
+
+      function registerAndLoadDocument(title, text, parser, explicitPages = null) {
+        const id = 'doc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5);
+        state.documents.unshift({ id, title, text, parser, explicitPages });
+        renderDocumentSelect();
+        activateDocument(id);
+      }
+
+      function renderDocumentSelect() {
+        const sel = document.getElementById('docSelect');
+        if (!sel) return;
+        sel.innerHTML = state.documents.map(d =>
+          `<option value="${d.id}" ${d.id === state.activeDocId ? 'selected' : ''}>📄 ${escapeHtml(d.title)}</option>`
+        ).join('');
+      }
+
+      function activateDocument(docId) {
+        const doc = state.documents.find(d => d.id === docId) || state.documents[0];
+        if (!doc) return;
+
+        state.activeDocId = doc.id;
+        state.activeTitle = doc.title;
+        state.rawText = doc.text;
+        state.currentPage = 1;
+        state.pages = [];
+        state.allSentences = [];
+        state.sentenceByIdx.clear();
+        state.harvestedNodes = [];
+        state.nodeById.clear();
+        state.selectedNodeId = null;
+        state.autoPageTimer = 0;
+
+        document.getElementById('nodeInspectorCard').classList.add('hidden');
+        document.getElementById('liveHarvestLog').innerHTML = '';
+        document.getElementById('parserMethodBadge').textContent = `Parser: ${doc.parser}`;
+
+        const pageStrings = doc.explicitPages && doc.explicitPages.length
+          ? doc.explicitPages
+          : splitTextIntoPages(doc.text, CHARS_PER_PAGE);
+
+        let sIdxCounter = 0;
+        pageStrings.forEach((pStr, idx) => {
+          const pageNum = idx + 1;
+          const rawParas = pStr.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+          const paraObjs = [];
+
+          rawParas.forEach((pTxt, pIdx) => {
+            const cleanPara = pTxt.replace(/\s+/g, ' ');
+            const rawSents = cleanPara
+              .split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ0-9#\[])/)
+              .map(s => s.trim())
+              .filter(Boolean);
+
+            const sentObjs = [];
+            rawSents.forEach(sTxt => {
+              const wordsRaw = sTxt.split(/\s+/).filter(Boolean);
+              if (wordsRaw.length === 0) return;
+
+              const sIdx = sIdxCounter++;
+              const stems = [];
+              wordsRaw.forEach(w => {
+                const c = normalizeStr(w).replace(/[^a-z0-9]/g, '');
+                if (c.length >= 3 && !STOPWORDS.has(c)) stems.push(stemWord(c));
+              });
+
+              const analyzed = analyzeSentence100PercentHarvestable(sTxt, wordsRaw, sIdx);
+              const sentObj = {
+                sIdx,
+                num: sIdx + 1,
+                pageNum,
+                paraIdx: pIdx,
+                text: sTxt,
+                wordsRaw,
+                stems,
+                category: analyzed.category,
+                phraseText: analyzed.phraseText,
+                startWordIdx: analyzed.startWordIdx,
+                endWordIdx: analyzed.endWordIdx,
+                keywords: analyzed.keywords,
+                harvested: false,
+                claimedBy: null,
+                nodeId: null
+              };
+              state.allSentences.push(sentObj);
+              state.sentenceByIdx.set(sIdx, sentObj);
+              sentObjs.push(sentObj);
+            });
+            paraObjs.push({ pIdx, sentences: sentObjs });
+          });
+
+          state.pages.push({ pageNum, paragraphs: paraObjs });
+        });
+
+        // Calcular IDF para BM25 del cerebro Kimi
+        state.idfMap.clear();
+        const df = new Map();
+        let totalL = 0;
+        state.allSentences.forEach(s => {
+          totalL += s.stems.length;
+          new Set(s.stems).forEach(st => df.set(st, (df.get(st) || 0) + 1));
+        });
+        const N = Math.max(1, state.allSentences.length);
+        state.avgSentLen = totalL / N;
+        df.forEach((c, st) => state.idfMap.set(st, Math.log(1 + (N - c + 0.5) / (c + 0.5))));
+
+        const jumpSel = document.getElementById('pageJumpSelect');
+        jumpSel.innerHTML = state.pages.map(p => `<option value="${p.pageNum}">${p.pageNum}</option>`).join('');
+        document.getElementById('totalPagesSpan').textContent = `/ ${state.pages.length}`;
+
+        // Inicializar Red Neuronal VACÍA (solo Esfera 3D KIMI-CORE + 4 Hubs maestros)
+        initEmptyNeuralNetwork();
+
+        // Renderizar Página 1
+        renderCurrentDocumentPage(1);
+        updateHarvestCounters();
+        refreshStudyAndQuiz();
+
+        // Desplegar inmediatamente las 4 arañas cosechadoras hacia las primeras 4 oraciones de la Página 1
+        initAndLaunchSpidersImmediately();
+      }
+
+      // =======================================================================
+      // 8. RENDERIZADO DEL VISOR DE DOCUMENTO + CLIC DIRECTO EN PALABRAS
+      // =======================================================================
+      function renderCurrentDocumentPage(pageNum) {
+        const clamped = Math.max(1, Math.min(state.pages.length, pageNum));
+        state.currentPage = clamped;
+
+        const jumpSel = document.getElementById('pageJumpSelect');
+        if (jumpSel) jumpSel.value = String(clamped);
+        document.getElementById('btnPrevPage').disabled = clamped <= 1;
+        document.getElementById('btnNextPage').disabled = clamped >= state.pages.length;
+
+        const bodyEl = document.getElementById('docBody');
+        const pageObj = state.pages[clamped - 1];
+
+        bodyEl.innerHTML = pageObj
+          ? pageObj.paragraphs.map(para => `
+              <p class="doc-para">
+                ${para.sentences.map(s => renderSentenceHtml(s)).join(' ')}
+              </p>
+            `).join('')
+          : '';
+
+        // Permitir tocar/clicar cualquier palabra para enviar inmediatamente una araña a cosecharla
+        bodyEl.querySelectorAll('.doc-word').forEach(wEl => {
+          wEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const sIdx = Number(wEl.getAttribute('data-sidx'));
+            dispatchNearestSpiderToSentence(sIdx);
+          });
+        });
+
+        updateHarvestCounters();
+      }
+
+      function renderSentenceHtml(sent) {
+        const spec = AGENTS.find(a => a.code === sent.category) || AGENTS[0];
+        const wordsHtml = [];
+
+        for (let wi = 0; wi < sent.wordsRaw.length; wi++) {
+          const w = sent.wordsRaw[wi];
+          const inPhrase = wi >= sent.startWordIdx && wi <= sent.endWordIdx;
+          const harvestedCls = (sent.harvested && inPhrase) ? `harvested-phrase harvested-${spec.id}` : '';
+          wordsHtml.push(
+            `<span class="doc-word ${harvestedCls}" data-sidx="${sent.sIdx}" data-widx="${wi}">${escapeHtml(w)}</span>`
+          );
+        }
+
+        return `<span class="doc-sentence" data-sidx="${sent.sIdx}">${wordsHtml.join(' ')}</span>`;
+      }
+
+      function setWordHarvestingHighlight(sIdx, startW, endW, agentId, active) {
+        const bodyEl = document.getElementById('docBody');
+        if (!bodyEl) return;
+        const sentEl = bodyEl.querySelector(`.doc-sentence[data-sidx="${sIdx}"]`);
+        if (!sentEl) return;
+        for (let w = startW; w <= endW; w++) {
+          const wEl = sentEl.querySelector(`.doc-word[data-widx="${w}"]`);
+          if (wEl) {
+            if (active) wEl.classList.add('harvesting-now', `harvesting-now-${agentId}`);
+            else wEl.classList.remove('harvesting-now', `harvesting-now-${agentId}`);
+          }
+        }
+      }
+
+      function ensureSentenceVisibleInDocBody(sIdx) {
+        const bodyEl = document.getElementById('docBody');
+        if (!bodyEl) return;
+        const sentEl = bodyEl.querySelector(`.doc-sentence[data-sidx="${sIdx}"]`);
+        if (!sentEl) return;
+        const br = bodyEl.getBoundingClientRect();
+        const sr = sentEl.getBoundingClientRect();
+        if (sr.top < br.top + 10 || sr.bottom > br.bottom - 10) {
+          const offsetTop = sentEl.offsetTop - bodyEl.offsetTop - br.height * 0.35;
+          bodyEl.scrollTo({ top: Math.max(0, offsetTop), behavior: 'smooth' });
+        }
+      }
+
+      function updateHarvestCounters() {
+        const total = state.allSentences.length;
+        const harvestedCount = state.allSentences.filter(s => s.harvested).length;
+        const pct = total > 0 ? Math.round((harvestedCount / total) * 100) : 0;
+
+        const pageSents = state.allSentences.filter(s => s.pageNum === state.currentPage);
+        const pageHarvested = pageSents.filter(s => s.harvested).length;
+
+        document.getElementById('hudNodesFedBadge').textContent = `NODOS ALIMENTADOS: ${state.harvestedNodes.length}`;
+        document.getElementById('hudDocProgressBadge').textContent = `COSECHA: ${pct}% (${harvestedCount}/${total})`;
+        document.getElementById('pageHarvestProgress').textContent = `${pageHarvested}/${pageSents.length} oraciones`;
+        document.getElementById('liveHarvestRate').textContent = `${state.harvestedNodes.length} nodos activos`;
+        renderAgentsStatusGrid();
+      }
+
+      // =======================================================================
+      // 9. RED NEURONAL D3-FORCE (INICIA VACÍA Y SE CONSTRUYE POR COSECHA REAL)
+      // =======================================================================
+      const neuralCanvas = document.getElementById('neuralCanvas');
+      const neuralCtx = neuralCanvas.getContext('2d');
+      const neuralWrap = document.getElementById('neuralCanvasWrap');
+      let netW = 460, netH = 380;
+
+      function initEmptyNeuralNetwork() {
+        const arena = state.arena;
+        if (arena.simulation && arena.simulation.stop) arena.simulation.stop();
+
+        const cx = netW * 0.5;
+        const cy = netH * 0.5;
+
+        arena.coreNode = {
+          id: 'KIMI_CORE',
+          label: 'KIMI-CORE',
+          x: cx,
+          y: cy,
+          fx: cx,
+          fy: cy,
+          radius: Math.max(20, Math.min(28, Math.min(netW, netH) * 0.08)),
+          isCore: true
+        };
+
+        arena.clusterHubs = AGENTS.slice(0, 4).map(ag => {
+          const hx = netW * ag.clusterPos.rx;
+          const hy = netH * ag.clusterPos.ry;
+          return {
+            id: ag.id,
+            code: ag.code,
+            color: ag.color,
+            x: hx,
+            y: hy,
+            fx: hx,
+            fy: hy,
+            radius: Math.max(12, Math.min(16, Math.min(netW, netH) * 0.045)),
+            isHub: true
+          };
+        });
+
+        // Empieza VACÍA de nodos de conocimiento: solo KIMI-CORE + 4 hubs maestros
+        arena.nodes = [arena.coreNode, ...arena.clusterHubs];
+        arena.links = arena.clusterHubs.map(h => ({
+          id: `trunk_${h.id}`,
+          source: h,
+          target: arena.coreNode,
+          color: h.color,
+          kind: 'TRUNK',
+          pulse: Math.random()
+        }));
+
+        // Esfera 3D Fibonacci de partículas giratorias para KIMI-CORE
+        arena.sphereParticles = [];
+        const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+        for (let i = 0; i < 96; i++) {
+          const y = 1 - (i / 95) * 2;
+          const r = Math.sqrt(1 - y * y);
+          const theta = goldenAngle * i;
+          arena.sphereParticles.push({
+            x: Math.cos(theta) * r,
+            y,
+            z: Math.sin(theta) * r,
+            bright: i % 5 === 0
+          });
+        }
+
+        if (window.d3) {
+          document.getElementById('d3StatusTag').textContent = 'D3-FORCE v7';
+          arena.simulation = window.d3.forceSimulation(arena.nodes)
+            .force('charge', window.d3.forceManyBody().strength(d => (d.isCore || d.isHub) ? -80 : -42))
+            .force('collide', window.d3.forceCollide().radius(d => (d.isCore ? 32 : d.isHub ? 20 : 19)).strength(0.95))
+            .force('x', window.d3.forceX(d => {
+              if (d.isCore || d.isHub) return d.fx;
+              const hub = arena.clusterHubs.find(h => h.id === d.clusterId);
+              return hub ? hub.x : netW * 0.5;
+            }).strength(0.25))
+            .force('y', window.d3.forceY(d => {
+              if (d.isCore || d.isHub) return d.fy;
+              const hub = arena.clusterHubs.find(h => h.id === d.clusterId);
+              return hub ? hub.y : netH * 0.5;
+            }).strength(0.25))
+            .alphaDecay(0.02);
+        } else {
+          document.getElementById('d3StatusTag').textContent = 'LOCAL-FORCE';
+          arena.simulation = null;
+        }
+
+        arena.highlightedNodeIds.clear();
+        arena.highlightedLinkIds.clear();
+      }
+
+      // FASE 4: Alimentar la Red Neuronal creando un nodo físico real tras cosechar el texto
+      function feedHarvestedSentenceIntoNeuralNetwork(sent, spider) {
+        if (!sent || sent.harvested) return null;
+
+        sent.harvested = true;
+        sent.claimedBy = null;
+
+        const spec = AGENTS.find(a => a.code === sent.category) || spider || AGENTS[0];
+        const nodeId = `node_s${sent.sIdx}`;
+        sent.nodeId = nodeId;
+
+        const nodeData = {
+          id: nodeId,
+          sIdx: sent.sIdx,
+          code: sent.category,
+          agentId: spec.id,
+          spiderId: spider ? spider.spiderId : spec.spiderId,
+          color: spec.color,
+          phraseText: sent.phraseText,
+          shortLabel: makeShortLabel(sent.phraseText),
+          fullSentence: sent.text,
+          pageNum: sent.pageNum,
+          sentenceNum: sent.num,
+          keywords: sent.keywords,
+          links: []
+        };
+
+        // Buscar conexiones sinápticas con nodos previamente cosechados (incluso de otros clústeres)
+        state.harvestedNodes.forEach(other => {
+          const shared = nodeData.keywords.filter(k => other.keywords.some(ok => stemWord(k) === stemWord(ok)));
+          if (shared.length > 0 && nodeData.links.length < 3) {
+            nodeData.links.push({ targetId: other.id, shared });
+            if (other.links.length < 3) other.links.push({ targetId: nodeData.id, shared });
+          }
+        });
+
+        state.harvestedNodes.push(nodeData);
+        state.nodeById.set(nodeId, nodeData);
+
+        // Consolidar en Bóveda Persistente (localStorage)
+        consolidateIntoVault({
+          code: nodeData.code,
+          color: nodeData.color,
+          phraseText: nodeData.phraseText,
+          detail: nodeData.fullSentence,
+          sourceDoc: state.activeTitle,
+          pageNum: nodeData.pageNum
+        });
+
+        // Añadir nodo físico a D3-Force
+        const arena = state.arena;
+        const hub = arena.clusterHubs.find(h => h.id === spec.id) || arena.clusterHubs[0];
+        const knowledgeNodes = arena.nodes.filter(n => !n.isCore && !n.isHub);
+        if (knowledgeNodes.length >= 42) {
+          const oldest = knowledgeNodes[0];
+          arena.nodes = arena.nodes.filter(n => n.id !== oldest.id);
+          arena.links = arena.links.filter(l => l.source.id !== oldest.id && l.target.id !== oldest.id);
+        }
+
+        const ang = Math.random() * Math.PI * 2;
+        const d3Node = {
+          id: nodeData.id,
+          data: nodeData,
+          clusterId: hub.id,
+          color: spec.color,
+          label: nodeData.shortLabel,
+          x: hub.x + Math.cos(ang) * 28,
+          y: hub.y + Math.sin(ang) * 28,
+          vx: 0,
+          vy: 0,
+          radius: 7
+        };
+        arena.nodes.push(d3Node);
+
+        // Sinapsis hacia su hub maestro
+        arena.links.push({
+          id: `syn_${d3Node.id}_${hub.id}`,
+          source: d3Node,
+          target: hub,
+          color: spec.color,
+          kind: 'CLUSTER',
+          pulse: 0
+        });
+
+        // Sinapsis inter-clúster si comparte palabras clave con otros nodos
+        nodeData.links.forEach(lnk => {
+          const targetD3 = arena.nodes.find(n => n.id === lnk.targetId);
+          if (targetD3) {
+            const isCross = targetD3.clusterId !== d3Node.clusterId;
+            arena.links.push({
+              id: `cross_${d3Node.id}_${targetD3.id}`,
+              source: d3Node,
+              target: targetD3,
+              color: isCross ? '#38bdf8' : spec.color,
+              kind: isCross ? 'CROSS' : 'ASSOC',
+              pulse: Math.random()
+            });
+          }
+        });
+
+        if (arena.simulation) {
+          arena.simulation.nodes(arena.nodes);
+          arena.simulation.alpha(0.6).restart();
+        }
+
+        // Registrar en la Bitácora de Cosecha en Vivo
+        appendLiveHarvestLog(nodeData);
+
+        // Re-renderizar la página actual si corresponde para marcar la frase como cosechada
+        if (sent.pageNum === state.currentPage) {
+          renderCurrentDocumentPage(state.currentPage);
+        } else {
+          updateHarvestCounters();
+        }
+
+        refreshStudyAndQuiz();
+        return nodeData;
+      }
+
+      function appendLiveHarvestLog(nodeData) {
+        const logEl = document.getElementById('liveHarvestLog');
+        if (!logEl) return;
+        const row = document.createElement('div');
+        row.className = 'truncate cursor-pointer hover:bg-white/5 px-1 rounded';
+        row.innerHTML = `<span style="color:${nodeData.color}" class="font-bold">+NODO [${nodeData.code}]</span> <span class="text-slate-400">Pág ${nodeData.pageNum}:</span> <span class="text-slate-100">"${escapeHtml(nodeData.phraseText)}"</span>`;
+        row.addEventListener('click', () => inspectHarvestedNode(nodeData.id));
+        logEl.appendChild(row);
+        while (logEl.children.length > 35) logEl.removeChild(logEl.firstChild);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function recenterNeuralNetwork() {
+        const arena = state.arena;
+        if (!arena.coreNode) return;
+        const cx = netW * 0.5, cy = netH * 0.5;
+        arena.coreNode.x = arena.coreNode.fx = cx;
+        arena.coreNode.y = arena.coreNode.fy = cy;
+        arena.coreNode.radius = Math.max(20, Math.min(28, Math.min(netW, netH) * 0.08));
+
+        arena.clusterHubs.forEach((h, idx) => {
+          const spec = AGENTS[idx];
+          h.x = h.fx = netW * spec.clusterPos.rx;
+          h.y = h.fy = netH * spec.clusterPos.ry;
+          h.radius = Math.max(12, Math.min(16, Math.min(netW, netH) * 0.045));
+        });
+        if (arena.simulation) arena.simulation.alpha(0.75).restart();
+      }
+
+      // =======================================================================
+      // 10. INSPECTOR INTERACTIVO DE NODOS EN LA RED & ARRASTRE D3
+      // =======================================================================
+      function inspectHarvestedNode(nodeId) {
+        const nodeData = state.nodeById.get(nodeId);
+        if (!nodeData) return;
+
+        state.selectedNodeId = nodeId;
+        const arena = state.arena;
+        arena.highlightedNodeIds.clear();
+        arena.highlightedLinkIds.clear();
+        arena.highlightedNodeIds.add(nodeId);
+
+        arena.links.forEach(l => {
+          if (l.source.id === nodeId || l.target.id === nodeId) {
+            arena.highlightedLinkIds.add(l.id);
+            arena.highlightedNodeIds.add(l.source.id);
+            arena.highlightedNodeIds.add(l.target.id);
+          }
+        });
+
+        const card = document.getElementById('nodeInspectorCard');
+        card.classList.remove('hidden');
+        document.getElementById('inspDot').style.backgroundColor = nodeData.color;
+        document.getElementById('inspTitle').style.color = nodeData.color;
+        document.getElementById('inspTitle').textContent = `${nodeData.spiderId} · [${nodeData.code}] · Pág ${nodeData.pageNum}`;
+        document.getElementById('inspPhrase').textContent = `"${nodeData.phraseText}"`;
+        document.getElementById('inspFullSent').textContent = nodeData.fullSentence;
+        document.getElementById('inspSynapses').textContent = nodeData.links.length > 0
+          ? `Sinapsis conectadas: ${nodeData.links.length} nodos relacionados`
+          : `Conectado al clúster ${nodeData.agentId} ➔ KIMI-CORE`;
+
+        document.getElementById('btnInspGoText').onclick = () => jumpToSentenceInViewer(nodeData.sIdx);
+        document.getElementById('btnInspAskKimi').onclick = () => {
+          document.querySelector('[data-stab="kimi"]').click();
+          handleKimiQuery(`Analiza el nodo [${nodeData.code}] "${nodeData.phraseText}" de la página ${nodeData.pageNum} y relaciónalo con el resto del documento.`);
+        };
+      }
+
+      function jumpToSentenceInViewer(sIdx) {
+        const sent = state.sentenceByIdx.get(sIdx);
+        if (!sent) return;
+        renderCurrentDocumentPage(sent.pageNum);
+        ensureSentenceVisibleInDocBody(sIdx);
+        const bodyEl = document.getElementById('docBody');
+        const el = bodyEl.querySelector(`.doc-sentence[data-sidx="${sIdx}"]`);
+        if (el) {
+          el.classList.add('sent-cited-flash');
+          setTimeout(() => el.classList.remove('sent-cited-flash'), 1800);
+        }
+      }
+
+      document.getElementById('btnCloseNodeInsp').addEventListener('click', () => {
+        state.selectedNodeId = null;
+        state.arena.highlightedNodeIds.clear();
+        state.arena.highlightedLinkIds.clear();
+        document.getElementById('nodeInspectorCard').classList.add('hidden');
+      });
+
+      function getNeuralCanvasPt(e) {
+        const r = neuralCanvas.getBoundingClientRect();
+        const cx = e.touches && e.touches[0] ? e.touches[0].clientX : e.clientX;
+        const cy = e.touches && e.touches[0] ? e.touches[0].clientY : e.clientY;
+        return { x: cx - r.left, y: cy - r.top };
+      }
+
+      neuralCanvas.addEventListener('mousedown', (e) => {
+        const pt = getNeuralCanvasPt(e);
+        const arena = state.arena;
+        for (let i = arena.nodes.length - 1; i >= 0; i--) {
+          const n = arena.nodes[i];
+          if (Math.hypot(pt.x - n.x, pt.y - n.y) <= n.radius + 9) {
+            arena.draggingNode = n;
+            n.fx = n.x;
+            n.fy = n.y;
+            if (n.data) inspectHarvestedNode(n.data.id);
+            return;
+          }
+        }
+      });
+
+      neuralCanvas.addEventListener('mousemove', (e) => {
+        const pt = getNeuralCanvasPt(e);
+        const arena = state.arena;
+        const tip = document.getElementById('nodeHoverTooltip');
+        if (arena.draggingNode) {
+          arena.draggingNode.x = arena.draggingNode.fx = Math.max(24, Math.min(netW - 24, pt.x));
+          arena.draggingNode.y = arena.draggingNode.fy = Math.max(28, Math.min(netH - 24, pt.y));
+          if (arena.simulation) arena.simulation.alpha(0.35).restart();
+          tip.classList.add('hidden');
+          return;
+        }
+        let hit = null;
+        for (let i = arena.nodes.length - 1; i >= 0; i--) {
+          const n = arena.nodes[i];
+          if (!n.isCore && !n.isHub && Math.hypot(pt.x - n.x, pt.y - n.y) <= n.radius + 7) { hit = n; break; }
+        }
+        if (hit && hit.data) {
+          neuralCanvas.style.cursor = 'pointer';
+          tip.classList.remove('hidden');
+          tip.style.left = `${Math.min(netW - 225, Math.max(8, pt.x + 10))}px`;
+          tip.style.top = `${Math.min(netH - 64, Math.max(28, pt.y - 10))}px`;
+          tip.innerHTML = `<div style="color:${hit.color}" class="font-bold">${hit.data.spiderId} [${hit.data.code}] · Pág ${hit.data.pageNum}</div><div class="text-slate-100 mt-0.5">"${escapeHtml(hit.data.phraseText)}"</div>`;
+        } else {
+          neuralCanvas.style.cursor = 'grab';
+          tip.classList.add('hidden');
+        }
+      });
+
+      window.addEventListener('mouseup', () => {
+        const d = state.arena.draggingNode;
+        if (d && !d.isCore && !d.isHub) { d.fx = null; d.fy = null; }
+        state.arena.draggingNode = null;
+      });
+
+      neuralCanvas.addEventListener('touchstart', (e) => {
+        const pt = getNeuralCanvasPt(e);
+        const arena = state.arena;
+        for (let i = arena.nodes.length - 1; i >= 0; i--) {
+          const n = arena.nodes[i];
+          if (Math.hypot(pt.x - n.x, pt.y - n.y) <= n.radius + 11) {
+            arena.draggingNode = n;
+            n.fx = n.x;
+            n.fy = n.y;
+            if (n.data) inspectHarvestedNode(n.data.id);
+            return;
+          }
+        }
+      }, { passive: true });
+
+      neuralCanvas.addEventListener('touchmove', (e) => {
+        if (!state.arena.draggingNode) return;
+        if (e.cancelable) e.preventDefault();
+        const pt = getNeuralCanvasPt(e);
+        const d = state.arena.draggingNode;
+        d.x = d.fx = Math.max(24, Math.min(netW - 24, pt.x));
+        d.y = d.fy = Math.max(28, Math.min(netH - 24, pt.y));
+        if (state.arena.simulation) state.arena.simulation.alpha(0.35).restart();
+      }, { passive: false });
+
+      window.addEventListener('touchend', () => {
+        const d = state.arena.draggingNode;
+        if (d && !d.isCore && !d.isHub) { d.fx = null; d.fy = null; }
+        state.arena.draggingNode = null;
+      });
+
+      // =======================================================================
+      // 11. MÁQUINA DE ESTADOS DE 4 FASES DE LAS ARAÑAS (REAL HARVEST ENGINE)
+      // =======================================================================
+      const spiderCanvas = document.getElementById('spiderCanvas');
+      const spiderCtx = spiderCanvas.getContext('2d');
+      let winW = window.innerWidth, winH = window.innerHeight;
+
+      function resizeAllCanvases() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+        winW = window.innerWidth;
+        winH = window.innerHeight;
+        spiderCanvas.width = winW * dpr;
+        spiderCanvas.height = winH * dpr;
+        spiderCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        const r = neuralWrap.getBoundingClientRect();
+        netW = Math.max(220, r.width);
+        netH = Math.max(150, r.height);
+        neuralCanvas.width = netW * dpr;
+        neuralCanvas.height = netH * dpr;
+        neuralCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        recenterNeuralNetwork();
+      }
+
+      // Reclama la siguiente oración no cosechada de la página actual
+      function claimNextSentenceForSpider(spider) {
+        const pageSents = state.allSentences.filter(s => s.pageNum === state.currentPage && !s.harvested && !s.claimedBy);
+        if (pageSents.length === 0) return null;
+
+        // 1. Priorizar oraciones de la especialidad del agente
+        let chosen = pageSents.find(s => s.category === spider.code);
+        // 2. Si ya no hay de su especialidad en esta página, ayudar con cualquier oración libre de la página
+        if (!chosen) chosen = pageSents[0];
+
+        if (chosen) {
+          chosen.claimedBy = spider.spiderId;
+          return chosen;
+        }
+        return null;
+      }
+
+      function assignSpiderToSentence(spider, sent) {
+        if (!sent || sent.harvested) return false;
+        // Liberar objetivo anterior si existía
+        if (spider.targetSent && spider.targetSent.sIdx !== sent.sIdx) {
+          setWordHarvestingHighlight(spider.targetSent.sIdx, spider.targetSent.startWordIdx, spider.targetSent.endWordIdx, spider.id, false);
+          if (spider.targetSent.claimedBy === spider.spiderId) spider.targetSent.claimedBy = null;
+        }
+
+        sent.claimedBy = spider.spiderId;
+        spider.targetSent = sent;
+        spider.phase = 'IR_A_PALABRA';
+        spider.phaseElapsed = 0;
+        spider.travelT = 0;
+        spider.carriedCapsule = null;
+
+        // Si es la primera araña en llegar a una oración fuera del scroll visible, desplazar suavemente #docBody
+        ensureSentenceVisibleInDocBody(sent.sIdx);
+
+        const coords = getPhraseWordCoords(sent.sIdx, sent.startWordIdx, sent.endWordIdx);
+        spider.startPos = { x: spider.x, y: spider.y };
+        spider.endPos = { x: coords.cx, y: coords.cy };
+        spider.ctrlPos = {
+          x: (spider.x + coords.cx) * 0.5 + spider.arcBias,
+          y: (spider.y + coords.cy) * 0.5
+        };
+        return true;
+      }
+
+      // Tocar/Clic en cualquier palabra del documento envía de inmediato a la araña más cercana
+      function dispatchNearestSpiderToSentence(sIdx) {
+        const sent = state.sentenceByIdx.get(sIdx);
+        if (!sent) return;
+        if (sent.harvested) {
+          if (sent.nodeId) inspectHarvestedNode(sent.nodeId);
+          showHudToast(`✓ FRASE YA COSECHADA EN NODO [${sent.category}]`);
+          return;
+        }
+
+        const workers = state.spiders.slice(0, 4);
+        let chosenSpider = workers.find(sp => sp.code === sent.category && sp.phase !== 'ARRASTRAR_A_RED')
+          || workers.find(sp => sp.phase === 'ESPERANDO')
+          || workers[0];
+
+        if (chosenSpider) {
+          assignSpiderToSentence(chosenSpider, sent);
+          showHudToast(`🕷️ ${chosenSpider.spiderId} ENVIADA A COSECHAR: "${makeShortLabel(sent.phraseText)}"`);
+        }
+      }
+
+      function initAndLaunchSpidersImmediately() {
+        const nr = neuralCanvas.getBoundingClientRect();
+        const arena = state.arena;
+
+        state.spiders = AGENTS.map((spec, idx) => {
+          const hub = arena.clusterHubs.find(h => h.id === spec.id) || arena.coreNode;
+          const sx = nr.left + (hub ? hub.x : netW * 0.5);
+          const sy = nr.top + (hub ? hub.y : netH * 0.5);
+
+          const sp = {
+            ...spec,
+            harvestedCount: 0,
+            x: sx,
+            y: sy,
+            angle: idx === 4 ? 0 : -Math.PI * 0.5,
+            phase: idx === 4 ? 'CORE_ROUTER' : 'ESPERANDO',
+            phaseElapsed: 0,
+            orbitAngle: idx * 1.5,
+            travelT: 0,
+            targetSent: null,
+            carriedCapsule: null,
+            anchorWordPoints: [],
+            startPos: { x: sx, y: sy },
+            ctrlPos: { x: sx, y: sy },
+            endPos: { x: sx, y: sy },
+            legs: Array.from({ length: 8 }, (_, li) => ({
+              side: li < 4 ? -1 : 1,
+              idxSide: li % 4,
+              footX: sx,
+              footY: sy,
+              startX: sx,
+              startY: sy,
+              goalX: sx,
+              goalY: sy,
+              stepT: 1
+            }))
+          };
+
+          // Lanzar inmediatamente las 4 arañas trabajadoras hacia la Página 1
+          if (idx < 4) {
+            const firstSent = claimNextSentenceForSpider(sp);
+            if (firstSent) assignSpiderToSentence(sp, firstSent);
+          }
+          return sp;
+        });
+
+        renderAgentsStatusGrid();
+      }
+
+      function getPhraseWordCoords(sIdx, startWordIdx, endWordIdx) {
+        const bodyEl = document.getElementById('docBody');
+        const br = bodyEl.getBoundingClientRect();
+        const sentEl = bodyEl.querySelector(`.doc-sentence[data-sidx="${sIdx}"]`);
+
+        if (!sentEl) {
+          return {
+            valid: false,
+            left: br.left + 30,
+            top: br.top + 30,
+            right: br.left + 160,
+            bottom: br.top + 50,
+            cx: br.left + br.width * 0.5,
+            cy: br.top + br.height * 0.5,
+            wordPoints: []
+          };
+        }
+
+        const wordPoints = [];
+        let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+
+        for (let w = startWordIdx; w <= endWordIdx; w++) {
+          const wEl = sentEl.querySelector(`.doc-word[data-widx="${w}"]`);
+          if (wEl) {
+            const r = wEl.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0) {
+              left = Math.min(left, r.left);
+              top = Math.min(top, r.top);
+              right = Math.max(right, r.right);
+              bottom = Math.max(bottom, r.bottom);
+              wordPoints.push({ x: (r.left + r.right) * 0.5, y: (r.top + r.bottom) * 0.5, top: r.top, bottom: r.bottom });
+            }
+          }
+        }
+
+        if (!wordPoints.length) {
+          const sr = sentEl.getBoundingClientRect();
+          left = sr.left; top = sr.top; right = sr.right; bottom = sr.bottom;
+        }
+
+        const clampedCy = Math.max(br.top + 14, Math.min(br.bottom - 14, (top + bottom) * 0.5));
+        const clampedCx = Math.max(br.left + 24, Math.min(br.right - 24, (left + right) * 0.5));
+
+        return {
+          valid: true,
+          left,
+          top,
+          right,
+          bottom,
+          cx: clampedCx,
+          cy: clampedCy,
+          wordPoints
+        };
+      }
+
+      function stepSpidersAndPhysics(dt) {
+        const arena = state.arena;
+        arena.sphereRotY += dt * 0.7;
+
+        // Física de respaldo si D3 no está disponible
+        if (!arena.simulation) {
+          const kNodes = arena.nodes.filter(n => !n.isCore && !n.isHub);
+          for (let i = 0; i < kNodes.length; i++) {
+            const a = kNodes[i];
+            const hub = arena.clusterHubs.find(h => h.id === a.clusterId);
+            if (hub) { a.vx += (hub.x - a.x) * 0.7 * dt; a.vy += (hub.y - a.y) * 0.7 * dt; }
+            for (let j = i + 1; j < kNodes.length; j++) {
+              const b = kNodes[j];
+              const dx = a.x - b.x, dy = a.y - b.y;
+              const d = Math.hypot(dx, dy) || 1;
+              if (d < 40) {
+                const f = ((40 - d) / 40) * 110 * dt;
+                a.vx += (dx / d) * f; a.vy += (dy / d) * f;
+                b.vx -= (dx / d) * f; b.vy -= (dy / d) * f;
+              }
+            }
+            a.vx *= 0.8; a.vy *= 0.8;
+            a.x = Math.max(24, Math.min(netW - 24, a.x + a.vx));
+            a.y = Math.max(28, Math.min(netH - 24, a.y + a.vy));
+          }
+        }
+
+        for (let i = state.ripples.length - 1; i >= 0; i--) {
+          state.ripples[i].r += dt * 110;
+          state.ripples[i].alpha -= dt * 1.15;
+          if (state.ripples[i].alpha <= 0) state.ripples.splice(i, 1);
+        }
+
+        const nr = neuralCanvas.getBoundingClientRect();
+        const workers = state.spiders.slice(0, 4);
+
+        // Verificar si toda la página actual ya fue cosechada para Auto-Pág
+        const pageRemaining = state.allSentences.filter(s => s.pageNum === state.currentPage && !s.harvested);
+        const workersBusy = workers.some(sp => sp.phase !== 'ESPERANDO');
+
+        if (!state.swarmPaused && pageRemaining.length === 0 && !workersBusy && state.autoPage) {
+          state.autoPageTimer += dt;
+          if (state.autoPageTimer >= 0.75) {
+            state.autoPageTimer = 0;
+            const nextUnfinishedPage = state.pages.find(p =>
+              state.allSentences.some(s => s.pageNum === p.pageNum && !s.harvested)
+            );
+            if (nextUnfinishedPage) {
+              renderCurrentDocumentPage(nextUnfinishedPage.pageNum);
+              showHudToast(`📄 AUTO-PÁG: AVANZANDO A PÁGINA ${nextUnfinishedPage.pageNum}`);
+            }
+          }
+        } else {
+          state.autoPageTimer = 0;
+        }
+
+        state.spiders.forEach(sp => {
+          if (state.swarmPaused) return;
+          sp.phaseElapsed += dt;
+
+          // SPDR-05: Router de KIMI-CORE (patrulla núcleo central y teje puentes dorados entre clústeres)
+          if (sp.id === 'AGT-05') {
+            sp.orbitAngle += dt * 1.4;
+            const cx = nr.left + (arena.coreNode ? arena.coreNode.x : netW * 0.5);
+            const cy = nr.top + (arena.coreNode ? arena.coreNode.y : netH * 0.5);
+            const allIngested = state.allSentences.every(s => s.harvested);
+            const rx = allIngested ? netW * 0.28 : 30;
+            const ry = allIngested ? netH * 0.28 : 30;
+            const nx = cx + Math.cos(sp.orbitAngle) * rx;
+            const ny = cy + Math.sin(sp.orbitAngle) * ry;
+            sp.angle = Math.atan2(ny - sp.y, nx - sp.x);
+            sp.x = nx;
+            sp.y = ny;
+          } else {
+            // WATCHDOG DE 2.5 SEGUNDOS ANTI-BLOQUEO
+            if (sp.phase !== 'ESPERANDO' && sp.phaseElapsed > 2.5) {
+              if (sp.targetSent) {
+                setWordHarvestingHighlight(sp.targetSent.sIdx, sp.targetSent.startWordIdx, sp.targetSent.endWordIdx, sp.id, false);
+                feedHarvestedSentenceIntoNeuralNetwork(sp.targetSent, sp);
+                sp.harvestedCount += 1;
+              }
+              sp.targetSent = null;
+              sp.carriedCapsule = null;
+              sp.phase = 'ESPERANDO';
+              sp.phaseElapsed = 0;
+            }
+
+            if (sp.phase === 'ESPERANDO') {
+              const nextSent = claimNextSentenceForSpider(sp);
+              if (nextSent) {
+                assignSpiderToSentence(sp, nextSent);
+              } else {
+                // Solo orbita su clúster cuando 100% de la página ya fue cosechada
+                const hub = arena.clusterHubs.find(h => h.id === sp.id) || arena.coreNode;
+                const hx = nr.left + (hub ? hub.x : netW * 0.5);
+                const hy = nr.top + (hub ? hub.y : netH * 0.5);
+                sp.orbitAngle += dt * 1.5;
+                const tx = hx + Math.cos(sp.orbitAngle) * 20;
+                const ty = hy + Math.sin(sp.orbitAngle) * 20;
+                sp.x += (tx - sp.x) * Math.min(1, dt * 6);
+                sp.y += (ty - sp.y) * Math.min(1, dt * 6);
+                sp.angle = Math.atan2(ty - sp.y, tx - sp.x);
+              }
+            } else if (sp.phase === 'IR_A_PALABRA' && sp.targetSent) {
+              // FASE 1: Caminar hacia las coordenadas exactas de las palabras en el documento
+              const coords = getPhraseWordCoords(sp.targetSent.sIdx, sp.targetSent.startWordIdx, sp.targetSent.endWordIdx);
+              sp.endPos = { x: coords.cx, y: coords.cy };
+              sp.travelT = Math.min(1, sp.travelT + dt * 1.35);
+              const t = sp.travelT, u = 1 - t;
+              const nx = u * u * sp.startPos.x + 2 * u * t * sp.ctrlPos.x + t * t * sp.endPos.x;
+              const ny = u * u * sp.startPos.y + 2 * u * t * sp.ctrlPos.y + t * t * sp.endPos.y;
+              sp.angle = Math.atan2(ny - sp.y, nx - sp.x);
+              sp.x = nx;
+              sp.y = ny;
+
+              if (sp.travelT >= 1) {
+                sp.phase = 'EXTRAER_DATOS';
+                sp.phaseElapsed = 0;
+                sp.anchorWordPoints = coords.wordPoints;
+                setWordHarvestingHighlight(sp.targetSent.sIdx, sp.targetSent.startWordIdx, sp.targetSent.endWordIdx, sp.id, true);
+              }
+            } else if (sp.phase === 'EXTRAER_DATOS' && sp.targetSent) {
+              // FASE 2 (0.85s): Posar las 8 patas IK sobre las palabras individuales, iluminar texto y extraer cápsula
+              const coords = getPhraseWordCoords(sp.targetSent.sIdx, sp.targetSent.startWordIdx, sp.targetSent.endWordIdx);
+              sp.x = coords.cx;
+              sp.y = coords.cy;
+              sp.anchorWordPoints = coords.wordPoints;
+
+              if (sp.phaseElapsed >= 0.4) {
+                sp.carriedCapsule = makeShortLabel(sp.targetSent.phraseText);
+              }
+
+              if (sp.phaseElapsed >= 0.85) {
+                setWordHarvestingHighlight(sp.targetSent.sIdx, sp.targetSent.startWordIdx, sp.targetSent.endWordIdx, sp.id, false);
+                sp.carriedCapsule = makeShortLabel(sp.targetSent.phraseText);
+
+                const hub = arena.clusterHubs.find(h => h.id === sp.id) || arena.coreNode;
+                const destX = nr.left + (hub ? hub.x : netW * 0.5);
+                const destY = nr.top + (hub ? hub.y : netH * 0.5);
+
+                sp.phase = 'ARRASTRAR_A_RED';
+                sp.phaseElapsed = 0;
+                sp.travelT = 0;
+                sp.startPos = { x: sp.x, y: sp.y };
+                sp.endPos = { x: destX, y: destY };
+                sp.ctrlPos = {
+                  x: (sp.x + destX) * 0.5 + sp.arcBias,
+                  y: (sp.y + destY) * 0.5
+                };
+              }
+            } else if (sp.phase === 'ARRASTRAR_A_RED' && sp.targetSent) {
+              // FASE 3: Arrastrar hilo de seda brillante y cápsula de datos de regreso a la red neuronal
+              const hub = arena.clusterHubs.find(h => h.id === sp.id) || arena.coreNode;
+              sp.endPos = { x: nr.left + (hub ? hub.x : netW * 0.5), y: nr.top + (hub ? hub.y : netH * 0.5) };
+              sp.travelT = Math.min(1, sp.travelT + dt * 1.3);
+              const t = sp.travelT, u = 1 - t;
+              const nx = u * u * sp.startPos.x + 2 * u * t * sp.ctrlPos.x + t * t * sp.endPos.x;
+              const ny = u * u * sp.startPos.y + 2 * u * t * sp.ctrlPos.y + t * t * sp.endPos.y;
+              sp.angle = Math.atan2(ny - sp.y, nx - sp.x);
+              sp.x = nx;
+              sp.y = ny;
+
+              if (sp.travelT >= 1) {
+                // FASE 4: ALIMENTAR_NODO -> Inyectar datos, crear nodo D3, onda expansiva e iniciar siguiente cosecha
+                feedHarvestedSentenceIntoNeuralNetwork(sp.targetSent, sp);
+                sp.harvestedCount += 1;
+                state.ripples.push({ x: sp.x, y: sp.y, r: 8, alpha: 1, color: sp.color });
+
+                sp.targetSent = null;
+                sp.carriedCapsule = null;
+                sp.phase = 'ESPERANDO';
+                sp.phaseElapsed = 0;
+
+                const immediateNext = claimNextSentenceForSpider(sp);
+                if (immediateNext) assignSpiderToSentence(sp, immediateNext);
+              }
+            }
+          }
+
+          // Actualizar Cinemática Inversa (IK) de las 8 patas
+          const baseAngles = [-0.76, -0.25, 0.25, 0.76];
+          sp.legs.forEach((leg, legIdx) => {
+            let ix, iy;
+            // Durante EXTRAER_DATOS, posar las puntas de las 8 patas directamente sobre las palabras individuales
+            if (sp.phase === 'EXTRAER_DATOS' && sp.anchorWordPoints && sp.anchorWordPoints.length > 0) {
+              const wp = sp.anchorWordPoints[legIdx % sp.anchorWordPoints.length];
+              ix = wp.x + (leg.idxSide - 1.5) * 4;
+              iy = leg.side < 0 ? wp.top - 1 : wp.bottom + 1;
+            } else {
+              const worldAng = sp.angle + leg.side * (Math.PI * 0.48 + baseAngles[leg.idxSide] * 0.54);
+              ix = sp.x + Math.cos(worldAng) * 30;
+              iy = sp.y + Math.sin(worldAng) * 30;
+            }
+
+            if (leg.stepT >= 1 && Math.hypot(ix - leg.footX, iy - leg.footY) > 12) {
+              leg.startX = leg.footX;
+              leg.startY = leg.footY;
+              leg.goalX = ix;
+              leg.goalY = iy;
+              leg.stepT = 0;
+            }
+            if (leg.stepT < 1) {
+              leg.stepT = Math.min(1, leg.stepT + dt * 13);
+              const e = leg.stepT * (2 - leg.stepT);
+              leg.footX = leg.startX + (leg.goalX - leg.startX) * e;
+              leg.footY = leg.startY + (leg.goalY - leg.startY) * e;
+            }
+          });
+        });
+      }
+
+      // =======================================================================
+      // 12. RENDERIZADO DE RED NEURONAL Y OVERLAY DE ARAÑAS CON SILK DRAG
+      // =======================================================================
+      function renderAllCanvases(dt) {
+        const arena = state.arena;
+        neuralCtx.clearRect(0, 0, netW, netH);
+
+        const cx = netW * 0.5, cy = netH * 0.5;
+        // Órbitas concéntricas HUD
+        neuralCtx.save();
+        [Math.min(netW, netH) * 0.22, Math.min(netW, netH) * 0.42].forEach(r => {
+          neuralCtx.beginPath();
+          neuralCtx.arc(cx, cy, r, 0, Math.PI * 2);
+          neuralCtx.strokeStyle = 'rgba(0, 240, 255, 0.065)';
+          neuralCtx.stroke();
+        });
+        neuralCtx.restore();
+
+        // 1. Dibujar Sinapsis (Troncales + Nodos Cosechados + Puentes Inter-Clúster)
+        arena.links.forEach(lnk => {
+          const a = lnk.source, b = lnk.target;
+          if (!a || !b) return;
+          const isLit = arena.highlightedLinkIds.has(lnk.id);
+          const isCross = lnk.kind === 'CROSS';
+
+          neuralCtx.save();
+          neuralCtx.beginPath();
+          neuralCtx.moveTo(a.x, a.y);
+          if (isCross) {
+            const mx = (a.x + b.x) * 0.5 + (cx - (a.x + b.x) * 0.5) * 0.22;
+            const my = (a.y + b.y) * 0.5 + (cy - (a.y + b.y) * 0.5) * 0.22;
+            neuralCtx.quadraticCurveTo(mx, my, b.x, b.y);
+          } else {
+            neuralCtx.lineTo(b.x, b.y);
+          }
+          neuralCtx.strokeStyle = isLit ? '#fbbf24' : lnk.color;
+          neuralCtx.globalAlpha = isLit ? 0.95 : (isCross ? 0.5 : (lnk.kind === 'TRUNK' ? 0.45 : 0.38));
+          neuralCtx.lineWidth = isLit ? 2.8 : (isCross ? 1.9 : 1.15);
+          neuralCtx.stroke();
+
+          lnk.pulse = (lnk.pulse + dt * (isLit ? 1.35 : 0.55)) % 1;
+          const px = a.x + (b.x - a.x) * lnk.pulse;
+          const py = a.y + (b.y - a.y) * lnk.pulse;
+          neuralCtx.beginPath();
+          neuralCtx.arc(px, py, isLit ? 2.8 : 1.8, 0, Math.PI * 2);
+          neuralCtx.fillStyle = isLit ? '#ffffff' : lnk.color;
+          neuralCtx.fill();
+          neuralCtx.restore();
+        });
+
+        // 2. Dibujar Nodos Nacidos de la Cosecha Real
+        arena.nodes.forEach(n => {
+          if (n.isCore || n.isHub) return;
+          const isLit = arena.highlightedNodeIds.has(n.id);
+          const isSel = state.selectedNodeId === n.id;
+          const dimmed = state.selectedAgentFilter && state.selectedAgentFilter !== n.clusterId;
+
+          neuralCtx.save();
+          neuralCtx.globalAlpha = dimmed ? 0.25 : 1;
+
+          neuralCtx.beginPath();
+          neuralCtx.arc(n.x, n.y, n.radius + (isLit || isSel ? 5 : 2.5), 0, Math.PI * 2);
+          neuralCtx.fillStyle = (isLit ? '#fbbf24' : n.color) + '33';
+          neuralCtx.fill();
+
+          neuralCtx.beginPath();
+          neuralCtx.arc(n.x, n.y, n.radius, 0, Math.PI * 2);
+          neuralCtx.fillStyle = '#040812';
+          neuralCtx.fill();
+          neuralCtx.lineWidth = isLit || isSel ? 2.3 : 1.6;
+          neuralCtx.strokeStyle = isSel ? '#ffffff' : (isLit ? '#fbbf24' : n.color);
+          neuralCtx.stroke();
+
+          neuralCtx.font = '600 7.5px "JetBrains Mono", monospace';
+          const tw = neuralCtx.measureText(n.label).width;
+          neuralCtx.fillStyle = 'rgba(4, 8, 18, 0.88)';
+          neuralCtx.fillRect(n.x - tw * 0.5 - 2.5, n.y + n.radius + 2, tw + 5, 10);
+          neuralCtx.fillStyle = isLit || isSel ? '#fef08a' : '#e2e8f0';
+          neuralCtx.textAlign = 'center';
+          neuralCtx.fillText(n.label, n.x, n.y + n.radius + 9.5);
+          neuralCtx.restore();
+        });
+
+        // 3. Dibujar los 4 Hubs Maestros (DEF, CAUSAL, DATO, SÍNTESIS)
+        arena.clusterHubs.forEach(h => {
+          neuralCtx.save();
+          neuralCtx.beginPath();
+          neuralCtx.arc(h.x, h.y, h.radius + 5, 0, Math.PI * 2);
+          neuralCtx.fillStyle = h.color + '20';
+          neuralCtx.fill();
+
+          neuralCtx.beginPath();
+          for (let k = 0; k < 6; k++) {
+            const a = (k / 6) * Math.PI * 2;
+            const hx = h.x + Math.cos(a) * h.radius;
+            const hy = h.y + Math.sin(a) * h.radius;
+            if (k === 0) neuralCtx.moveTo(hx, hy);
+            else neuralCtx.lineTo(hx, hy);
+          }
+          neuralCtx.closePath();
+          neuralCtx.fillStyle = '#070d1c';
+          neuralCtx.fill();
+          neuralCtx.lineWidth = 1.9;
+          neuralCtx.strokeStyle = h.color;
+          neuralCtx.stroke();
+
+          neuralCtx.font = '700 7.5px "JetBrains Mono", monospace';
+          neuralCtx.fillStyle = h.color;
+          neuralCtx.textAlign = 'center';
+          neuralCtx.fillText(h.code, h.x, h.y + 2.5);
+          neuralCtx.restore();
+        });
+
+        // 4. Dibujar Esfera Central 3D Giratoria de Partículas (KIMI-CORE)
+        if (arena.coreNode) {
+          const c = arena.coreNode;
+          const R = c.radius;
+          const cosY = Math.cos(arena.sphereRotY), sinY = Math.sin(arena.sphereRotY);
+          const cosX = Math.cos(arena.sphereRotX), sinX = Math.sin(arena.sphereRotX);
+
+          neuralCtx.save();
+          const grad = neuralCtx.createRadialGradient(c.x, c.y, 3, c.x, c.y, R + 14);
+          grad.addColorStop(0, 'rgba(103, 232, 249, 0.35)');
+          grad.addColorStop(0.6, 'rgba(0, 240, 255, 0.12)');
+          grad.addColorStop(1, 'rgba(4, 8, 18, 0)');
+          neuralCtx.beginPath();
+          neuralCtx.arc(c.x, c.y, R + 14, 0, Math.PI * 2);
+          neuralCtx.fillStyle = grad;
+          neuralCtx.fill();
+
+          neuralCtx.strokeStyle = 'rgba(0, 240, 255, 0.35)';
+          neuralCtx.lineWidth = 1;
+          neuralCtx.beginPath();
+          neuralCtx.ellipse(c.x, c.y, R + 5, (R + 5) * 0.34, 0.35, 0, Math.PI * 2);
+          neuralCtx.stroke();
+
+          arena.sphereParticles.forEach(pt => {
+            const x1 = pt.x * cosY - pt.z * sinY;
+            const z1 = pt.z * cosY + pt.x * sinY;
+            const y2 = pt.y * cosX - z1 * sinX;
+            const z2 = z1 * cosX + pt.y * sinX;
+            const scale = 1.4 / (2.2 - z2);
+            const sx = c.x + x1 * R * scale;
+            const sy = c.y + y2 * R * scale;
+
+            neuralCtx.beginPath();
+            neuralCtx.arc(sx, sy, pt.bright ? 1.7 : 1.1, 0, Math.PI * 2);
+            neuralCtx.fillStyle = z2 > 0 ? (pt.bright ? '#ffffff' : '#67e8f9') : 'rgba(0, 240, 255, 0.24)';
+            neuralCtx.fill();
+          });
+
+          neuralCtx.font = '700 7.5px "JetBrains Mono", monospace';
+          neuralCtx.fillStyle = '#ffffff';
+          neuralCtx.textAlign = 'center';
+          neuralCtx.fillText('KIMI-CORE', c.x, c.y + R + 11);
+          neuralCtx.restore();
+        }
+
+        // 5. Overlay de Arañas IK estrictamente recortado sobre #arenaContainer
+        spiderCtx.clearRect(0, 0, winW, winH);
+        const arenaRect = document.getElementById('arenaContainer').getBoundingClientRect();
+        if (arenaRect.width <= 0 || arenaRect.height <= 0) return;
+
+        spiderCtx.save();
+        spiderCtx.beginPath();
+        spiderCtx.rect(arenaRect.left, arenaRect.top, arenaRect.width, arenaRect.height);
+        spiderCtx.clip();
+
+        // Ondas expansivas al inyectar datos en la red neuronal
+        state.ripples.forEach(w => {
+          spiderCtx.beginPath();
+          spiderCtx.arc(w.x, w.y, w.r, 0, Math.PI * 2);
+          spiderCtx.strokeStyle = w.color;
+          spiderCtx.globalAlpha = Math.max(0, w.alpha);
+          spiderCtx.lineWidth = 2;
+          spiderCtx.stroke();
+        });
+        spiderCtx.globalAlpha = 1;
+
+        state.spiders.forEach(sp => {
+          // Haz escáner y caja láser en FASE 2 (EXTRAER_DATOS)
+          if (sp.phase === 'EXTRAER_DATOS' && sp.targetSent) {
+            const coords = getPhraseWordCoords(sp.targetSent.sIdx, sp.targetSent.startWordIdx, sp.targetSent.endWordIdx);
+            if (coords.valid) {
+              spiderCtx.strokeStyle = sp.color;
+              spiderCtx.lineWidth = 1.6;
+              spiderCtx.strokeRect(coords.left - 3, coords.top - 2, (coords.right - coords.left) + 6, (coords.bottom - coords.top) + 4);
+
+              const scanX = coords.left + (coords.right - coords.left) * Math.min(1, sp.phaseElapsed / 0.85);
+              spiderCtx.beginPath();
+              spiderCtx.moveTo(sp.x, sp.y);
+              spiderCtx.lineTo(scanX, coords.top);
+              spiderCtx.lineTo(scanX, coords.bottom);
+              spiderCtx.strokeStyle = '#ffffff';
+              spiderCtx.lineWidth = 1.2;
+              spiderCtx.stroke();
+            }
+          }
+
+          // Hilo de seda luminoso arrastrado desde el texto hacia la red neuronal en FASE 3
+          if (sp.phase === 'ARRASTRAR_A_RED' && sp.targetSent) {
+            const originCoords = getPhraseWordCoords(sp.targetSent.sIdx, sp.targetSent.startWordIdx, sp.targetSent.endWordIdx);
+            spiderCtx.save();
+            spiderCtx.beginPath();
+            spiderCtx.moveTo(originCoords.cx, originCoords.cy);
+            spiderCtx.lineTo(sp.x, sp.y);
+            spiderCtx.strokeStyle = sp.color;
+            spiderCtx.globalAlpha = 0.65;
+            spiderCtx.lineWidth = 1.4;
+            spiderCtx.setLineDash([4, 3]);
+            spiderCtx.stroke();
+            spiderCtx.restore();
+          }
+
+          // 8 Patas Articuladas IK
+          const cosA = Math.cos(sp.angle), sinA = Math.sin(sp.angle);
+          sp.legs.forEach(leg => {
+            const lx = 4 - leg.idxSide * 2.9, ly = leg.side * 5.5;
+            const hx = sp.x + lx * cosA - ly * sinA;
+            const hy = sp.y + lx * sinA + ly * cosA;
+            const lift = leg.stepT < 1 ? Math.sin(leg.stepT * Math.PI) * 8 : 2.5;
+            const mx = (hx + leg.footX) * 0.5 - (leg.footY - hy) * 0.2 * leg.side;
+            const my = (hy + leg.footY) * 0.5 + (leg.footX - hx) * 0.2 * leg.side - lift;
+
+            spiderCtx.beginPath();
+            spiderCtx.moveTo(hx, hy);
+            spiderCtx.lineTo(mx, my);
+            spiderCtx.strokeStyle = sp.color;
+            spiderCtx.lineWidth = 1.35;
+            spiderCtx.stroke();
+
+            spiderCtx.beginPath();
+            spiderCtx.moveTo(mx, my);
+            spiderCtx.lineTo(leg.footX, leg.footY);
+            spiderCtx.strokeStyle = 'rgba(226, 232, 240, 0.85)';
+            spiderCtx.lineWidth = 1;
+            spiderCtx.stroke();
+
+            spiderCtx.beginPath();
+            spiderCtx.arc(leg.footX, leg.footY, 1.8, 0, Math.PI * 2);
+            spiderCtx.fillStyle = sp.color;
+            spiderCtx.fill();
+          });
+
+          // Cuerpo Cyberpunk Wireframe
+          spiderCtx.save();
+          spiderCtx.translate(sp.x, sp.y);
+          spiderCtx.rotate(sp.angle);
+          spiderCtx.beginPath();
+          spiderCtx.moveTo(-4, 0);
+          spiderCtx.lineTo(-9.5, -6.5);
+          spiderCtx.lineTo(-18, -4);
+          spiderCtx.lineTo(-20.5, 0);
+          spiderCtx.lineTo(-18, 4);
+          spiderCtx.lineTo(-9.5, 6.5);
+          spiderCtx.closePath();
+          spiderCtx.fillStyle = 'rgba(4, 8, 18, 0.94)';
+          spiderCtx.fill();
+          spiderCtx.strokeStyle = sp.color;
+          spiderCtx.lineWidth = 1.35;
+          spiderCtx.stroke();
+
+          spiderCtx.beginPath();
+          spiderCtx.moveTo(8, 0);
+          spiderCtx.lineTo(3.5, -4.5);
+          spiderCtx.lineTo(-3, -3.5);
+          spiderCtx.lineTo(-4, 0);
+          spiderCtx.lineTo(-3, 3.5);
+          spiderCtx.lineTo(3.5, 4.5);
+          spiderCtx.closePath();
+          spiderCtx.fillStyle = 'rgba(7, 13, 28, 0.96)';
+          spiderCtx.fill();
+          spiderCtx.strokeStyle = '#ffffff';
+          spiderCtx.lineWidth = 1.15;
+          spiderCtx.stroke();
+          spiderCtx.restore();
+
+          // Esfera Luminosa + Cápsula Flotante con el Texto Extraído
+          if (sp.carriedCapsule) {
+            // Esfera de energía sobre la araña
+            spiderCtx.beginPath();
+            spiderCtx.arc(sp.x, sp.y - 13, 4.5, 0, Math.PI * 2);
+            spiderCtx.fillStyle = sp.color;
+            spiderCtx.fill();
+            spiderCtx.strokeStyle = '#ffffff';
+            spiderCtx.lineWidth = 1;
+            spiderCtx.stroke();
+
+            const label = `[${sp.code}] ${sp.carriedCapsule}`;
+            spiderCtx.font = '700 8px "JetBrains Mono", monospace';
+            const bw = spiderCtx.measureText(label).width + 10;
+            spiderCtx.fillStyle = 'rgba(4, 8, 18, 0.95)';
+            spiderCtx.strokeStyle = sp.color;
+            spiderCtx.lineWidth = 1.2;
+            spiderCtx.beginPath();
+            spiderCtx.roundRect(sp.x - bw * 0.5, sp.y - 34, bw, 15, 4);
+            spiderCtx.fill();
+            spiderCtx.stroke();
+            spiderCtx.fillStyle = '#ffffff';
+            spiderCtx.textAlign = 'center';
+            spiderCtx.fillText(label, sp.x, sp.y - 24);
+          }
+        });
+
+        spiderCtx.restore();
+      }
+
+      // =======================================================================
+      // 13. CEREBRO CONVERSACIONAL KIMI CON KIMI-K2 THINKING + GRAPH RAG
+      // =======================================================================
+      function renderMarkdownSafe(md) {
+        if (window.marked && window.marked.parse) {
+          try { return window.marked.parse(md); } catch (_) {}
+        }
+        return escapeHtml(md)
+          .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\n/g, '<br/>');
+      }
+
+      function handleKimiQuery(rawInput) {
+        const t0 = performance.now();
+        const msg = (rawInput || '').trim();
+        if (!msg) return;
+
+        state.chatMessages.push({ role: 'user', text: msg });
+        renderKimiChat();
+
+        const norm = msg.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+        const arena = state.arena;
+        arena.highlightedNodeIds.clear();
+        arena.highlightedLinkIds.clear();
+
+        const thinking = [];
+        let reply = '';
+        let citations = [];
+
+        // 1. Saludos naturales
+        if (/^(hola|buenas|que tal|hey|saludos|holi|ola)\b/.test(norm) && norm.split(/\s+/).length <= 5) {
+          thinking.push(`• Intent: Saludo conversacional -> Sin invocación de herramientas.`);
+          thinking.push(`• Estado Enjambre: ${state.harvestedNodes.length}/${state.allSentences.length} oraciones cosechadas en red.`);
+          reply = `¡Hola! Soy el cerebro **KIMI-CORE** conectado en tiempo real al motor **Real Harvest Engine**.\n\nHasta ahora las arañas han cosechado **${state.harvestedNodes.length} nodos reales** de \`${state.activeTitle}\` y tengo **${state.knowledgeVault.length} conceptos consolidados** en tu Vault. Puedes tocar cualquier palabra en el texto para enviarme una araña o pedirme que resuma todo el documento.`;
+          pushKimiReply(reply, thinking, Math.max(2, Math.round(performance.now() - t0)), []);
+          return;
+        }
+
+        // 2. Enseñanza directa ("Aprende que..." / "Consolida:...")
+        if (/^(aprende que|consolida|recuerda que|guarda que)\b[:\s-]*/i.test(norm)) {
+          const fact = msg.replace(/^(aprende que|consolida|recuerda que|guarda que)\b[:\s-]*/i, '').trim();
+          thinking.push(`• Active Learning: Consolidando afirmación del usuario en KnowledgeVault.`);
+          const entry = consolidateIntoVault({
+            code: 'SÍNTESIS',
+            color: '#10b981',
+            phraseText: fact.split(/\s+/).slice(0, 10).join(' '),
+            detail: fact,
+            sourceDoc: 'Enseñanza Usuario',
+            pageNum: state.currentPage
+          });
+          reply = `### 💡 Concepto Aprendido y Consolidado\n\n> **${fact}**\n\n• **Refuerzo en Vault:** \`×${entry.reinforcement}\`\n• Este conocimiento queda guardado en tu navegador para cruzarse con futuros documentos.`;
+          pushKimiReply(reply, thinking, Math.max(2, Math.round(performance.now() - t0)), []);
+          return;
+        }
+
+        // 3. Relacionar con documentos anteriores del Vault
+        if (/\b(relaciona|anteriores|vault|memoria)\b/.test(norm)) {
+          thinking.push(`• Cross-Document Vault Scan: ${state.knowledgeVault.length} conceptos persistentes.`);
+          const top = state.knowledgeVault.slice(0, 6);
+          reply = `### 🔗 Conocimiento Consolidado en tu Bóveda (${state.knowledgeVault.length} conceptos)\n\n` +
+            (top.map(v => `- **[${v.code}] "${v.phraseText}"** *(Refuerzo ×${v.reinforcement} · Fuentes: ${v.sources.join(', ')})*`).join('\n') || 'Aún no hay conceptos guardados.');
+          pushKimiReply(reply, thinking, Math.max(3, Math.round(performance.now() - t0)), []);
+          return;
+        }
+
+        // 4. Reporte de lo que han recolectado las arañas
+        if (/\b(recolectado|cosechado|aranas|nodos)\b/.test(norm) && !/\b(analiza el nodo)\b/.test(norm)) {
+          thinking.push(`• Swarm Harvest Audit: ${state.harvestedNodes.length} nodos activos en D3-Force.`);
+          state.harvestedNodes.slice(-5).forEach(n => arena.highlightedNodeIds.add(n.id));
+          const byCat = ['DEF', 'CAUSAL', 'DATO', 'SÍNTESIS'].map(c => {
+            const items = state.harvestedNodes.filter(n => n.code === c);
+            return `**[${c}] (${items.length} nodos):**\n` + (items.slice(0, 3).map(n => `- "${n.phraseText}" *(Pág ${n.pageNum})*`).join('\n') || '- En camino...');
+          });
+          reply = `### 🕷️ Reporte de Cosecha Real (${state.harvestedNodes.length}/${state.allSentences.length} oraciones)\n\n${byCat.join('\n\n')}`;
+          pushKimiReply(reply, thinking, Math.max(3, Math.round(performance.now() - t0)), []);
+          return;
+        }
+
+        // 5. Resumen estructurado del documento
+        if (/\b(resume|resumir|resumen|analiza|sintetiza|de que trata)\b/.test(norm)) {
+          thinking.push(`• Graph-RAG Synthesis: Cruzando ${state.harvestedNodes.length} nodos cosechados + ${state.allSentences.length} oraciones.`);
+          state.harvestedNodes.slice(0, 6).forEach(n => {
+            arena.highlightedNodeIds.add(n.id);
+            arena.links.forEach(l => { if (l.source.id === n.id || l.target.id === n.id) arena.highlightedLinkIds.add(l.id); });
+          });
+
+          const first = state.allSentences[0];
+          const last = state.allSentences[state.allSentences.length - 1];
+          const defs = state.harvestedNodes.filter(n => n.code === 'DEF').slice(0, 3);
+          const causal = state.harvestedNodes.filter(n => n.code === 'CAUSAL').slice(0, 3);
+          const datos = state.harvestedNodes.filter(n => n.code === 'DATO').slice(0, 3);
+
+          reply = `### 🧠 Síntesis Integral de \`${state.activeTitle}\` (${state.pages.length} págs)\n\n` +
+            (first ? `**Idea Central [Pág ${first.pageNum}]:**\n> ${first.text}\n\n` : '') +
+            (defs.length ? `**Conceptos Definicionales [DEF]:**\n` + defs.map(n => `- **"${n.phraseText}"** *(Pág ${n.pageNum})*`).join('\n') + '\n\n' : '') +
+            (causal.length ? `**Mecanismos y Reglas [CAUSAL]:**\n` + causal.map(n => `- **"${n.phraseText}"** *(Pág ${n.pageNum})*`).join('\n') + '\n\n' : '') +
+            (datos.length ? `**Métricas y Benchmarks [DATO]:**\n` + datos.map(n => `- **"${n.phraseText}"** *(Pág ${n.pageNum})*`).join('\n') + '\n\n' : '') +
+            (last && first && last.sIdx !== first.sIdx ? `**Conclusión [Pág ${last.pageNum}]:**\n> ${last.text}` : '');
+
+          citations = [first, last].filter(Boolean);
+          pushKimiReply(reply, thinking, Math.max(4, Math.round(performance.now() - t0)), citations);
+          return;
+        }
+
+        // 6. Consulta abierta sobre el documento usando nodos cosechados + BM25
+        const qStems = norm.split(/\s+/).map(stemWord).filter(s => s.length >= 3 && !STOPWORDS.has(s));
+        thinking.push(`• Semantic Graph Search: Buscando raíces [${qStems.slice(0, 5).join(', ')}] en nodos cosechados y texto.`);
+
+        const matchingNodes = state.harvestedNodes.filter(n =>
+          qStems.some(qs => n.keywords.some(k => stemWord(k).includes(qs) || qs.includes(stemWord(k))))
+        );
+        matchingNodes.slice(0, 4).forEach(n => {
+          arena.highlightedNodeIds.add(n.id);
+          arena.links.forEach(l => { if (l.source.id === n.id || l.target.id === n.id) arena.highlightedLinkIds.add(l.id); });
+        });
+
+        const scored = state.allSentences.map(s => {
+          let sc = 0;
+          const tf = new Map();
+          s.stems.forEach(st => tf.set(st, (tf.get(st) || 0) + 1));
+          qStems.forEach(qs => {
+            const f = tf.get(qs) || 0;
+            if (f > 0) sc += (state.idfMap.get(qs) || 1.2) * ((f * 2.4) / (f + 1.3));
+          });
+          return { s, sc };
+        }).filter(x => x.sc > 0.1).sort((a, b) => b.sc - a.sc);
+
+        if (scored.length > 0) {
+          citations = scored.slice(0, 3).map(x => x.s);
+          const nodeBanner = matchingNodes.length > 0
+            ? `**Nodos Iluminados en la Red:** ${matchingNodes.slice(0, 3).map(n => `[${n.code}] \`"${n.phraseText}"\``).join(' · ')}\n\n`
+            : '';
+          reply = `${nodeBanner}Basándome en la evidencia cosechada de \`${state.activeTitle}\`:\n\n` +
+            citations.map((s, i) => `${i === 0 ? '**Hallazgo Principal:**' : '**Evidencia Complementaria:**'} ${s.text} *(Pág ${s.pageNum})*`).join('\n\n');
+          pushKimiReply(reply, thinking, Math.max(3, Math.round(performance.now() - t0)), citations);
+          return;
+        }
+
+        reply = `No encontré coincidencias exactas para *"${escapeHtml(msg)}"* en \`${state.activeTitle}\`. Prueba preguntar sobre los conceptos que las arañas están cosechando o pulsa **📄 Resume todo el documento**.`;
+        pushKimiReply(reply, thinking, Math.max(2, Math.round(performance.now() - t0)), []);
+      }
+
+      function pushKimiReply(text, thinking, elapsedMs, citations) {
+        state.chatMessages.push({ role: 'ai', text, thinking, elapsedMs, citations });
+        renderKimiChat();
+      }
+
+      function renderKimiChat() {
+        const box = document.getElementById('kimiChatMessages');
+        box.innerHTML = state.chatMessages.map(m => {
+          if (m.role === 'user') {
+            return `<div class="flex justify-end"><div class="max-w-[86%] rounded-2xl rounded-tr-sm bg-[#00f0ff]/15 border border-[#00f0ff]/50 px-3 py-2 text-cyan-100">${escapeHtml(m.text)}</div></div>`;
+          }
+          const thinkHtml = m.thinking && m.thinking.length
+            ? `<details class="mb-2 rounded-lg bg-[#040812] border border-purple-500/35 px-2 py-1 font-mono text-[9px]">
+                <summary class="cursor-pointer text-purple-300 font-bold select-none flex items-center justify-between">
+                  <span>💭 Kimi-K2 Thinking Trace</span>
+                  <span class="text-emerald-300">${m.elapsedMs} ms</span>
+                </summary>
+                <div class="mt-1 pt-1 border-t border-slate-800 text-slate-300 space-y-0.5">
+                  ${m.thinking.map(t => `<div>${escapeHtml(t)}</div>`).join('')}
+                </div>
+              </details>`
+            : '';
+
+          const citeHtml = m.citations && m.citations.length
+            ? `<div class="pt-1.5 mt-1.5 border-t border-[#16294a] flex flex-wrap gap-1">
+                ${m.citations.map(s => `<button type="button" data-go-sidx="${s.sIdx}" class="font-mono text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 hover:bg-emerald-500/30 border border-emerald-400/50 text-emerald-200 cursor-pointer">📍 Pág ${s.pageNum} · Oración #${s.num}</button>`).join('')}
+              </div>`
+            : '';
+
+          return `
+            <div class="rounded-2xl rounded-tl-sm bg-[#040812] border border-[#16294a] p-2.5 text-slate-200 leading-relaxed">
+              ${thinkHtml}
+              <div class="kimi-md">${renderMarkdownSafe(m.text)}</div>
+              ${citeHtml}
+            </div>
+          `;
+        }).join('');
+
+        box.querySelectorAll('[data-go-sidx]').forEach(btn => {
+          btn.addEventListener('click', () => jumpToSentenceInViewer(Number(btn.getAttribute('data-go-sidx'))));
+        });
+        box.scrollTop = box.scrollHeight;
+      }
+
+      document.getElementById('kimiChatForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const inp = document.getElementById('kimiChatInput');
+        const v = inp.value;
+        inp.value = '';
+        handleKimiQuery(v);
+      });
+
+      document.querySelectorAll('.kprompt-btn').forEach(btn => {
+        btn.addEventListener('click', () => handleKimiQuery(btn.getAttribute('data-kprompt')));
+      });
+
+      // =======================================================================
+      // 14. TELEMETRÍA DE AGENTES, VAULT PERSISTENTE Y ESTUDIO/QUIZ
+      // =======================================================================
+      function renderAgentsStatusGrid() {
+        const grid = document.getElementById('agentsStatusGrid');
+        if (!grid) return;
+        grid.innerHTML = state.spiders.map(sp => {
+          const count = sp.id === 'AGT-05'
+            ? state.harvestedNodes.length
+            : state.harvestedNodes.filter(n => n.agentId === sp.id).length;
+          const pct = Math.min(100, count * 12 + 10);
+          const isSel = state.selectedAgentFilter === sp.id;
+          return `
+            <button type="button" data-filter-ag="${sp.id}" class="p-1.5 rounded-lg bg-[#070d1c] border text-left transition cursor-pointer ${isSel ? 'ring-1 ring-white' : ''}" style="border-color:${sp.color}55">
+              <div class="flex items-center justify-between font-mono text-[8.5px]">
+                <span style="color:${sp.color}" class="font-bold truncate">${sp.code}</span>
+                <span class="text-slate-200 font-bold">${count}</span>
+              </div>
+              <div class="w-full h-1 bg-slate-900 rounded-full overflow-hidden mt-1">
+                <div class="h-full rounded-full transition-all duration-300" style="width:${pct}%; background-color:${sp.color}"></div>
+              </div>
+            </button>
+          `;
+        }).join('');
+
+        grid.querySelectorAll('[data-filter-ag]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const id = btn.getAttribute('data-filter-ag');
+            if (id === 'AGT-05') state.selectedAgentFilter = null;
+            else state.selectedAgentFilter = state.selectedAgentFilter === id ? null : id;
+            renderAgentsStatusGrid();
+          });
+        });
+      }
+
+      function renderVaultTab() {
+        const container = document.getElementById('vaultItemsContainer');
+        if (!container) return;
+        const q = (document.getElementById('vaultSearchInp').value || '').trim().toLowerCase();
+        const cat = document.getElementById('vaultCatFilter').value;
+
+        const filtered = state.knowledgeVault.filter(v => {
+          if (cat !== 'ALL' && v.code !== cat) return false;
+          if (q && !v.phraseText.toLowerCase().includes(q) && !v.detail.toLowerCase().includes(q)) return false;
+          return true;
+        });
+
+        container.innerHTML = filtered.length === 0
+          ? `<div class="text-slate-500 font-mono text-xs p-3">Sin conceptos en este filtro. Las arañas los irán consolidando automáticamente.</div>`
+          : filtered.map(v => `
+              <div class="p-2 rounded-xl bg-[#040812] border space-y-1" style="border-color:${v.color}48">
+                <div class="flex items-center justify-between font-mono text-[9px]">
+                  <span style="color:${v.color}" class="font-bold">[${v.code}] · Refuerzo ×${v.reinforcement}</span>
+                  <span class="text-slate-400 truncate max-w-[140px]">${escapeHtml((v.sources || [])[0] || '')}</span>
+                </div>
+                <div class="text-slate-100 font-semibold leading-snug">"${escapeHtml(v.phraseText)}"</div>
+                <div class="flex items-center justify-between pt-0.5 font-mono text-[8.5px]">
+                  <span class="text-slate-400">${(v.sources || []).length} fuente(s)</span>
+                  <button type="button" data-vask="${v.id}" class="px-1.5 py-0.5 rounded bg-[#00f0ff]/15 border border-[#00f0ff]/50 text-[#00f0ff] cursor-pointer">🧠 Kimi</button>
+                </div>
+              </div>
+            `).join('');
+
+        container.querySelectorAll('[data-vask]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const it = state.knowledgeVault.find(x => x.id === btn.getAttribute('data-vask'));
+            if (!it) return;
+            document.querySelector('[data-stab="kimi"]').click();
+            handleKimiQuery(`Explícame a fondo el concepto consolidado "${it.phraseText}" y su importancia.`);
+          });
+        });
+      }
+
+      document.getElementById('vaultSearchInp').addEventListener('input', renderVaultTab);
+      document.getElementById('vaultCatFilter').addEventListener('change', renderVaultTab);
+      document.getElementById('btnClearVault').addEventListener('click', () => {
+        state.knowledgeVault = [];
+        saveVault();
+        renderVaultTab();
+        showHudToast('🗑️ VAULT REINICIADO');
+      });
+
+      document.getElementById('btnExportZip').addEventListener('click', async () => {
+        const md = [
+          `# BÓVEDA DE CONOCIMIENTO CONSOLIDADO — NEURAL COMMAND v10.0`,
+          `Total conceptos: ${state.knowledgeVault.length}`,
+          ``,
+          ...state.knowledgeVault.map((v, i) => `### ${i + 1}. [${v.code}] ${v.phraseText} (×${v.reinforcement})\n- **Contexto:** ${v.detail}\n- **Fuentes:** ${(v.sources || []).join(', ')}\n`)
+        ].join('\n');
+
+        if (window.JSZip) {
+          const zip = new window.JSZip();
+          zip.file('KIMI_KNOWLEDGE_VAULT.md', md);
+          zip.file('vault_data.json', JSON.stringify(state.knowledgeVault, null, 2));
+          const blob = await zip.generateAsync({ type: 'blob' });
+          downloadBlob('Neural_Command_Vault_v10.zip', blob);
+          showHudToast('📦 VAULT EXPORTADO EN .ZIP');
+        } else {
+          downloadBlob('KIMI_KNOWLEDGE_VAULT.md', new Blob([md], { type: 'text/markdown;charset=utf-8' }));
+          showHudToast('📄 VAULT EXPORTADO EN .MD');
+        }
+      });
+
+      function downloadBlob(name, blob) {
+        const u = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = u;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(u);
+      }
+
+      // Estudio, Flashcards y Quiz desde Nodos Cosechados
+      function refreshStudyAndQuiz() {
+        const nodes = state.harvestedNodes;
+        const guideBox = document.getElementById('studyGuideBox');
+        if (guideBox) {
+          const md = nodes.length === 0
+            ? 'Las arañas están comenzando a cosechar frases del documento...'
+            : [`### Síntesis Cosechada (${nodes.length} nodos)`, ...nodes.slice(-8).map(n => `- **[${n.code} · Pág ${n.pageNum}] "${n.phraseText}":** ${n.fullSentence}`)].join('\n');
+          guideBox.innerHTML = renderMarkdownSafe(md);
+        }
+
+        // Actualizar Flashcards manteniendo índice actual
+        state.fcCards = nodes.map(n => ({
+          code: n.code,
+          front: `¿Qué establece el patrón "${n.phraseText}"?`,
+          back: n.fullSentence,
+          sIdx: n.sIdx,
+          pageNum: n.pageNum,
+          box: 1
+        }));
+        renderFlashcard();
+
+        // Actualizar Quiz cuando haya al menos 2 nodos cosechados
+        if (nodes.length >= 2 && (!state.examQuestions || state.examQuestions.length === 0)) {
+          rebuildQuizFromNodes();
+        }
+      }
+
+      function rebuildQuizFromNodes() {
+        const nodes = state.harvestedNodes;
+        const sample = nodes.slice(0, 4);
+        const pool = nodes.map(n => n.phraseText);
+        state.examScore = 0;
+        state.examQuestions = sample.map(n => {
+          const masked = n.fullSentence.replace(n.phraseText, '____________________');
+          const dist = pool.filter(p => p !== n.phraseText).sort(() => Math.random() - 0.5).slice(0, 3);
+          while (dist.length < 3) dist.push(`Proceso auxiliar secundario ${dist.length + 1}`);
+          const options = [n.phraseText, ...dist].sort(() => Math.random() - 0.5);
+          return {
+            prompt: `[Pág ${n.pageNum} · ${n.code}] Completa: "${masked}"`,
+            options,
+            answer: n.phraseText,
+            selected: null,
+            sIdx: n.sIdx,
+            pageNum: n.pageNum
+          };
+        });
+        renderQuiz();
+      }
+
+      function renderFlashcard() {
+        const list = state.fcCards || [];
+        const total = list.length;
+        if (state.fcIndex >= total) state.fcIndex = 0;
+        document.getElementById('fcProgressSpan').textContent = `${total ? state.fcIndex + 1 : 0}/${total}`;
+        const c = list[state.fcIndex];
+        if (!c) return;
+        document.getElementById('fcInnerCard').classList.toggle('is-flipped', state.fcFlipped);
+        document.getElementById('fcBadge').textContent = `[${c.code}]`;
+        document.getElementById('fcBoxLevel').textContent = `Caja ${c.box}`;
+        document.getElementById('fcQuestionText').textContent = c.front;
+        document.getElementById('fcAnswerText').textContent = c.back;
+        const btn = document.getElementById('btnFcGoSource');
+        btn.textContent = `[Pág ${c.pageNum}]`;
+        btn.onclick = (e) => { e.stopPropagation(); jumpToSentenceInViewer(c.sIdx); };
+      }
+
+      document.getElementById('fcSceneBox').addEventListener('click', () => { state.fcFlipped = !state.fcFlipped; renderFlashcard(); });
+      document.getElementById('btnFcAgain').addEventListener('click', () => {
+        if (!state.fcCards.length) return;
+        state.fcIndex = (state.fcIndex + 1) % state.fcCards.length;
+        state.fcFlipped = false;
+        renderFlashcard();
+      });
+      document.getElementById('btnFcKnow').addEventListener('click', () => {
+        if (!state.fcCards.length) return;
+        state.fcCards[state.fcIndex].box += 1;
+        state.fcIndex = (state.fcIndex + 1) % state.fcCards.length;
+        state.fcFlipped = false;
+        renderFlashcard();
+        showHudToast('✓ TARJETA DOMINADA');
+      });
+      document.getElementById('btnFcNextCard').addEventListener('click', () => {
+        if (!state.fcCards.length) return;
+        state.fcIndex = (state.fcIndex + 1) % state.fcCards.length;
+        state.fcFlipped = false;
+        renderFlashcard();
+      });
+      document.getElementById('btnRegenStudy').addEventListener('click', () => {
+        rebuildQuizFromNodes();
+        refreshStudyAndQuiz();
+        showHudToast('↻ GUÍA Y QUIZ ACTUALIZADOS');
+      });
+
+      function renderQuiz() {
+        const qs = state.examQuestions || [];
+        document.getElementById('quizScoreSpan').textContent = `Nota: ${state.examScore}/${qs.length}`;
+        const box = document.getElementById('quizContainer');
+        box.innerHTML = qs.map((q, idx) => `
+          <div class="p-2 rounded-xl bg-[#040812] border border-[#16294a] space-y-1.5">
+            <div class="flex items-center justify-between font-mono text-[9px] text-slate-400">
+              <span class="text-rose-300 font-bold">PREGUNTA #${idx + 1}</span>
+              <button type="button" data-qgo="${idx}" class="text-cyan-300 underline cursor-pointer">📍 Pág ${q.pageNum}</button>
+            </div>
+            <div class="text-slate-100 leading-snug">${escapeHtml(q.prompt)}</div>
+            <div class="space-y-1 font-mono text-[9.5px]">
+              ${q.options.map(opt => {
+                let cls = 'bg-[#070d1c] hover:bg-cyan-500/15 border-[#16294a] text-slate-200';
+                if (q.selected !== null) {
+                  if (opt === q.answer) cls = 'bg-emerald-500/20 border-emerald-400 text-emerald-200 font-bold';
+                  else if (opt === q.selected) cls = 'bg-rose-500/25 border-rose-400 text-rose-200';
+                  else cls = 'bg-[#070d1c] border-slate-800 text-slate-500';
+                }
+                return `<button type="button" data-qi="${idx}" data-opt="${escapeHtml(opt)}" class="w-full text-left px-2 py-1 rounded-lg border transition cursor-pointer ${cls}">${escapeHtml(opt)}</button>`;
+              }).join('')}
+            </div>
+          </div>
+        `).join('');
+
+        box.querySelectorAll('[data-qgo]').forEach(b => {
+          b.addEventListener('click', () => {
+            const q = qs[Number(b.getAttribute('data-qgo'))];
+            if (q) jumpToSentenceInViewer(q.sIdx);
+          });
+        });
+
+        box.querySelectorAll('[data-qi]').forEach(b => {
+          b.addEventListener('click', () => {
+            const qi = Number(b.getAttribute('data-qi'));
+            const opt = b.getAttribute('data-opt');
+            const q = qs[qi];
+            if (!q || q.selected !== null) return;
+            q.selected = opt;
+            if (opt === q.answer) {
+              state.examScore += 1;
+              showHudToast('✅ ¡RESPUESTA CORRECTA!');
+            } else {
+              jumpToSentenceInViewer(q.sIdx);
+              showHudToast(`🕷️ REVISA LA FRASE ILUMINADA EN PÁG ${q.pageNum}`);
+            }
+            renderQuiz();
+          });
+        });
+      }
+
+      // =======================================================================
+      // 15. CONTROLES DE NAVEGACIÓN, ARCHIVOS Y LOOP PRINCIPAL DE ANIMACIÓN
+      // =======================================================================
+      document.getElementById('btnPrevPage').addEventListener('click', () => renderCurrentDocumentPage(state.currentPage - 1));
+      document.getElementById('btnNextPage').addEventListener('click', () => renderCurrentDocumentPage(state.currentPage + 1));
+      document.getElementById('pageJumpSelect').addEventListener('change', (e) => renderCurrentDocumentPage(Number(e.target.value)));
+
+      document.getElementById('btnToggleAutoPage').addEventListener('click', (e) => {
+        state.autoPage = !state.autoPage;
+        e.currentTarget.textContent = state.autoPage ? 'Auto-Pág: ON' : 'Auto-Pág: OFF';
+        e.currentTarget.className = state.autoPage
+          ? 'px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/60 font-mono text-[9px] text-emerald-200 font-bold shrink-0 cursor-pointer'
+          : 'px-2 py-0.5 rounded bg-slate-800 border border-slate-600 font-mono text-[9px] text-slate-300 shrink-0 cursor-pointer';
+      });
+
+      document.getElementById('fileInput').addEventListener('change', async (e) => {
+        const files = Array.from(e.target.files || []);
+        if (!files.length) return;
+        showHudToast(`INDEXANDO ${files.length} ARCHIVO(S)...`);
+        for (const f of files) {
+          const res = await parseUploadedFile(f);
+          registerAndLoadDocument(f.name, res.text, res.parser);
+        }
+        e.target.value = '';
+      });
+
+      document.getElementById('btnOpenPasteModal').addEventListener('click', () => document.getElementById('pasteModal').classList.remove('hidden'));
+      document.getElementById('btnClosePasteModal').addEventListener('click', () => document.getElementById('pasteModal').classList.add('hidden'));
+      document.getElementById('btnConfirmPaste').addEventListener('click', () => {
+        const title = document.getElementById('pasteTitleInp').value.trim() || 'texto_pegado.md';
+        const body = document.getElementById('pasteBodyInp').value.trim();
+        if (!body) { showHudToast('PEGA TEXTO PRIMERO'); return; }
+        document.getElementById('pasteModal').classList.add('hidden');
+        registerAndLoadDocument(title, body, 'CLIPBOARD-TEXT');
+      });
+
+      // Botón Cosechar (+5) inmediato
+      document.getElementById('btnHarvestBurst').addEventListener('click', () => {
+        const unharvested = state.allSentences.filter(s => !s.harvested).slice(0, 5);
+        if (!unharvested.length) {
+          showHudToast('✅ 100% DEL DOCUMENTO YA FUE COSECHADO');
+          return;
+        }
+        unharvested.forEach((s, idx) => {
+          const sp = state.spiders[idx % 4];
+          feedHarvestedSentenceIntoNeuralNetwork(s, sp);
+          if (sp) sp.harvestedCount += 1;
+        });
+        const core = state.arena.coreNode;
+        if (core) {
+          const nr = neuralCanvas.getBoundingClientRect();
+          state.ripples.push({ x: nr.left + core.x, y: nr.top + core.y, r: 12, alpha: 1, color: '#00f0ff' });
+        }
+        showHudToast(`⚡ +${unharvested.length} FRASES COSECHADAS DIRECTO A LA RED`);
+      });
+
+      document.getElementById('btnPauseSwarm').addEventListener('click', (e) => {
+        state.swarmPaused = !state.swarmPaused;
+        e.currentTarget.textContent = state.swarmPaused ? '▶' : '⏸';
+        showHudToast(state.swarmPaused ? 'ENJAMBRE EN PAUSA' : 'COSECHA ACTIVA');
+      });
+
+      document.getElementById('btnCenterNet').addEventListener('click', () => {
+        recenterNeuralNetwork();
+        showHudToast('🎯 RED NEURONAL CENTRADA');
+      });
+
+      document.getElementById('btnResetHarvest').addEventListener('click', () => {
+        activateDocument(state.activeDocId);
+        showHudToast('↺ RED VACIADA Y COSECHA REINICIADA');
+      });
+
+      document.getElementById('docSelect').addEventListener('change', (e) => activateDocument(e.target.value));
+
+      document.querySelectorAll('.stab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const tab = btn.getAttribute('data-stab');
+          document.querySelectorAll('.stab-panel').forEach(p => p.classList.add('hidden'));
+          document.getElementById(`stab-${tab}`).classList.remove('hidden');
+          document.querySelectorAll('.stab-btn').forEach(b => {
+            b.className = b === btn
+              ? 'stab-btn py-1.5 px-2 rounded-lg bg-[#00f0ff]/20 border border-[#00f0ff]/65 text-[#00f0ff] font-bold truncate cursor-pointer'
+              : 'stab-btn py-1.5 px-2 rounded-lg bg-[#040812] hover:bg-slate-800 border border-[#16294a] text-slate-300 truncate cursor-pointer';
+          });
+        });
+      });
+
+      let lastTs = performance.now();
+      function mainLoop(now) {
+        const dt = Math.min(0.05, (now - lastTs) / 1000);
+        lastTs = now;
+        stepSpidersAndPhysics(dt);
+        renderAllCanvases(dt);
+        requestAnimationFrame(mainLoop);
+      }
+
+      window.addEventListener('resize', resizeAllCanvases);
+      window.addEventListener('load', () => {
+        resizeAllCanvases();
+        loadVault();
+
+        state.documents.push({
+          id: 'demo_kimi_8p',
+          title: 'arquitecturas_kimi_swarm_attnres_8pags.md',
+          text: DEMO_8_PAGES.join('\n\n'),
+          parser: 'KIMI-CORPUS-8P',
+          explicitPages: DEMO_8_PAGES
+        });
+        renderDocumentSelect();
+        activateDocument('demo_kimi_8p');
+        renderVaultTab();
+
+        state.chatMessages.push({
+          role: 'ai',
+          text: `### 🕷️ NEURAL COMMAND // AI SPIDER v10.0 - REAL HARVEST ENGINE\n\nObserva la Arena: la Red Neuronal inició **vacía** y ahora las **4 arañas cosechadoras** están caminando físicamente hasta las palabras del texto, posando sus **8 patas IK** sobre cada frase y arrastrándolas hacia sus clústeres para crear nodos reales.\n\n• **👆 Toca cualquier palabra** del texto para enviar una araña hacia ella.\n• **🔵 Toca cualquier nodo** recién creado en la red para inspeccionar su frase exacta.\n• **📂 Sube un archivo** (\`.pdf\`, \`.docx\`, \`.txt\`, imágenes OCR) o pega texto para cosecharlo.`,
+          thinking: [
+            '• Real Harvest Engine v10.0: Simultaneous Split Arena active for PC & Mobile.',
+            '• Neural Graph initialized empty: Nodes spawn 1-to-1 strictly from live spider harvests.',
+            '• 4-Phase IK State Machine + 2.5s Watchdog + Auto-Page advance active.'
+          ],
+          elapsedMs: 3,
+          citations: []
+        });
+        renderKimiChat();
+
+        requestAnimationFrame(mainLoop);
+      });
+    })();
+  </script>
+</body>
+</html>
