@@ -405,6 +405,25 @@
           block.innerHTML = `<span style="color:${sec.color}; font-weight:700; font-size:10.5px;">[${sec.id}]</span><br/>${sec.text}`;
           outEl.appendChild(block);
           outEl.scrollTop = outEl.scrollHeight;
+
+          if (idx === sections.length - 1) {
+            const fb = document.createElement('div');
+            fb.style.cssText = 'display:flex; gap:6px; margin-top:8px; align-items:center; font-size:10.5px; color:var(--text-dim);';
+            fb.innerHTML = `<span>¿Calificar redacción?</span><button class="btn-mini" id="w-fb-up">👍</button><button class="btn-mini" id="w-fb-down">👎</button>`;
+            const fullText = sections.map(s => s.text).join(' ');
+            fb.querySelector('#w-fb-up').addEventListener('click', () => {
+              if (window.KimiAuxModel) window.KimiAuxModel.trainOnPattern(fullText, 2.0);
+              fb.innerHTML = '<span style="color:var(--emerald);">✅ Redacción reforzada (+XP en KimiAuxModel)</span>';
+            });
+            fb.querySelector('#w-fb-down').addEventListener('click', () => {
+              if (window.KimiAuxModel) {
+                window.KimiAuxModel.trainOnPattern(fullText, -0.5);
+                window.KimiAuxModel.recordNegativeEpisode(fullText);
+              }
+              fb.innerHTML = '<span style="color:var(--coral);">⚠️ Penalizada (Memoria Negativa actualizada)</span>';
+            });
+            outEl.appendChild(fb);
+          }
         }, idx * 450);
       });
     });
