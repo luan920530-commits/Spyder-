@@ -152,12 +152,22 @@
   }
 
   function persistPatternIDB(pattern) {
-    if (!idb || !pattern?.text) return;
-    try {
-      const hash = hashPattern(pattern.text);
-      const tx = idb.transaction('patterns', 'readwrite');
-      tx.objectStore('patterns').put({ ...pattern, hash, ts: Date.now() });
-    } catch (_) {}
+    if (!pattern?.text) return;
+    const hash = hashPattern(pattern.text);
+    if (idb) {
+      try {
+        const tx = idb.transaction('patterns', 'readwrite');
+        tx.objectStore('patterns').put({ ...pattern, hash, ts: Date.now() });
+      } catch (_) {}
+    }
+    // Sincronización automática a SQLite físico si corre en XAMPP/PHP
+    if (typeof fetch === 'function') {
+      fetch('api/save_db.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pattern: { ...pattern, hash } })
+      }).catch(() => {});
+    }
   }
 
   on('spider:manualPattern', persistPatternIDB);
