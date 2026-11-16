@@ -162,6 +162,7 @@
     setActiveDoc,
     setActivePage,
     getActiveDoc,
-    resetAll
+    resetAll,
+    persistPatternIDB
   };
 })();

@@ -309,57 +309,57 @@
 
     ctx.rotate(sp.angle);
 
-    // 8 patas articuladas modernas (2 segmentos con nodos de energía)
+    // 8 patas angulares estilo emblema Spider-Man
     ctx.strokeStyle = sp.color;
-    ctx.lineWidth = 1.6;
+    ctx.lineWidth = 1.7;
     ctx.shadowColor = sp.color;
-    ctx.shadowBlur = 6;
+    ctx.shadowBlur = 8;
     for (let side of [-1, 1]) {
       for (let i = 0; i < 4; i++) {
-        const baseAngle = side * (0.42 + i * 0.36);
-        const swing = Math.sin(sp.legPhase + i * 1.4 + (side > 0 ? 0 : Math.PI)) * 0.26;
-        const kx = Math.cos(baseAngle + swing) * 10;
-        const ky = Math.sin(baseAngle + swing) * 10;
-        const fx = Math.cos(baseAngle + swing * 1.45) * 17;
-        const fy = Math.sin(baseAngle + swing * 1.45) * 17;
+        const isFront = i < 2;
+        const baseAngle = side * (isFront ? (0.35 + i * 0.28) : (1.75 + (i - 2) * 0.28));
+        const swing = Math.sin(sp.legPhase + i * 1.3 + (side > 0 ? 0 : Math.PI)) * 0.22;
+        const kx = Math.cos(baseAngle + swing) * (isFront ? 11 : 10);
+        const ky = Math.sin(baseAngle + swing) * (isFront ? 11 : 10);
+        const fx = Math.cos(baseAngle + swing * 1.2 + (isFront ? -0.35 : 0.35) * side) * (isFront ? 19 : 18);
+        const fy = Math.sin(baseAngle + swing * 1.2 + (isFront ? -0.35 : 0.35) * side) * (isFront ? 19 : 18);
         ctx.beginPath();
-        ctx.moveTo(0, 0);
+        ctx.moveTo(isFront ? 2 : -3, 0);
         ctx.lineTo(kx, ky);
         ctx.lineTo(fx, fy);
         ctx.stroke();
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(kx, ky, 1.1, 0, Math.PI * 2);
-        ctx.fill();
       }
     }
 
-    // Chasis hexagonal moderno + núcleo pulsante
-    ctx.fillStyle = '#070c18';
+    // Cuerpo angular icónico (cefalotórax + abdomen afilado)
+    ctx.fillStyle = '#05080f';
     ctx.strokeStyle = sp.color;
     ctx.lineWidth = 1.8;
+    // Abdomen en punta
     ctx.beginPath();
-    ctx.moveTo(8, 0);
-    ctx.lineTo(3, -5.5);
-    ctx.lineTo(-6, -4.5);
-    ctx.lineTo(-9, 0);
-    ctx.lineTo(-6, 4.5);
-    ctx.lineTo(3, 5.5);
+    ctx.moveTo(-1, 0);
+    ctx.lineTo(-6, -4.2);
+    ctx.lineTo(-12, 0);
+    ctx.lineTo(-6, 4.2);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
-    // Núcleo energético
-    ctx.fillStyle = sp.color;
+    // Cefalotórax frontal
     ctx.beginPath();
-    ctx.arc(-1, 0, 2.3, 0, Math.PI * 2);
+    ctx.moveTo(8, 0);
+    ctx.lineTo(3, -3.5);
+    ctx.lineTo(-1, 0);
+    ctx.lineTo(3, 3.5);
+    ctx.closePath();
     ctx.fill();
+    ctx.stroke();
 
-    // Visor frontal neón
+    // Núcleo y ojos neón
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(5, -1.6, 1.1, 0, Math.PI * 2);
-    ctx.arc(5, 1.6, 1.1, 0, Math.PI * 2);
+    ctx.arc(5, -1.3, 1.0, 0, Math.PI * 2);
+    ctx.arc(5, 1.3, 1.0, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
 

@@ -238,6 +238,7 @@
     }
 
     store.state.patterns.push({ cluster, label, text, pageNum, sentenceId });
+    if (store.persistPatternIDB) store.persistPatternIDB({ cluster, label, text, pageNum, sentenceId });
     appendTickerRow({ cluster, text, pageNum, color: color || '#00f0ff' });
     updateTelemetry();
     renderGraph();
