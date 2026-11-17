@@ -1,6 +1,6 @@
 /* Shell y dependencias empaquetadas: instalación atómica, sin CDN. */
 importScripts('./js/qwen-config.js');
-const CACHE_NAME = 'neural-spider-os-v11-17';
+const CACHE_NAME = 'neural-spider-os-v11-18';
 const MODEL_CACHE = 'neural-spider-model-v1';
 const QWEN = self.NCQwenConfig;
 // Recursos de pdfjs-dist 4.2.67 incluidos en el shell: la lectura de CMaps y

@@ -77,6 +77,26 @@ test('la reina tira de un hilo a la vez y los extremos son los puntos suministra
   assert.deepEqual(ctx.calls.filter(call => call[0] === 'quadraticCurveTo').map(call => ({ x: call[3], y: call[4] })), anchors);
 });
 
+test('las patas delanteras alternan la presión al masajear y el resto sostiene a la araña', () => {
+  const first = visual.pose({ size: 10, phase: 1, massaging: true, massagePhase: Math.PI / 2 });
+  const second = visual.pose({ size: 10, phase: 1, massaging: true, massagePhase: 3 * Math.PI / 2 });
+  const a = first.legs.filter(leg => leg.index === 0), b = second.legs.filter(leg => leg.index === 0);
+  assert.equal(a.length, 2);
+  assert.ok(a[0].tension > .99 && a[1].tension < .01);
+  assert.ok(b[0].tension < .01 && b[1].tension > .99);
+  assert.notDeepEqual(a[0].foot, b[0].foot);
+  first.legs.filter(leg => leg.index !== 0).forEach(leg => {
+    const other = second.legs.find(candidate => candidate.index === leg.index && candidate.side === leg.side);
+    assert.deepEqual(leg.foot, other.foot, 'las demás patas no caminan durante el masaje');
+  });
+  const ctx = recordingContext();
+  visual.draw(ctx, { size: 20, queen: true, angle: .8, headAngle: -.3 });
+  const rotations = ctx.calls.filter(call => call[0] === 'rotate').map(call => call[1]);
+  assert.equal(rotations[0], .8, 'el cuerpo gira alrededor de su posición');
+  assert.equal(rotations.at(-1), -.3, 'la cabeza gira por separado sobre el cuello');
+  assert.equal(ctx.calls.filter(call => call[0] === 'save').length, ctx.calls.filter(call => call[0] === 'restore').length);
+});
+
 test('la geometría de las articulaciones es finita y continua al apoyar y levantar', () => {
   const tau = Math.PI * 2, size = 10;
   for (let p = 0; p < 1; p += .01) {

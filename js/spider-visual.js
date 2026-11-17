@@ -21,7 +21,8 @@
     const o = options || {}, size = Math.max(1, Number(o.size) || 8);
     const phase = Number.isFinite(o.phase) ? o.phase : 0;
     const time = Number.isFinite(o.time) ? o.time : 0;
-    const queen = !!o.queen, weaving = queen && !!o.weaving;
+    const queen = !!o.queen, weaving = queen && !!o.weaving, massaging = !queen && !!o.massaging;
+    const massagePhase = Number.isFinite(o.massagePhase) ? o.massagePhase : 0;
     const motion = clamp(Number.isFinite(o.motion) ? o.motion : (o.moving ? 1 : 0), 0, 1);
     const breathing = Math.sin(time * 1.15);
     const body = weaving
@@ -40,7 +41,14 @@
         let foot = { x: rootX + Math.cos(angle) * reach, y: rootY + Math.sin(angle) * reach };
         let lift = 0, tension = 0, stance = true;
 
-        if (weaving && (i === 1 || i === 2)) {
+        if (massaging && i === 0) {
+          // Las dos patas delanteras alternan una presión breve sobre el nodo;
+          // las otras seis sostienen el cuerpo, sin avanzar el ciclo de marcha.
+          const pressure = .5 + .5 * Math.sin(massagePhase + (side > 0 ? Math.PI : 0));
+          foot.x = size * (1.76 + .20 * pressure);
+          foot.y = side * size * (.30 + .16 * (1 - pressure));
+          lift = (1 - pressure) * .35; tension = pressure; stance = false;
+        } else if (weaving && (i === 1 || i === 2)) {
           // Una pata trabaja a la vez: las otras sostienen a la reina sobre la red.
           const slot = side < 0 ? (i === 1 ? 0 : 2) : (i === 2 ? 1 : 3);
           const p = cycle(phase / TAU - slot / 4);
@@ -133,17 +141,12 @@
     // Las patas quedan sobre la superficie; solo el cuerpo se balancea levemente.
     ctx.save(); ctx.translate(shape.body.x, shape.body.y); ctx.rotate(shape.body.rotation);
     const feel = Math.sin(o.time * 2.2 + o.phase * .25) * size * .035;
-    ctx.lineWidth = o.queen ? 1.4 : 1;
-    ctx.beginPath(); ctx.moveTo(size * .4, -size * .1); ctx.lineTo(size * .75, -size * .2 - feel);
-    ctx.moveTo(size * .4, size * .1); ctx.lineTo(size * .75, size * .2 + feel); ctx.stroke();
     const abdomenX = -size * (o.queen ? .85 : .72), rx = size * (o.queen ? .82 : .6), ry = size * (o.queen ? .62 : .46);
     const abdomen = ctx.createRadialGradient(abdomenX, 0, 0, abdomenX, 0, rx);
     abdomen.addColorStop(0, o.core || 'rgba(190,232,255,.35)');
     abdomen.addColorStop(.55, 'rgba(8,18,30,.95)'); abdomen.addColorStop(1, 'rgba(4,10,18,.98)');
     ctx.fillStyle = abdomen; ctx.beginPath(); ctx.ellipse(abdomenX, 0, rx, ry, 0, 0, TAU);
     ctx.fill(); ctx.lineWidth = o.queen ? 1.4 : 1; ctx.stroke();
-    ctx.fillStyle = 'rgba(6,14,24,.98)'; ctx.beginPath();
-    ctx.ellipse(size * .18, 0, size * .36, size * .29, 0, 0, TAU); ctx.fill(); ctx.stroke();
     ctx.shadowBlur = 0;
     if (o.queen) {
       ctx.fillStyle = '#ff5ab4'; ctx.shadowColor = '#ff5ab4'; ctx.shadowBlur = 12;
@@ -155,18 +158,30 @@
       for (let i = 1; i < 4; i++) {
         ctx.beginPath(); ctx.ellipse(abdomenX, 0, rx * i / 4.2, ry * i / 4.2, 0, 0, TAU); ctx.stroke();
       }
+    }
+    // La cabeza puede adelantarse al giro del cuerpo, siempre sobre su cuello.
+    ctx.save(); ctx.translate(size * .18, 0);
+    ctx.rotate(o.queen ? clamp(Number(o.headAngle) || 0, -.7, .7) : 0);
+    ctx.strokeStyle = color; ctx.shadowColor = color; ctx.shadowBlur = o.queen ? 7 : 4;
+    ctx.lineWidth = o.queen ? 1.4 : 1;
+    ctx.beginPath(); ctx.moveTo(size * .22, -size * .1); ctx.lineTo(size * .57, -size * .2 - feel);
+    ctx.moveTo(size * .22, size * .1); ctx.lineTo(size * .57, size * .2 + feel); ctx.stroke();
+    ctx.fillStyle = 'rgba(6,14,24,.98)'; ctx.beginPath();
+    ctx.ellipse(0, 0, size * .36, size * .29, 0, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0;
+    if (o.queen) {
       ctx.fillStyle = '#ff5ab4';
       [-1, 0, 1].forEach(offset => {
-        ctx.beginPath(); ctx.moveTo(size * .05, offset * size * .13 - size * .05);
-        ctx.lineTo(size * .05, offset * size * .13 + size * .05); ctx.lineTo(-size * .12, offset * size * .13); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(-size * .13, offset * size * .13 - size * .05);
+        ctx.lineTo(-size * .13, offset * size * .13 + size * .05); ctx.lineTo(-size * .30, offset * size * .13); ctx.closePath(); ctx.fill();
       });
     }
     ctx.fillStyle = '#ffffff';
-    [[.42, -.09], [.42, .09], [.34, -.16], [.34, .16]].forEach(([x, y], i) => {
+    [[.24, -.09], [.24, .09], [.16, -.16], [.16, .16]].forEach(([x, y], i) => {
       if (!o.queen && i > 1) return;
       ctx.beginPath(); ctx.arc(size * x, size * y, o.queen ? 1.6 : 1.1, 0, TAU); ctx.fill();
     });
-    ctx.restore(); ctx.restore();
+    ctx.restore(); ctx.restore(); ctx.restore();
   }
 
   /** Onda visual para una orden real; no asigna trabajo ni registra datos. */

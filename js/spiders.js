@@ -290,7 +290,8 @@
       angle: 0, speed: 0, motion: 0, motionActive: false, phase: 'IDLE', lastProgressAt: animationTime,
       targetSentence: null, extractedPattern: null, cargo: null, scanWords: [], scanIndex: -1,
       route: null, routeSignature: '', approach: false, lane: (index - 2) * 5, nextPickAt: animationTime,
-      legPhase: Math.random() * Math.PI * 2, idle: null, idleStarted: false, harvestedCount: 0
+      legPhase: Math.random() * Math.PI * 2, idle: null, idleStarted: false,
+      idleNext: 'network', idleVisits: 0, idleLastNode: null, harvestedCount: 0
     });
   }
   function assignTarget(sp, sentence, now, queryId) {
@@ -452,34 +453,56 @@
     return walk(sp, sp.route, dt, 190).done;
   }
   // ── Reposo visual ────────────────────────────────────────────────────────
-  // El paseo usa coordenadas del viewport y un reloj propio. Ningún hilo o
-  // destino decorativo es una frase, una reserva, un nodo ni un patrón.
+  // El paseo usa el viewport y un reloj propio. Las visitas consultan solo
+  // posiciones de nodos reales: el masaje y los hilos son puramente visuales.
   function clearIdleAnimations() {
     if (!idleWebs.length && !spiders.some(sp => sp.idle)) return;
     idleWebs = [];
     spiders.forEach(sp => { sp.idle = null; });
   }
-  function chooseIdleDestination(sp) {
+  function chooseIdleDestination(sp, frame) {
     const width = Math.max(1, window.innerWidth), height = Math.max(1, window.innerHeight);
-    const first = !sp.idleStarted, startNearby = first && spiders.indexOf(sp) % 2 === 0;
+    const bound = root.NCSpiderPaths.bound, index = spiders.indexOf(sp);
+    if (sp.idleNext !== 'roam') {
+      const targets = root.NeuralGraph?.getIdleTargets?.(frame?.arena) || [];
+      const occupied = new Set(spiders.filter(other => other !== sp && other.idle?.nodeId).map(other => other.idle.nodeId));
+      const free = targets.filter(target => !occupied.has(target.id));
+      const alternatives = free.filter(target => target.id !== sp.idleLastNode);
+      const choices = alternatives.length ? alternatives : free;
+      if (choices.length) {
+        const target = choices[Math.floor(Math.random() * choices.length)];
+        const bearing = Math.atan2(sp.y - target.y, sp.x - target.x);
+        sp.idle = { kind: 'node-travel', nodeId: target.id, bearing, node: target };
+        sp.idleLastNode = target.id; sp.idleNext = 'roam'; sp.idleStarted = true;
+        return;
+      }
+    }
+    const first = !sp.idleStarted, startNearby = first && index % 2 === 0;
     let radius = Math.min(62, Math.max(12, Math.min(width, height) * (.09 + Math.random() * .035)));
     if (startNearby) radius = Math.min(radius, 24); // Un primer tejido rápido; las demás ya salen a pasear.
     const insetX = Math.min(width / 2, radius + 18), insetY = Math.min(height / 2, radius + 18);
-    const bound = root.NCSpiderPaths.bound;
-    sp.x = bound(sp.x, 16, Math.max(16, width - 16));
-    sp.y = bound(sp.y, 16, Math.max(16, height - 16));
-    let x = startNearby ? bound(sp.x + (Math.random() - .5) * 48, insetX, width - insetX) :
-      insetX + Math.random() * Math.max(0, width - insetX * 2);
-    let y = startNearby ? bound(sp.y + (Math.random() - .5) * 48, insetY, height - insetY) :
-      insetY + Math.random() * Math.max(0, height - insetY * 2);
-    if (!startNearby && Math.hypot(x - sp.x, y - sp.y) < Math.min(width, height) * .18) {
-      x = width - x; y = height - y;
+    const edgeX = Math.min(width / 2, 16), edgeY = Math.min(height / 2, 16);
+    sp.x = bound(sp.x, edgeX, width - edgeX); sp.y = bound(sp.y, edgeY, height - edgeY);
+    let x, y;
+    if (startNearby) {
+      x = bound(sp.x + (Math.random() - .5) * 48, insetX, width - insetX);
+      y = bound(sp.y + (Math.random() - .5) * 48, insetY, height - insetY);
+    } else {
+      // Una permutación de 12 zonas evita quedarse en la misma esquina por azar.
+      const cell = (sp.idleVisits * 5 + index * 3) % 12;
+      const usableX = Math.max(0, width - 2 * edgeX), usableY = Math.max(0, height - 2 * edgeY);
+      x = edgeX + (cell % 4 + .18 + Math.random() * .64) * usableX / 4;
+      y = edgeY + (Math.floor(cell / 4) + .18 + Math.random() * .64) * usableY / 3;
+      sp.idleVisits++;
     }
-    sp.idleStarted = true;
-    sp.idle = { kind: 'travel', target: { x, y }, radius };
+    sp.idleStarted = true; sp.idleNext = 'network';
+    // La mayor parte del reposo se dedica a pasear y a visitar la red existente.
+    const weaveAfter = first || sp.idleVisits % 4 === 0;
+    if (weaveAfter) { x = bound(x, insetX, width - insetX); y = bound(y, insetY, height - insetY); }
+    sp.idle = { kind: 'travel', target: { x, y }, radius, weaveAfter };
   }
   function beginIdleWeb(sp, radius) {
-    const center = { x: sp.x, y: sp.y }, points = 7;
+    const center = { x: sp.x, y: sp.y }, quick = radius <= 24, points = quick ? 5 : 7;
     const rotation = Math.random() * Math.PI * 2;
     const web = { owner: sp.id, strokes: [], expiresAt: null };
     const steps = [];
@@ -492,22 +515,59 @@
       steps.push({ x: next.x, y: next.y, stroke });
       previous = next;
     }
-    // Primero los radios; después dos anillos. La araña recorre el mismo trazo
-    // que aparece, en vez de crear de golpe una red de datos ficticia.
+    // Primero los radios y después los anillos. El primer tejido es corto
+    // para que la araña salga pronto a recorrer la pantalla.
     for (let i = 0; i < points; i++) { step(point(1, i), true); step(center, false); }
     step(point(.45, 0), true);
     for (let i = 1; i <= points; i++) step(point(.45, i), true);
-    step(point(1, 0), true);
-    for (let i = 1; i <= points; i++) step(point(1, i), true);
+    if (!quick) {
+      step(point(1, 0), true);
+      for (let i = 1; i <= points; i++) step(point(1, i), true);
+    }
     idleWebs.push(web);
     if (idleWebs.length > 8) idleWebs.shift();
     sp.idle = { kind: 'weave', web, steps, index: 0 };
   }
-  function updateIdle(sp, dt) {
-    if (!sp.idle) chooseIdleDestination(sp);
+  function turnTowardIdleNode(sp, node, dt) {
+    const desired = Math.atan2(node.y - sp.y, node.x - sp.x);
+    const difference = root.NCSpiderMotion.angleDelta(sp.angle, desired);
+    const turn = Math.max(-5 * dt, Math.min(5 * dt, difference));
+    sp.angle = Math.atan2(Math.sin(sp.angle + turn), Math.cos(sp.angle + turn));
+    if (Math.abs(turn) > .0001) {
+      const size = spiderSize();
+      sp.legPhase += Math.abs(turn) * size * .8 * Math.PI * 2 / root.NCSpiderVisual.gaitCycleDistance(size);
+      sp.motionActive = true;
+    }
+    return Math.abs(root.NCSpiderMotion.angleDelta(sp.angle, desired)) < .035;
+  }
+  function updateIdle(sp, dt, frame) {
+    if (!sp.idle) chooseIdleDestination(sp, frame);
     const idle = sp.idle;
     if (idle.kind === 'travel') {
-      if (walk(sp, [idle.target], dt, 115).done) beginIdleWeb(sp, idle.radius);
+      if (walk(sp, [idle.target], dt, 130).done) {
+        if (idle.weaveAfter) beginIdleWeb(sp, idle.radius);
+        else sp.idle = null;
+      }
+      return;
+    }
+    if (idle.nodeId) {
+      const node = root.NeuralGraph?.getIdleTarget?.(idle.nodeId, frame?.arena);
+      if (!node) { sp.idle = null; sp.speed = 0; return; } // Filtro, borrado o nodo fuera del viewport.
+      idle.node = node;
+      const size = spiderSize(), marginX = Math.min(window.innerWidth / 2, size * 2.2), marginY = Math.min(window.innerHeight / 2, size * 2.2);
+      const bound = root.NCSpiderPaths.bound, reach = size * 1.88;
+      const target = { x: bound(node.x + Math.cos(idle.bearing) * reach, marginX, window.innerWidth - marginX),
+        y: bound(node.y + Math.sin(idle.bearing) * reach, marginY, window.innerHeight - marginY) };
+      if (idle.kind !== 'node-travel' && Math.hypot(sp.x - target.x, sp.y - target.y) > 7) idle.kind = 'node-travel';
+      if (idle.kind === 'node-travel') {
+        if (walk(sp, [target], dt, 130).done) idle.kind = 'node-turn';
+      } else if (idle.kind === 'node-turn') {
+        if (turnTowardIdleNode(sp, node, dt)) { idle.kind = 'massage'; idle.elapsed = 0; idle.duration = 3.2 + Math.random() * .8; }
+      } else if (idle.kind === 'massage') {
+        turnTowardIdleNode(sp, node, dt);
+        idle.elapsed += dt;
+        if (idle.elapsed >= idle.duration) sp.idle = null;
+      }
       return;
     }
     const step = idle.steps[idle.index];
@@ -539,6 +599,32 @@
         ctx.lineTo(stroke.x1 + (stroke.x2 - stroke.x1) * stroke.progress,
           stroke.y1 + (stroke.y2 - stroke.y1) * stroke.progress);
         ctx.stroke();
+      });
+    });
+    ctx.restore();
+  }
+  function drawIdleMassages(frame) {
+    const size = spiderSize();
+    ctx.save();
+    spiders.forEach(sp => {
+      const idle = sp.idle;
+      if (idle?.kind !== 'massage') return;
+      const node = root.NeuralGraph?.getIdleTarget?.(idle.nodeId, frame?.arena);
+      // Si se desplaza la página mientras está pausada, nunca dibujar el
+      // contacto sobre una posición antigua o un nodo que ya no es visible.
+      idle.contactVisible = !!node && Math.hypot(node.x - sp.x, node.y - sp.y) < size * 3;
+      if (!idle.contactVisible) return;
+      const pulse = (idle.elapsed * 1.6) % 1;
+      ctx.strokeStyle = sp.color; ctx.fillStyle = sp.color; ctx.lineWidth = 1;
+      ctx.globalAlpha = .55 * (1 - pulse);
+      ctx.beginPath(); ctx.arc(node.x, node.y, 4 + pulse * 15, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = .35 + .25 * Math.sin(idle.elapsed * 8);
+      ctx.beginPath(); ctx.arc(node.x, node.y, 3, 0, Math.PI * 2); ctx.fill();
+      // Las chispas siguen únicamente enlaces que ya existen en el grafo.
+      (node.links || []).slice(0, 2).forEach(link => {
+        const k = (idle.elapsed * .65) % 1;
+        ctx.globalAlpha = .35 * (1 - k);
+        ctx.beginPath(); ctx.arc(node.x + (link.x - node.x) * k, node.y + (link.y - node.y) * k, 2, 0, Math.PI * 2); ctx.fill();
       });
     });
     ctx.restore();
@@ -758,6 +844,8 @@
     root.NCSpiderVisual.draw(ctx, { x: 0, y: 0, angle: sp.angle, size,
       color: lit ? sp.color : '#bee8ff', core: lit ? sp.color : null,
       phase: sp.legPhase, motion: isReduced() ? 0 : sp.motion,
+      massaging: sp.phase === 'IDLE' && sp.idle?.kind === 'massage' && !!sp.idle.contactVisible,
+      massagePhase: (sp.idle?.elapsed || 0) * 8,
       time: isReduced() ? 0 : animationTime / 1000 });
     ctx.restore();
   }
@@ -789,7 +877,7 @@
         if (spiders.some(sp => sp.phase !== 'IDLE')) clearIdleAnimations();
         else if (!reduced) {
           idleTime += step * 1000;
-          spiders.forEach(sp => updateIdle(sp, step));
+          spiders.forEach(sp => updateIdle(sp, step, frame));
           idleWebs = idleWebs.filter(web => web.expiresAt === null || web.expiresAt > idleTime);
         }
         spiders.forEach(sp => { finishMotion(sp, step, reduced); updateCargo(sp, step, reduced); });
@@ -800,7 +888,7 @@
     if (reduced) shockwaves = [];
     if (ctx) {
       // El reposo puede aparecer en cualquier punto visible y no intercepta clics.
-      if (!working) drawIdleWebs();
+      if (!working) { drawIdleWebs(); drawIdleMassages(frame); }
       spiders.filter(sp => sp.phase === 'IDLE' || sp.approach).forEach(drawSpider);
       // Las acciones de lectura y entrega siguen limitadas al visor, la red y su corredor.
       ctx.save(); ctx.beginPath();
@@ -939,5 +1027,8 @@
   }
 
   root.SpiderEngine = { init, setSpiderCount, dispatchFromNetwork, AGENT_SPECS, microBrains, reloadMicroBrains: initMicroBrains,
-    getStatus: () => ({ paused, spiders: spiders.map(({ id, role, cluster, phase, x, y, scanIndex, targetSentence }) => ({ id, role, cluster, phase, x, y, scanIndex, sentenceId: targetSentence?.id || null })) }) };
+    getStatus: () => ({ paused, spiders: spiders.map(({ id, role, cluster, phase, x, y, scanIndex, targetSentence, idle }) => ({
+      id, role, cluster, phase, x, y, scanIndex, sentenceId: targetSentence?.id || null,
+      idleActivity: phase === 'IDLE' ? idle?.kind || null : null, idleNodeId: phase === 'IDLE' ? idle?.nodeId || null : null
+    })) }) };
 })(typeof window !== 'undefined' ? window : globalThis);

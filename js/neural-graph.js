@@ -23,10 +23,13 @@
   let rafSphere = null, rafStill = null, lastSphereTime = 0, visualTime = 0;
   let arcs = [], waves = [], commandWaves = [], deliveryPackets = [], queenPulse = 0, webVibration = 0, arcClock = 0;
   const probe = { x: 0, y: 0, inside: false };
+  // La mirada usa coordenadas de pantalla, también sobre controles y fuera de la red.
+  const pointer = { x: 0, y: 0, known: false };
+  let queenAngle = 0, queenHeadAngle = 0;
   let highlighted = new Set();
   let activeCluster = null;
   let graphNodes = [];
-  let graphLinks = [];
+  let graphLinks = [], graphNodeById = new Map(), graphNeighbors = new Map();
   let semanticMode = false, displayedTopics = [];
   const TOPIC_POSITIONS = [ { px: .36, py: .30 }, { px: .67, py: .31 },
     { px: .66, py: .66 }, { px: .37, py: .66 } ];
@@ -102,12 +105,12 @@
     queenPulse = 0; webVibration = 0; arcClock = 0;
   }
 
-  function drawWeb(ctx, qx, qy, size, time, weavingLegs) {
+  function drawWeb(ctx, qx, qy, size, time, weavingLegs, bodyAngle) {
     const spokes = 16, rings = 7, radius = size * .19, rows = [];
-    // Cada hilo se fija a un vértice real de la red. El tirón de su pata
-    // desplaza ligeramente ese radio y sus vecinos, no una red de datos.
+    // El cuerpo gira, pero los vértices de la telaraña permanecen en la escena.
+    // Cada pata tira del radio que realmente alcanza en su nueva orientación.
     const threads = weavingLegs.map(leg => ({
-      spoke: ((Math.round((leg.angle - .12) / (Math.PI * 2) * spokes) % spokes) + spokes) % spokes,
+      spoke: ((Math.round((leg.angle + bodyAngle - .12) / (Math.PI * 2) * spokes) % spokes) + spokes) % spokes,
       tension: leg.tension
     }));
     for (let s = 0; s < spokes; s++) {
@@ -209,6 +212,20 @@
     ctx.stroke();
   }
 
+  function turnQueen(rect, x, y, dt) {
+    if (!pointer.known || !dt) return;
+    const dx = pointer.x - (rect.left + x), dy = pointer.y - (rect.top + y);
+    if (Math.hypot(dx, dy) < 1) return; // En el mismo punto no hay dirección definida.
+    const desired = Math.atan2(dy, dx);
+    const delta = Math.atan2(Math.sin(desired - queenAngle), Math.cos(desired - queenAngle));
+    const turn = Math.max(-3.4 * dt, Math.min(3.4 * dt, delta));
+    queenAngle = Math.atan2(Math.sin(queenAngle + turn), Math.cos(queenAngle + turn));
+    // Los ojos se adelantan un poco; después el cuerpo anclado se alinea.
+    const remaining = Math.atan2(Math.sin(desired - queenAngle), Math.cos(desired - queenAngle));
+    const headGoal = Math.max(-.65, Math.min(.65, remaining));
+    queenHeadAngle += Math.max(-7 * dt, Math.min(7 * dt, headGoal - queenHeadAngle));
+  }
+
   function drawSphere(time = 0) {
     const canvas = document.getElementById('core-3d-canvas'), ctx = sphereCtx;
     if (!canvas || !ctx || document.hidden || !visible) return;
@@ -244,9 +261,15 @@
     ctx.globalCompositeOperation = 'lighter';
     const core = constellations[2], cx = core.x*w, cy = core.y*h;
     const qx = w * .19, qy = h * .46, qSize = size * .04, hx = w * .42, hy = h * .49;
-    const queen = { size: qSize, queen: true, weaving: true, phase: t * 2.6, time: t };
+    turnQueen(rect, qx, qy, dt);
+    const queen = { size: qSize, queen: true, weaving: true, phase: t * 2.6, time: t, headAngle: queenHeadAngle };
     const weavingLegs = root.NCSpiderVisual.pose(queen).legs.filter(leg => leg.index === 1 || leg.index === 2);
-    const threadAnchors = drawWeb(ctx, qx, qy, size, t, weavingLegs);
+    const webAnchors = drawWeb(ctx, qx, qy, size, t, weavingLegs, queenAngle);
+    const cosine = Math.cos(queenAngle), sine = Math.sin(queenAngle);
+    // draw() gira las patas: convertir los anclajes de la escena al marco local
+    // mantiene los extremos exactamente sobre los vértices de la telaraña.
+    const threadAnchors = webAnchors.map(anchor => ({ x: anchor.x * cosine + anchor.y * sine,
+      y: -anchor.x * sine + anchor.y * cosine }));
     constellations.forEach(cluster => {
       if (cluster.id === 'core') return;
       ctx.strokeStyle = `rgba(${cluster.color.join(',')},.13)`; ctx.lineWidth = 1; ctx.setLineDash([2,5]);
@@ -342,9 +365,9 @@
       root.NCSpiderVisual.drawCommandWave(ctx, { x: qx, y: qy, progress, maxRadius: size * .58, targets });
     });
     ctx.globalCompositeOperation = 'source-over';
-    // La reina permanece anclada; se mueve el cuerpo y cada pata tira del
-    // hilo por turnos. El tiempo visual se congela con pausa o movimiento reducido.
-    root.NCSpiderVisual.draw(ctx, { ...queen, x: qx, y: qy, angle: 0,
+    // La reina gira sobre el mismo punto y sigue tejiendo; pausa y movimiento
+    // reducido congelan tanto la mirada como el resto del tiempo visual.
+    root.NCSpiderVisual.draw(ctx, { ...queen, x: qx, y: qy, angle: queenAngle,
       color: '#bee8ff', core: '#ff5ab4', threadAnchors });
     ctx.globalCompositeOperation = 'lighter';
     drawProbe(ctx, status, rect, t);
@@ -470,6 +493,14 @@
   function initNetworkInteraction() {
     const stage = document.getElementById('arena-stage');
     if (!stage) return;
+    const trackPointer = ev => {
+      if (ev.isPrimary === false || !Number.isFinite(ev.clientX) || !Number.isFinite(ev.clientY)) return;
+      pointer.x = ev.clientX; pointer.y = ev.clientY; pointer.known = true;
+    };
+    // Captura también el puntero sobre otros paneles y controles sin interferir
+    // con ellos. En pantallas táctiles se conserva la última posición tocada.
+    window.addEventListener('pointermove', trackPointer, { capture: true, passive: true });
+    window.addEventListener('pointerdown', trackPointer, { capture: true, passive: true });
     const interactive = target => target?.closest?.('button, input, select, textarea, a, .arena-tools, .node-group, #node-inspector');
     stage.addEventListener('pointermove', ev => {
       if (ev.pointerType === 'touch' || interactive(ev.target)) {
@@ -586,6 +617,19 @@
       graphLinks = nodes.map(node => ({ key: `topic:${node.topicId}>${node.id}`,
         source: hubsById.get(node.topicId), target: node, kind: 'semantic' })).filter(link => link.source);
     }
+    graphNodeById = new Map(graphNodes.map(node => [node.id, node]));
+    graphNeighbors = new Map();
+    // Solo unas pocas conexiones por nodo se usan para el efecto visual;
+    // los enlaces y sus posiciones siguen perteneciendo a la simulación D3.
+    const rememberNeighbor = (id, neighbor) => {
+      if (!graphNeighbors.has(id)) graphNeighbors.set(id, []);
+      const list = graphNeighbors.get(id);
+      if (list.length < 4 && !list.includes(neighbor)) list.push(neighbor);
+    };
+    graphLinks.forEach(link => {
+      const a = link.source?.id, b = link.target?.id;
+      if (a && b && a !== b) { rememberNeighbor(a, b); rememberNeighbor(b, a); }
+    });
     updateGroupingControls();
   }
 
@@ -793,6 +837,41 @@
     if (!activeCluster) return false;
     if (d.isHub) return d.id !== activeCluster;
     return (semanticMode ? d.topicId : d.cluster) !== activeCluster;
+  }
+
+  // Solo se exponen copias de posiciones de nodos reales y visibles. El reposo
+  // no desplaza la simulación, no crea enlaces ni modifica el almacenamiento.
+  function idleGraphRect(rect) {
+    if (!gNodes || !root.d3 || !visible || document.hidden) return null;
+    const bounds = rect || document.getElementById('arena-stage')?.getBoundingClientRect();
+    return bounds && bounds.width > 0 && bounds.height > 0 ? bounds : null;
+  }
+  function idleNodePoint(node, rect) {
+    if (!node || dimmed(node) || !Number.isFinite(node.x) || !Number.isFinite(node.y) ||
+        node.x < 0 || node.y < 0 || node.x > rect.width || node.y > rect.height) return null;
+    const x = rect.left + node.x, y = rect.top + node.y;
+    // No enviar arañas a una parte de la red que esté fuera de la ventana.
+    if (x < 16 || y < 16 || x > window.innerWidth - 16 || y > window.innerHeight - 16) return null;
+    return { id: node.id, x, y };
+  }
+  function getIdleTargets(bounds) {
+    const rect = idleGraphRect(bounds);
+    if (!rect) return [];
+    const targets = [];
+    graphNodes.forEach(node => {
+      if (node.isHub) return;
+      const point = idleNodePoint(node, rect);
+      if (point) targets.push(point);
+    });
+    return targets;
+  }
+  function getIdleTarget(id, bounds) {
+    const rect = idleGraphRect(bounds), node = graphNodeById.get(id);
+    if (!rect || !node || node.isHub) return null;
+    const point = idleNodePoint(node, rect);
+    if (!point) return null;
+    point.links = (graphNeighbors.get(id) || []).map(neighbor => idleNodePoint(graphNodeById.get(neighbor), rect)).filter(Boolean);
+    return point;
   }
 
   function showTooltip(ev, d) {
@@ -1094,5 +1173,6 @@
     return function () { clearTimeout(t); t = setTimeout(fn, ms); };
   }
 
-  root.NeuralGraph = { init, getHubScreenPos, highlightPath, highlightSources, recenter, setClusterFilter, scrollToSentence, updateTelemetry, ensureHubs };
+  root.NeuralGraph = { init, getHubScreenPos, getIdleTargets, getIdleTarget, highlightPath, highlightSources,
+    recenter, setClusterFilter, scrollToSentence, updateTelemetry, ensureHubs };
 })(typeof window !== 'undefined' ? window : globalThis);

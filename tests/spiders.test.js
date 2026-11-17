@@ -244,13 +244,17 @@ test('en reposo recorren el viewport y tejen solo trazos decorativos, sin altera
     let seed = 391;
     h.w.Math.random = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
     h.w.SpiderEngine.setSpiderCount(3);
-    const x = [], y = [];
+    const x = [], y = [], cells = new Set();
     for (let i = 0; i < 150; i++) {
       h.tick(20);
-      for (const sp of h.w.SpiderEngine.getStatus().spiders) { x.push(sp.x); y.push(sp.y); }
+      for (const sp of h.w.SpiderEngine.getStatus().spiders) {
+        x.push(sp.x); y.push(sp.y);
+        cells.add(`${Math.min(3, Math.floor(sp.x / h.w.innerWidth * 4))}:${Math.min(2, Math.floor(sp.y / h.w.innerHeight * 3))}`);
+      }
     }
     assert.ok(Math.max(...x) - Math.min(...x) > h.w.innerWidth * .60, 'el paseo debe alcanzar zonas alejadas en horizontal');
     assert.ok(Math.max(...y) - Math.min(...y) > h.w.innerHeight * .60, 'el paseo debe alcanzar zonas alejadas en vertical');
+    assert.equal(cells.size, 12, 'el enjambre recorre las doce zonas de la pantalla');
     assert.ok(x.every(n => n >= 0 && n <= h.w.innerWidth));
     assert.ok(y.every(n => n >= 0 && n <= h.w.innerHeight));
     assert.ok(h.drawing.webStrokes > 100, 'se deben dibujar hilos de telaraña');
@@ -258,6 +262,147 @@ test('en reposo recorren el viewport y tejen solo trazos decorativos, sin altera
     assert.equal(h.store.state.claimedTargets.size, 0);
     assert.equal(h.events.filter(e => ['spider:scanStart', 'spider:extracted', 'spider:delivered'].includes(e.type)).length, 0);
     assert.ok(h.w.SpiderEngine.getStatus().spiders.every(sp => sp.phase === 'IDLE' && sp.sentenceId === null));
+  } finally { h.dom.window.close(); }
+});
+
+test('una sola araña en reposo puede recorrer las doce zonas del viewport', () => {
+  const h = makeHarness({ reduced: false });
+  try {
+    h.store.state.allSentences = [];
+    h.w.Math.random = () => .5;
+    const cells = new Set();
+    for (let i = 0; i < 260; i++) {
+      h.tick(20);
+      const sp = h.w.SpiderEngine.getStatus().spiders[0];
+      cells.add(`${Math.min(3, Math.floor(sp.x / h.w.innerWidth * 4))}:${Math.min(2, Math.floor(sp.y / h.w.innerHeight * 3))}`);
+    }
+    assert.equal(cells.size, 12);
+    assert.equal(h.store.state.patterns.length, 0);
+  } finally { h.dom.window.close(); }
+});
+
+test('en reposo visita y masajea nodos reales sin crear datos; pausa y reducción congelan el gesto', () => {
+  const h = makeHarness({ reduced: false });
+  try {
+    h.store.state.allSentences = [];
+    let present = true, lastDraw = null;
+    const node = frame => ({ id: 'concepto-real', x: frame.left + 250, y: frame.top + 200,
+      links: [{ id: 'hub-real', x: frame.left + 180, y: frame.top + 100 }] });
+    h.w.NeuralGraph.getIdleTargets = frame => present ? [node(frame)] : [];
+    h.w.NeuralGraph.getIdleTarget = (id, frame) => present && id === 'concepto-real' ? node(frame) : null;
+    const draw = h.w.NCSpiderVisual.draw;
+    h.w.NCSpiderVisual.draw = (ctx, options) => { lastDraw = { ...options }; return draw(ctx, options); };
+    const arcs = [];
+    h.ctx.arc = (x, y, radius) => { arcs.push({ x, y, radius }); };
+    let ticks = 0;
+    while (h.w.SpiderEngine.getStatus().spiders[0].idleActivity !== 'massage' && ticks++ < 400) h.tick();
+    assert.ok(ticks < 400, 'la araña llega al nodo, se orienta y empieza el masaje');
+    const status = h.w.SpiderEngine.getStatus().spiders[0];
+    assert.equal(status.phase, 'IDLE');
+    assert.equal(status.idleNodeId, 'concepto-real');
+    assert.equal(lastDraw.massaging, true);
+    assert.ok(arcs.some(arc => arc.x === 580 && arc.y === 220 && arc.radius >= 4), 'la onda nace sobre el nodo del grafo');
+    const phase = lastDraw.massagePhase;
+    h.tick(8);
+    assert.ok(lastDraw.massagePhase > phase, 'las patas alternan mientras presionan');
+    assert.ok(Math.hypot(h.w.SpiderEngine.getStatus().spiders[0].x - status.x, h.w.SpiderEngine.getStatus().spiders[0].y - status.y) < .1);
+
+    h.w.document.getElementById('btn-toggle-spiders').click();
+    const paused = h.w.SpiderEngine.getStatus(), pausedPhase = lastDraw.massagePhase;
+    h.tick(50);
+    assert.deepEqual(h.w.SpiderEngine.getStatus(), paused);
+    assert.equal(lastDraw.massagePhase, pausedPhase);
+    h.setScroll(80); h.tick();
+    assert.equal(lastDraw.massaging, false, 'no se dibuja el contacto en un nodo que se desplazó');
+    assert.deepEqual(h.w.SpiderEngine.getStatus(), paused, 'la araña pausada permanece en el viewport');
+    h.setScroll(0); h.tick();
+    assert.equal(lastDraw.massaging, true);
+    h.w.document.getElementById('btn-toggle-spiders').click();
+    h.setReduced(true); h.tick();
+    const reduced = h.w.SpiderEngine.getStatus(), reducedPhase = lastDraw.massagePhase;
+    h.tick(50);
+    assert.deepEqual(h.w.SpiderEngine.getStatus(), reduced);
+    assert.equal(lastDraw.massagePhase, reducedPhase);
+    h.setReduced(false); present = false; h.tick();
+    assert.notEqual(h.w.SpiderEngine.getStatus().spiders[0].idleActivity, 'massage', 'se abandona un nodo eliminado o filtrado');
+    assert.equal(h.store.state.patterns.length, 0);
+    assert.equal(h.store.state.claimedTargets.size, 0);
+    assert.equal(h.events.filter(event => ['spider:scanStart', 'spider:extracted', 'spider:delivered'].includes(event.type)).length, 0);
+  } finally { h.dom.window.close(); }
+});
+
+test('alterna visitas a distintos nodos con recorridos por el resto de la pantalla', () => {
+  const h = makeHarness({ reduced: false });
+  try {
+    h.store.state.allSentences = [];
+    h.w.Math.random = () => .25;
+    const points = frame => [
+      { id: 'uno', x: frame.left + 150, y: frame.top + 180, links: [] },
+      { id: 'dos', x: frame.left + 300, y: frame.top + 200, links: [] }
+    ];
+    h.w.NeuralGraph.getIdleTargets = frame => points(frame);
+    h.w.NeuralGraph.getIdleTarget = (id, frame) => points(frame).find(node => node.id === id) || null;
+    let first = null, second = null, travelled = false;
+    for (let i = 0; i < 1400; i++) {
+      h.tick();
+      const spider = h.w.SpiderEngine.getStatus().spiders[0];
+      if (spider.idleActivity === 'massage' && !first) first = spider.idleNodeId;
+      if (first && spider.idleActivity === 'travel') travelled = true;
+      if (travelled && spider.idleActivity === 'massage' && spider.idleNodeId !== first) { second = spider.idleNodeId; break; }
+    }
+    assert.ok(first && second && first !== second);
+    assert.equal(travelled, true);
+    assert.equal(h.store.state.patterns.length, 0);
+  } finally { h.dom.window.close(); }
+});
+
+test('si el nodo se desplaza, la araña vuelve a acercarse antes de seguir masajeando', () => {
+  const h = makeHarness({ reduced: false });
+  try {
+    h.store.state.allSentences = [];
+    let shift = 0;
+    const point = frame => ({ id: 'movil', x: frame.left + 200 + shift, y: frame.top + 200, links: [] });
+    h.w.NeuralGraph.getIdleTargets = frame => [point(frame)];
+    h.w.NeuralGraph.getIdleTarget = (id, frame) => id === 'movil' ? point(frame) : null;
+    let ticks = 0;
+    while (h.w.SpiderEngine.getStatus().spiders[0].idleActivity !== 'massage' && ticks++ < 400) h.tick();
+    assert.ok(ticks < 400);
+    const before = h.w.SpiderEngine.getStatus().spiders[0];
+    shift = 80; h.tick();
+    assert.equal(h.w.SpiderEngine.getStatus().spiders[0].idleActivity, 'node-travel');
+    ticks = 0;
+    while (h.w.SpiderEngine.getStatus().spiders[0].idleActivity !== 'massage' && ticks++ < 400) h.tick();
+    assert.ok(ticks < 400);
+    const after = h.w.SpiderEngine.getStatus().spiders[0];
+    assert.ok(after.x - before.x > 70);
+    assert.equal(after.idleNodeId, 'movil');
+    assert.equal(h.store.state.patterns.length, 0);
+  } finally { h.dom.window.close(); }
+});
+
+test('una tarea real interrumpe el masaje sin alterar la reserva ni la fuente', () => {
+  const h = makeHarness({ reduced: false });
+  try {
+    h.store.state.allSentences = [];
+    const point = frame => ({ id: 'real', x: frame.left + 250, y: frame.top + 200, links: [] });
+    h.w.NeuralGraph.getIdleTargets = frame => [point(frame)];
+    h.w.NeuralGraph.getIdleTarget = (id, frame) => id === 'real' ? point(frame) : null;
+    let ticks = 0;
+    while (h.w.SpiderEngine.getStatus().spiders[0].idleActivity !== 'massage' && ticks++ < 400) h.tick();
+    assert.ok(ticks < 400);
+    h.store.state.allSentences = [h.sentences[0]];
+    h.store.emit('spider:dispatchToSentence', { sentence: h.sentences[0] });
+    h.tick();
+    const sp = h.w.SpiderEngine.getStatus().spiders[0];
+    assert.equal(sp.phase, 'IR_A_PALABRA');
+    assert.equal(sp.sentenceId, 's1');
+    assert.equal(sp.idleActivity, null);
+    assert.equal(h.store.state.claimedTargets.has('s1'), true);
+    assert.equal(h.store.state.patterns.length, 0);
+    h.setReduced(true); h.tick(6);
+    assert.equal(h.store.state.patterns.length, 1);
+    assert.equal(h.store.state.patterns[0].sentenceId, 's1');
+    assert.equal(h.store.state.claimedTargets.size, 0);
   } finally { h.dom.window.close(); }
 });
 

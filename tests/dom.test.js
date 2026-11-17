@@ -487,6 +487,38 @@ test('reset e importación cancelan al inicio las lecturas lentas y restauran la
   } finally { dom.window.close(); }
 });
 
+test('los destinos del masaje corresponden a nodos y enlaces visibles del grafo real', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory(), true, true);
+  try {
+    const S = w.NeuralStore, graph = w.NeuralGraph, stage = w.document.getElementById('arena-stage');
+    stage.getBoundingClientRect = () => ({ left: 10, top: 20, right: 610, bottom: 420, width: 600, height: 400 });
+    const a = S.addPattern({ cluster: 'AGT-01', label: 'Árbol', text: 'Texto uno.', pageNum: 1 });
+    const b = S.addPattern({ cluster: 'AGT-02', label: 'Estrella', text: 'Texto dos.', pageNum: 1 });
+    graph.recenter();
+    const rect = stage.getBoundingClientRect(), before = JSON.stringify({ nodes: S.state.nodes, links: S.state.links, patterns: S.state.patterns });
+    const targets = graph.getIdleTargets(rect);
+    assert.deepEqual(new Set(targets.map(point => point.id)), new Set([a.id, b.id]));
+    const selected = graph.getIdleTarget(a.id, rect);
+    const group = [...w.document.querySelectorAll('.node-group')].find(el => el.__data__.id === a.id);
+    const match = group.getAttribute('transform').match(/^translate\(([^,]+),([^\)]+)\)$/);
+    assert.ok(match);
+    assert.ok(Math.abs(selected.x - (rect.left + Number(match[1]))) < 1e-7);
+    assert.ok(Math.abs(selected.y - (rect.top + Number(match[2]))) < 1e-7);
+    assert.ok(selected.links.some(link => link.id === 'AGT-01'), 'la chispa usa un enlace existente');
+    selected.x = -999; selected.links[0].x = -999;
+    assert.notEqual(graph.getIdleTarget(a.id, rect).x, -999, 'las posiciones expuestas son copias');
+    assert.equal(JSON.stringify({ nodes: S.state.nodes, links: S.state.links, patterns: S.state.patterns }), before);
+
+    graph.setClusterFilter('AGT-02');
+    assert.deepEqual(Array.from(graph.getIdleTargets(rect), point => point.id), [b.id]);
+    assert.equal(graph.getIdleTarget(a.id, rect), null, 'no se visita un nodo ocultado por el filtro');
+    S.removeNode(b.id);
+    assert.equal(graph.getIdleTarget(b.id, rect), null, 'no se conserva un destino eliminado');
+    assert.equal(graph.getIdleTargets({ left: -2000, top: -2000, width: 600, height: 400 }).length, 0);
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
 test('la red anima a la reina y solo envía destellos a los destinatarios del despacho', async () => {
   const { dom, w, errors } = await createApp(new IDBFactory(), false, false);
   try {
@@ -547,6 +579,76 @@ test('la red anima a la reina y solo envía destellos a los destinatarios del de
     await wait(100);
     assert.equal(frames.at(-1).phase, reducedPhase);
     assert.equal(waves.length, reducedWaves);
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('la reina mira el puntero en toda la ventana y gira anclada sin soltar los hilos', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory(), false, false);
+  try {
+    const S = w.NeuralStore, stage = w.document.getElementById('arena-stage'), frames = [];
+    stage.getBoundingClientRect = () => ({ left: 10, top: 20, right: 610, bottom: 420, width: 600, height: 400 });
+    const draw = w.NCSpiderVisual.draw;
+    let points = [], instrumented = false;
+    w.NCSpiderVisual.draw = (ctx, options) => {
+      if (options.queen) {
+        if (!instrumented) {
+          instrumented = true;
+          const clear = ctx.clearRect, line = ctx.lineTo;
+          ctx.clearRect = (...args) => { points = []; return clear(...args); };
+          ctx.lineTo = (x, y) => { points.push([x, y]); return line(x, y); };
+        }
+        frames.push({ x: options.x, y: options.y, angle: options.angle, headAngle: options.headAngle, phase: options.phase,
+          anchors: Array.from(options.threadAnchors, anchor => ({ x: anchor.x, y: anchor.y })), points: points.slice() });
+      }
+      return draw(ctx, options);
+    };
+    await until(() => frames.length >= 2);
+    const initial = frames.at(-1), qx = 10 + initial.x, qy = 20 + initial.y;
+    // El evento ocurre sobre otro panel, no sobre el lienzo de la red.
+    w.document.getElementById('doc-dropzone').dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, clientX: qx, clientY: qy - 180 }));
+    await until(() => Math.abs(frames.at(-1).angle + Math.PI / 2) < .04);
+    assert.ok(frames.some(frame => Math.abs(frame.headAngle) > .1), 'la cabeza se adelanta al cuerpo');
+    assert.ok(frames.every(frame => frame.x === initial.x && frame.y === initial.y), 'el centro no se desplaza al girar');
+    const rotated = frames.at(-1), c = Math.cos(rotated.angle), s = Math.sin(rotated.angle);
+    assert.ok(rotated.anchors.every(anchor => rotated.points.some(([x, y]) =>
+      Math.abs(x - (rotated.x + anchor.x * c - anchor.y * s)) < 1e-7 &&
+      Math.abs(y - (rotated.y + anchor.x * s + anchor.y * c)) < 1e-7)), 'los cuatro hilos siguen anclados a vértices dibujados');
+
+    const getStatus = w.SpiderEngine.getStatus;
+    w.SpiderEngine.getStatus = () => ({ paused: false, spiders: [{ id: 'activa', phase: 'EXTRAER_DATOS', cluster: 'AGT-01', x: 250, y: 250 }] });
+    w.document.getElementById('btn-mitosis').dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, clientX: qx + 300, clientY: qy + 120 }));
+    await until(() => Math.abs(frames.at(-1).angle - Math.atan2(120, 300)) < .04);
+    w.SpiderEngine.getStatus = getStatus;
+
+    w.document.getElementById('btn-toggle-spiders').click();
+    const paused = frames.at(-1);
+    w.document.getElementById('btn-mitosis').dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, clientX: qx + 400, clientY: qy }));
+    await wait(100);
+    assert.equal(frames.at(-1).angle, paused.angle);
+    assert.equal(frames.at(-1).headAngle, paused.headAngle);
+    assert.equal(frames.at(-1).phase, paused.phase);
+    w.document.getElementById('btn-toggle-spiders').click();
+    await until(() => Math.abs(frames.at(-1).angle) < .04);
+
+    S.setSetting('reduceMotion', true);
+    const reduced = frames.at(-1);
+    w.document.getElementById('btn-mitosis').dispatchEvent(new w.MouseEvent('pointerdown', { bubbles: true, clientX: qx, clientY: qy + 160 }));
+    await wait(100);
+    assert.equal(frames.at(-1).angle, reduced.angle);
+    assert.equal(frames.at(-1).headAngle, reduced.headAngle);
+    S.setSetting('reduceMotion', false);
+    await until(() => Math.abs(frames.at(-1).angle - Math.PI / 2) < .04);
+    const delta = (from, to) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
+    const move = y => w.document.getElementById('doc-dropzone').dispatchEvent(new w.MouseEvent('pointermove', {
+      bubbles: true, clientX: qx - 100, clientY: qy + y
+    }));
+    move(1);
+    await until(() => Math.abs(delta(frames.at(-1).angle, Math.atan2(1, -100))) < .01);
+    const beforeWrap = frames.at(-1).angle, index = frames.length;
+    move(-1);
+    await until(() => Math.abs(delta(frames.at(-1).angle, Math.atan2(-1, -100))) < .01);
+    assert.ok(frames.slice(index).every(frame => Math.abs(delta(beforeWrap, frame.angle)) < .1), 'el giro cruza ±π por el arco corto');
     assert.deepEqual(errors, []);
   } finally { dom.window.close(); }
 });
