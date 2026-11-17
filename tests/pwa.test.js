@@ -62,7 +62,7 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
   for (const font of ['jetbrains-mono-latin-400-normal.woff2', 'jetbrains-mono-latin-600-normal.woff2', 'chakra-petch-latin-500-normal.woff2', 'chakra-petch-latin-700-normal.woff2']) assert.ok(assets.includes('./vendor/fonts/' + font));
   let pending;
   listeners.install({ waitUntil: p => { pending = p; } }); await pending;
-  const previousShell = await context.caches.open('neural-spider-os-v11-18');
+  const previousShell = await context.caches.open('neural-spider-os-v11-19');
   await previousShell.put('https://local.test/app/js/spider-visual.js', new Response('versión anterior'));
   const modelCache = await context.caches.open('neural-spider-model-v1');
   await modelCache.put('https://local.test/app/models/minilm/onnx/model_quantized.onnx', new Response('pesos opcionales'));
@@ -70,8 +70,8 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
   await qwenCache.put('https://local.test/app/vendor/wllama/wllama.wasm', new Response('runtime qwen'));
   await qwenCache.put('https://local.test/app/' + qwen.modelPath, new Response('pesos qwen'));
   listeners.activate({ waitUntil: p => { pending = p; } }); await pending;
-  assert.deepEqual(removed, ['neural-spider-os-v11-18', 'neural-spider-os-v3']);
-  assert.ok(!buckets.has('neural-spider-os-v11-18'), 'la actualización sustituye el shell anterior');
+  assert.deepEqual(removed, ['neural-spider-os-v11-19', 'neural-spider-os-v3']);
+  assert.ok(!buckets.has('neural-spider-os-v11-19'), 'la actualización sustituye el shell anterior');
   assert.ok(buckets.has('neural-spider-model-v1'), 'actualizar el shell no debe borrar MiniLM');
   assert.ok(buckets.has(qwen.cache), 'actualizar el shell no debe borrar Qwen');
   let response;

@@ -23,6 +23,7 @@
     const time = Number.isFinite(o.time) ? o.time : 0;
     const queen = !!o.queen, weaving = queen && !!o.weaving, massaging = !queen && !!o.massaging;
     const massagePhase = Number.isFinite(o.massagePhase) ? o.massagePhase : 0;
+    const massageWeight = massaging ? clamp(Number.isFinite(o.massageWeight) ? o.massageWeight : 1, 0, 1) : 0;
     const motion = clamp(Number.isFinite(o.motion) ? o.motion : (o.moving ? 1 : 0), 0, 1);
     const breathing = Math.sin(time * 1.15);
     const body = weaving
@@ -41,14 +42,7 @@
         let foot = { x: rootX + Math.cos(angle) * reach, y: rootY + Math.sin(angle) * reach };
         let lift = 0, tension = 0, stance = true;
 
-        if (massaging && i === 0) {
-          // Las dos patas delanteras alternan una presión breve sobre el nodo;
-          // las otras seis sostienen el cuerpo, sin avanzar el ciclo de marcha.
-          const pressure = .5 + .5 * Math.sin(massagePhase + (side > 0 ? Math.PI : 0));
-          foot.x = size * (1.76 + .20 * pressure);
-          foot.y = side * size * (.30 + .16 * (1 - pressure));
-          lift = (1 - pressure) * .35; tension = pressure; stance = false;
-        } else if (weaving && (i === 1 || i === 2)) {
+        if (weaving && (i === 1 || i === 2)) {
           // Las patas centrales tiran de un hilo por turnos.
           const slot = side < 0 ? (i === 1 ? 0 : 2) : (i === 2 ? 1 : 3);
           const p = cycle(phase / TAU - slot / 4);
@@ -64,13 +58,13 @@
           // Las cuatro patas exteriores recolocan el apoyo en arcos suaves,
           // una por turno y al lado opuesto de la pata que tira del hilo.
           const slot = side > 0 ? (i === 3 ? 0 : 2) : (i === 0 ? 1 : 3);
-          const p = cycle(phase / TAU - slot / 4 - .035);
-          if (p < .17) {
-            const t = p / .17, extension = Math.sin(Math.PI * t) ** 2;
+          const p = cycle(phase / TAU - slot / 4 - .015);
+          if (p < .22) {
+            const t = p / .22, extension = Math.sin(Math.PI * t) ** 2;
             const sweep = Math.sin(TAU * t) * extension;
-            foot.x += size * (Math.cos(angle) * .24 * extension - Math.sin(angle) * .055 * sweep);
-            foot.y += size * (Math.sin(angle) * .24 * extension + Math.cos(angle) * .055 * sweep);
-            lift = extension * .38; stance = false;
+            foot.x += size * (Math.cos(angle) * .37 * extension - Math.sin(angle) * .07 * sweep);
+            foot.y += size * (Math.sin(angle) * .37 * extension + Math.cos(angle) * .07 * sweep);
+            lift = extension * .48; stance = false;
           }
         } else if (!queen) {
           // Dos grupos alternos de cuatro patas. El apoyo dura más que el
@@ -83,14 +77,39 @@
           } else {
             const t = (p - STANCE) / (1 - STANCE);
             foot.x += stride * (-.5 + smooth(t));
-            lift = Math.sin(Math.PI * t) * motion;
+            lift = Math.sin(Math.PI * t) * motion * (1 - massageWeight);
             foot.y -= side * size * .2 * lift;
             stance = lift < .001;
           }
+          if (massaging && i === 0) {
+            // Las delanteras alternan presión hacia el nodo. La transición desde
+            // la marcha se mezcla para que no salten al comenzar o terminar.
+            const pressure = .5 + .5 * Math.sin(massagePhase + (side > 0 ? Math.PI : 0));
+            const targetX = size * (1.64 + .32 * pressure);
+            const targetY = side * size * (.30 + .20 * (1 - pressure));
+            foot.x += (targetX - foot.x) * massageWeight;
+            foot.y += (targetY - foot.y) * massageWeight;
+            lift += ((1 - pressure) * .35 - lift) * massageWeight;
+            tension = pressure * massageWeight;
+            if (massageWeight > 0) stance = false;
+          } else if (massaging) {
+            // Las seis patas de apoyo también se reajustan, una a la vez;
+            // mientras tanto las demás mantienen el pie en el mismo punto.
+            const slot = side < 0 ? (i - 1) * 2 : (i === 2 ? 1 : i === 1 ? 3 : 5);
+            const p = cycle(massagePhase / (TAU * 2.6) - slot / 6 - .03);
+            if (p < .15) {
+              const t = p / .15, extension = Math.sin(Math.PI * t) ** 2 * massageWeight;
+              const sweep = Math.sin(TAU * t) * extension;
+              foot.x += size * (Math.cos(angle) * .42 * extension - Math.sin(angle) * .08 * sweep);
+              foot.y += size * (Math.sin(angle) * .42 * extension + Math.cos(angle) * .08 * sweep);
+              lift += extension * .42;
+              if (massageWeight > 0) stance = false;
+            }
+          }
         }
 
-        // Las rodillas siguen el pie en un abanico: las articulaciones no
-        // oscilan independientemente ni atraviesan el cuerpo al dar un paso.
+        // Las rodillas siguen el pie en un abanico y flexionan sin atravesar
+        // el cuerpo; los pies apoyados permanecen en su punto de contacto.
         const dx = foot.x - root.x, dy = foot.y - root.y;
         const distance = Math.max(.001, Math.hypot(dx, dy)), ux = dx / distance, uy = dy / distance;
         const footAngle = Math.atan2(Math.abs(dy), dx);
@@ -98,9 +117,14 @@
         const kneeLength = clamp(distance * .68, size * .85, size * 1.5);
         const knee = { x: root.x + Math.cos(kneeAngle) * kneeLength,
           y: root.y + side * Math.sin(kneeAngle) * kneeLength };
-        if (massaging && i > 0) {
-          // Las patas de apoyo flexionan por turnos sin deslizar los pies.
-          const flex = size * .12 * Math.sin(massagePhase * .55 + i * .8 + (side > 0 ? Math.PI * .7 : 0));
+        if (weaving) {
+          // Incluso con el pie apoyado, cada articulación cambia de carga;
+          // las cuatro patas exteriores no deben verse congeladas entre pasos.
+          const amplitude = i === 0 || i === 3 ? .23 : .18;
+          const flex = size * amplitude * Math.sin(phase * .9 + i * 1.05 + (side > 0 ? 1.35 : 0));
+          knee.x -= uy * flex; knee.y += ux * flex;
+        } else if (massaging && i > 0) {
+          const flex = size * .26 * massageWeight * Math.sin(massagePhase * .55 + i * .8 + (side > 0 ? Math.PI * .7 : 0));
           knee.x -= uy * flex; knee.y += ux * flex;
         }
         const lowerX = foot.x - knee.x, lowerY = foot.y - knee.y;

@@ -301,10 +301,12 @@ test('en reposo visita y masajea nodos reales sin crear datos; pausa y reducció
     assert.equal(status.phase, 'IDLE');
     assert.equal(status.idleNodeId, 'concepto-real');
     assert.equal(lastDraw.massaging, true);
+    assert.equal(lastDraw.massageWeight, 0, 'el gesto empieza en la postura de marcha');
     assert.ok(arcs.some(arc => arc.x === 580 && arc.y === 220 && arc.radius >= 4), 'la onda nace sobre el nodo del grafo');
     const phase = lastDraw.massagePhase;
     h.tick(8);
     assert.ok(lastDraw.massagePhase > phase, 'las patas alternan mientras presionan');
+    assert.equal(lastDraw.massageWeight, 1, 'la presión entra gradualmente y llega a su amplitud completa');
     assert.ok(Math.hypot(h.w.SpiderEngine.getStatus().spiders[0].x - status.x, h.w.SpiderEngine.getStatus().spiders[0].y - status.y) < .1);
 
     h.w.document.getElementById('btn-toggle-spiders').click();
@@ -328,6 +330,39 @@ test('en reposo visita y masajea nodos reales sin crear datos; pausa y reducció
     assert.equal(h.store.state.patterns.length, 0);
     assert.equal(h.store.state.claimedTargets.size, 0);
     assert.equal(h.events.filter(event => ['spider:scanStart', 'spider:extracted', 'spider:delivered'].includes(event.type)).length, 0);
+  } finally { h.dom.window.close(); }
+});
+
+test('la transición del masaje se completa sin saltos al entrar, pausar y salir', () => {
+  const h = makeHarness({ reduced: false });
+  try {
+    h.store.state.allSentences = [];
+    const node = frame => ({ id: 'nodo', x: frame.left + 250, y: frame.top + 200, links: [] });
+    h.w.NeuralGraph.getIdleTargets = frame => [node(frame)];
+    h.w.NeuralGraph.getIdleTarget = (id, frame) => id === 'nodo' ? node(frame) : null;
+    let lastDraw;
+    const draw = h.w.NCSpiderVisual.draw;
+    h.w.NCSpiderVisual.draw = (ctx, options) => { lastDraw = { ...options }; return draw(ctx, options); };
+    let ticks = 0;
+    while (h.w.SpiderEngine.getStatus().spiders[0].idleActivity !== 'massage' && ticks++ < 400) h.tick();
+    assert.ok(ticks < 400);
+    assert.equal(lastDraw.massageWeight, 0);
+    h.tick();
+    assert.ok(lastDraw.massageWeight > 0 && lastDraw.massageWeight < 1);
+    const pausedWeight = lastDraw.massageWeight;
+    h.w.document.getElementById('btn-toggle-spiders').click(); h.tick(20);
+    assert.equal(lastDraw.massageWeight, pausedWeight, 'la transición no avanza mientras está pausada');
+    h.w.document.getElementById('btn-toggle-spiders').click();
+    const weights = [pausedWeight];
+    while (h.w.SpiderEngine.getStatus().spiders[0].idleActivity === 'massage' && weights.length < 100) {
+      h.tick(); weights.push(lastDraw.massageWeight);
+    }
+    assert.ok(weights.includes(1));
+    assert.equal(weights.at(-1), 0);
+    assert.ok(weights.at(-2) < .1, 'el gesto vuelve gradualmente a la marcha');
+    weights.forEach((weight, index) => {
+      if (index) assert.ok(Math.abs(weight - weights[index - 1]) < .23, 'la mezcla cambia suavemente entre cuadros');
+    });
   } finally { h.dom.window.close(); }
 });
 

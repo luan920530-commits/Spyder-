@@ -406,7 +406,8 @@
   }
   function spiderSize() {
     const frame = lastLayout || layout();
-    return frame ? Math.max(6, Math.min(11, Math.min(frame.arena.width, frame.arena.height * 1.15) * .014)) : 8;
+    // Un mínimo ligeramente mayor permite distinguir las articulaciones en móvil.
+    return frame ? Math.max(7, Math.min(11, Math.min(frame.arena.width, frame.arena.height * 1.15) * .014)) : 8;
   }
   function walk(sp, waypoints, dt, maxSpeed, stopAtFirst = false) {
     const result = root.NCSpiderMotion.step(sp, waypoints, dt, { maxSpeed, stopAtFirst });
@@ -841,10 +842,14 @@
     }
 
     const lit = sp.phase === 'EXTRAER_DATOS' || (sp.phase === 'ARRASTRAR_A_RED' && sp.extractedPattern);
+    const massage = sp.phase === 'IDLE' && sp.idle?.kind === 'massage' && !!sp.idle.contactVisible;
+    // Entrar y salir del gesto gradualmente evita que las patas salten desde
+    // la última postura de marcha. La pausa congela también esta transición.
+    const blend = massage ? Math.max(0, Math.min(1, sp.idle.elapsed / .35, (sp.idle.duration - sp.idle.elapsed) / .35)) : 0;
     root.NCSpiderVisual.draw(ctx, { x: 0, y: 0, angle: sp.angle, size,
       color: lit ? sp.color : '#bee8ff', core: lit ? sp.color : null,
       phase: sp.legPhase, motion: isReduced() ? 0 : sp.motion,
-      massaging: sp.phase === 'IDLE' && sp.idle?.kind === 'massage' && !!sp.idle.contactVisible,
+      massaging: massage, massageWeight: blend * blend * (3 - 2 * blend),
       massagePhase: (sp.idle?.elapsed || 0) * 8,
       time: isReduced() ? 0 : animationTime / 1000 });
     ctx.restore();
