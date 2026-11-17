@@ -533,7 +533,9 @@ test('la red anima a la reina y solo envía destellos a los destinatarios del de
           ctx.clearRect = (...args) => { points = []; return clear(...args); };
           ctx.lineTo = (x, y) => { points.push([x, y]); return line(x, y); };
         }
+        const outer = w.NCSpiderVisual.pose(options).legs.filter(leg => leg.index === 0 || leg.index === 3);
         frames.push({ phase: options.phase, weaving: options.weaving, x: options.x, y: options.y, angle: options.angle,
+          size: options.size, outer: Array.from(outer, leg => ({ x: leg.foot.x, y: leg.foot.y })),
           anchors: Array.from(options.threadAnchors, anchor => ({ x: anchor.x, y: anchor.y })), points: points.slice() });
       }
       return draw(ctx, options);
@@ -549,6 +551,8 @@ test('la red anima a la reina y solo envía destellos a los destinatarios del de
       { id: 'libre', phase: 'IDLE', x: 200, y: 150 }
     ] });
     await until(() => frames.length >= 3);
+    await until(() => frames.slice(1).some(frame => frame.outer.some((foot, i) =>
+      Math.hypot(foot.x - frames[0].outer[i].x, foot.y - frames[0].outer[i].y) > frame.size * .05)));
     assert.ok(frames.every(frame => frame.weaving && frame.angle === 0 && frame.anchors.length === 4));
     assert.ok(frames.at(-1).phase > frames[0].phase);
     const connected = frames.slice(1).find(frame => frame.anchors.every(anchor => frame.points.some(([x, y]) =>
@@ -565,19 +569,21 @@ test('la red anima a la reina y solo envía destellos a los destinatarios del de
     assert.equal(S.state.claimedTargets.size, 0);
 
     paused = true; S.emit('spiders:paused', { paused });
-    const stoppedPhase = frames.at(-1).phase, stoppedWaves = waves.length;
+    const stoppedPhase = frames.at(-1).phase, stoppedFeet = frames.at(-1).outer, stoppedWaves = waves.length;
     S.emit('spiders:dispatched', { count: 1, spiderIds: ['ocupada-de-antes'] });
     await wait(100);
     assert.equal(frames.at(-1).phase, stoppedPhase);
+    assert.deepEqual(frames.at(-1).outer, stoppedFeet);
     assert.equal(waves.length, stoppedWaves);
     paused = false; S.emit('spiders:paused', { paused });
     await until(() => frames.at(-1).phase > stoppedPhase);
     assert.equal(waves.length, stoppedWaves, 'la onda no se reproduce con retraso al reanudar');
     S.setSetting('reduceMotion', true);
-    const reducedPhase = frames.at(-1).phase, reducedWaves = waves.length;
+    const reducedPhase = frames.at(-1).phase, reducedFeet = frames.at(-1).outer, reducedWaves = waves.length;
     S.emit('spiders:dispatched', { count: 1, spiderIds: ['ocupada-de-antes'] });
     await wait(100);
     assert.equal(frames.at(-1).phase, reducedPhase);
+    assert.deepEqual(frames.at(-1).outer, reducedFeet);
     assert.equal(waves.length, reducedWaves);
     assert.deepEqual(errors, []);
   } finally { dom.window.close(); }

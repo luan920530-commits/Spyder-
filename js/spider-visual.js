@@ -49,7 +49,7 @@
           foot.y = side * size * (.30 + .16 * (1 - pressure));
           lift = (1 - pressure) * .35; tension = pressure; stance = false;
         } else if (weaving && (i === 1 || i === 2)) {
-          // Una pata trabaja a la vez: las otras sostienen a la reina sobre la red.
+          // Las patas centrales tiran de un hilo por turnos.
           const slot = side < 0 ? (i === 1 ? 0 : 2) : (i === 2 ? 1 : 3);
           const p = cycle(phase / TAU - slot / 4);
           if (p < .25) {
@@ -59,6 +59,18 @@
             foot.y -= Math.sin(angle) * size * .3 * tension;
             lift = Math.sin(Math.PI * t) * .55;
             stance = false;
+          }
+        } else if (weaving) {
+          // Las cuatro patas exteriores recolocan el apoyo en arcos suaves,
+          // una por turno y al lado opuesto de la pata que tira del hilo.
+          const slot = side > 0 ? (i === 3 ? 0 : 2) : (i === 0 ? 1 : 3);
+          const p = cycle(phase / TAU - slot / 4 - .035);
+          if (p < .17) {
+            const t = p / .17, extension = Math.sin(Math.PI * t) ** 2;
+            const sweep = Math.sin(TAU * t) * extension;
+            foot.x += size * (Math.cos(angle) * .24 * extension - Math.sin(angle) * .055 * sweep);
+            foot.y += size * (Math.sin(angle) * .24 * extension + Math.cos(angle) * .055 * sweep);
+            lift = extension * .38; stance = false;
           }
         } else if (!queen) {
           // Dos grupos alternos de cuatro patas. El apoyo dura más que el
@@ -86,6 +98,11 @@
         const kneeLength = clamp(distance * .68, size * .85, size * 1.5);
         const knee = { x: root.x + Math.cos(kneeAngle) * kneeLength,
           y: root.y + side * Math.sin(kneeAngle) * kneeLength };
+        if (massaging && i > 0) {
+          // Las patas de apoyo flexionan por turnos sin deslizar los pies.
+          const flex = size * .12 * Math.sin(massagePhase * .55 + i * .8 + (side > 0 ? Math.PI * .7 : 0));
+          knee.x -= uy * flex; knee.y += ux * flex;
+        }
         const lowerX = foot.x - knee.x, lowerY = foot.y - knee.y;
         const ankle = { x: knee.x + lowerX * .6 - uy * side * size * .045,
           y: knee.y + lowerY * .6 + ux * side * size * .045 };

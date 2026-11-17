@@ -67,14 +67,54 @@ test('la reina tira de un hilo a la vez y los extremos son los puntos suministra
   const movingLegs = positions.map(p => {
     const legs = visual.pose({ queen: true, weaving: true, size: 20, phase: p * tau }).legs;
     assert.equal(legs.filter(leg => leg.tension > .01).length, 1);
-    assert.ok(legs.filter(leg => leg.stance).length >= 7);
-    return legs.find(leg => leg.tension > .01);
+    assert.ok(legs.filter(leg => leg.stance).length >= 6);
+    const pulling = legs.find(leg => leg.tension > .01);
+    const repositioning = legs.find(leg => (leg.index === 0 || leg.index === 3) && !leg.stance);
+    if (repositioning) assert.notEqual(repositioning.side, pulling.side, 'se sostiene también por el lado opuesto');
+    return pulling;
   });
   assert.equal(new Set(movingLegs.map(leg => `${leg.side}:${leg.index}`)).size, 4);
   const anchors = [{ x: 8, y: -20 }, { x: -11, y: -23 }, { x: 12, y: 21 }, { x: -9, y: 24 }];
   const ctx = recordingContext();
   visual.draw(ctx, { queen: true, weaving: true, size: 20, phase: 1, threadAnchors: anchors });
   assert.deepEqual(ctx.calls.filter(call => call[0] === 'quadraticCurveTo').map(call => ({ x: call[3], y: call[4] })), anchors);
+});
+
+test('la reina anima las ocho patas por turnos con apoyos y trayectorias continuas', () => {
+  const size = 20, baseline = visual.pose({ queen: true, weaving: true, size, phase: 0 }).legs;
+  const distances = new Array(8).fill(0), movingOuter = new Set();
+  let previous = null;
+  for (let frame = 0; frame <= 400; frame++) {
+    const phase = frame / 400 * Math.PI * 2;
+    const legs = visual.pose({ queen: true, weaving: true, size, phase }).legs;
+    assert.ok(legs.filter(leg => leg.stance).length >= 6, 'no quedan más de dos patas sin apoyo');
+    assert.ok([-1, 1].every(side => legs.filter(leg => leg.side === side && leg.stance).length >= 3));
+    const outer = legs.filter(leg => (leg.index === 0 || leg.index === 3) && !leg.stance);
+    const thread = legs.filter(leg => (leg.index === 1 || leg.index === 2) && !leg.stance);
+    assert.ok(outer.length <= 1 && thread.length <= 1);
+    if (outer.length && thread.length) assert.notEqual(outer[0].side, thread[0].side);
+    for (const [i, leg] of legs.entries()) {
+      const distance = Math.hypot(leg.foot.x - baseline[i].foot.x, leg.foot.y - baseline[i].foot.y);
+      distances[i] = Math.max(distances[i], distance);
+      if (previous) assert.ok(Math.hypot(leg.foot.x - previous[i].foot.x, leg.foot.y - previous[i].foot.y) < size * .025);
+      if ((leg.index === 0 || leg.index === 3) && !leg.stance && leg.lift > .01) movingOuter.add(`${leg.side}:${leg.index}`);
+      for (const point of [leg.root, leg.knee, leg.ankle, leg.foot]) {
+        assert.ok(Number.isFinite(point.x) && Number.isFinite(point.y));
+        assert.ok(Math.hypot(point.x, point.y) < size * 4);
+      }
+    }
+    previous = legs;
+  }
+  assert.equal(movingOuter.size, 4, 'también se recolocan las cuatro patas exteriores');
+  assert.ok(distances.every(distance => distance > size * .15 && distance < size * .35), 'todas las patas se mueven sin saltos grandes');
+  for (const edge of [.035, .205, .25, .285, .455, .5, .535, .705, .75, .785, .955, 1]) {
+    const left = visual.pose({ queen: true, weaving: true, size, phase: (edge - 1e-7) * Math.PI * 2 }).legs;
+    const right = visual.pose({ queen: true, weaving: true, size, phase: (edge + 1e-7) * Math.PI * 2 }).legs;
+    left.forEach((leg, i) => {
+      assert.ok(Math.hypot(leg.foot.x - right[i].foot.x, leg.foot.y - right[i].foot.y) < .001);
+      assert.ok(Math.abs(leg.lift - right[i].lift) < .001);
+    });
+  }
 });
 
 test('las patas delanteras alternan la presión al masajear y el resto sostiene a la araña', () => {
@@ -87,7 +127,9 @@ test('las patas delanteras alternan la presión al masajear y el resto sostiene 
   assert.notDeepEqual(a[0].foot, b[0].foot);
   first.legs.filter(leg => leg.index !== 0).forEach(leg => {
     const other = second.legs.find(candidate => candidate.index === leg.index && candidate.side === leg.side);
-    assert.deepEqual(leg.foot, other.foot, 'las demás patas no caminan durante el masaje');
+    assert.deepEqual(leg.foot, other.foot, 'las demás patas mantienen el apoyo durante el masaje');
+    assert.ok(Math.hypot(leg.knee.x - other.knee.x, leg.knee.y - other.knee.y) > .01,
+      'sus articulaciones flexionan aunque el pie permanezca anclado');
   });
   const ctx = recordingContext();
   visual.draw(ctx, { size: 20, queen: true, angle: .8, headAngle: -.3 });
