@@ -290,12 +290,14 @@
       angle: 0, speed: 0, motion: 0, motionActive: false, phase: 'IDLE', lastProgressAt: animationTime,
       targetSentence: null, extractedPattern: null, cargo: null, scanWords: [], scanIndex: -1,
       route: null, routeSignature: '', approach: false, lane: (index - 2) * 5, nextPickAt: animationTime,
-      legPhase: Math.random() * Math.PI * 2, idle: null, idleStarted: false,
+      legPhase: Math.random() * Math.PI * 2, idle: null, idleStarted: false, wait: null,
       idleNext: 'network', idleVisits: 0, idleLastNode: null, harvestedCount: 0
     });
   }
   function assignTarget(sp, sentence, now, queryId) {
-    sp.targetSentence = sentence; sp.queryId = queryId || null; sp.phase = 'IR_A_PALABRA'; sp.lastProgressAt = now;
+    // Solo interrumpir el reposo de la araña que recibe el trabajo.
+    clearSpiderIdle(sp);
+    sp.wait = null; sp.targetSentence = sentence; sp.queryId = queryId || null; sp.phase = 'IR_A_PALABRA'; sp.lastProgressAt = now;
     sp.route = null; sp.approach = 'pending';
   }
   function clearScan(sp) {
@@ -312,10 +314,9 @@
     if (S && sp.targetSentence) S.state.claimedTargets.delete(sp.targetSentence.id);
   }
   function cancelTarget(sp) {
-    clearScan(sp); releaseClaim(sp);
-    if (sp.idle?.kind === 'weave') idleWebs = idleWebs.filter(web => web !== sp.idle.web);
+    clearScan(sp); releaseClaim(sp); clearSpiderIdle(sp);
     sp.phase = 'IDLE'; sp.targetSentence = null; sp.queryId = null; sp.extractedPattern = null; sp.cargo = null;
-    sp.route = null; sp.routeSignature = ''; sp.approach = false; sp.idle = null;
+    sp.route = null; sp.routeSignature = ''; sp.approach = false; sp.wait = null;
     sp.lastProgressAt = animationTime; sp.nextPickAt = animationTime + 200;
   }
   function setSpiderCount(count) {
@@ -363,7 +364,7 @@
     const width = window.innerWidth || 1, height = window.innerHeight || 1;
     if (lastViewportWidth && (width !== lastViewportWidth || height !== lastViewportHeight)) {
       // Las decoraciones pertenecen a la pantalla, no a los paneles ni al documento.
-      spiders.filter(sp => sp.phase === 'IDLE' || sp.approach).forEach(sp => {
+      spiders.filter(sp => sp.phase === 'IDLE' || sp.approach || sp.wait).forEach(sp => {
         sp.x = sp.x / lastViewportWidth * width; sp.y = sp.y / lastViewportHeight * height;
         sp.idle = null; sp.speed = 0;
       });
@@ -371,14 +372,14 @@
     }
     if (dx || dy) {
       // Al entrar al panel, la tarea pasa del viewport a las coordenadas de la página.
-      spiders.filter(sp => sp.phase !== 'IDLE' && !sp.approach).forEach(sp => {
+      spiders.filter(sp => sp.phase !== 'IDLE' && !sp.approach && !sp.wait).forEach(sp => {
         sp.x -= dx; sp.y -= dy;
         if (sp.cargo) { sp.cargo.x -= dx; sp.cargo.y -= dy; }
       });
       shockwaves.forEach(sw => { sw.x -= dx; sw.y -= dy; });
     } else if (frame && lastLayout && frame.signature !== lastLayout.signature) {
       // Al cambiar de columnas a filas, conserva la posición relativa en el panel.
-      spiders.filter(sp => sp.phase !== 'IDLE' && !sp.approach).forEach(sp => {
+      spiders.filter(sp => sp.phase !== 'IDLE' && !sp.approach && !sp.wait).forEach(sp => {
         const useDoc = within(sp, lastLayout.doc) || (!within(sp, lastLayout.arena) &&
           distanceToRect(sp, lastLayout.doc) <= distanceToRect(sp, lastLayout.arena));
         const before = { x: sp.x, y: sp.y };
@@ -398,7 +399,7 @@
     // La lectura sigue el contenido, también cuando el usuario desplaza el
     // visor o se revela una palabra de la siguiente línea.
     spiders.forEach(sp => {
-      if (sp.phase === 'IDLE' || sp.approach || (sp.phase !== 'EXTRAER_DATOS' && !within(sp, lastLayout.doc))) return;
+      if (sp.phase === 'IDLE' || sp.approach || sp.wait || (sp.phase !== 'EXTRAER_DATOS' && !within(sp, lastLayout.doc))) return;
       sp.y -= delta;
       if (sp.cargo) sp.cargo.y -= delta;
       if (sp.phase !== 'EXTRAER_DATOS') sp.route = null;
@@ -409,15 +410,17 @@
     // Un mínimo ligeramente mayor permite distinguir las articulaciones en móvil.
     return frame ? Math.max(7, Math.min(11, Math.min(frame.arena.width, frame.arena.height * 1.15) * .014)) : 8;
   }
-  function walk(sp, waypoints, dt, maxSpeed, stopAtFirst = false) {
+  function walk(sp, waypoints, dt, maxSpeed, stopAtFirst = false, countsAsProgress = true) {
     const result = root.NCSpiderMotion.step(sp, waypoints, dt, { maxSpeed, stopAtFirst });
     const size = spiderSize();
     // La fase sigue el recorrido real; el giro en el sitio también requiere
-    // pequeños pasos. Una araña detenida o esperando no camina en el aire.
+    // pequeños pasos. Una araña detenida no camina en el aire.
     const equivalentDistance = result.distance + result.turn * size * .8;
     if (equivalentDistance > .0001) {
       sp.legPhase += equivalentDistance * Math.PI * 2 / root.NCSpiderVisual.gaitCycleDistance(size);
-      sp.motionActive = true; sp.lastProgressAt = animationTime;
+      sp.motionActive = true;
+      // Un paseo decorativo de espera no reinicia el reloj de una tarea bloqueada.
+      if (countsAsProgress) sp.lastProgressAt = animationTime;
     }
     return result;
   }
@@ -456,10 +459,9 @@
   // ── Reposo visual ────────────────────────────────────────────────────────
   // El paseo usa el viewport y un reloj propio. Las visitas consultan solo
   // posiciones de nodos reales: el masaje y los hilos son puramente visuales.
-  function clearIdleAnimations() {
-    if (!idleWebs.length && !spiders.some(sp => sp.idle)) return;
-    idleWebs = [];
-    spiders.forEach(sp => { sp.idle = null; });
+  function clearSpiderIdle(sp) {
+    idleWebs = idleWebs.filter(web => web.owner !== sp.id);
+    sp.idle = null;
   }
   function chooseIdleDestination(sp, frame) {
     const width = Math.max(1, window.innerWidth), height = Math.max(1, window.innerHeight);
@@ -609,7 +611,7 @@
     ctx.save();
     spiders.forEach(sp => {
       const idle = sp.idle;
-      if (idle?.kind !== 'massage') return;
+      if (sp.phase !== 'IDLE' || idle?.kind !== 'massage') return;
       const node = root.NeuralGraph?.getIdleTarget?.(idle.nodeId, frame?.arena);
       // Si se desplaza la página mientras está pausada, nunca dibujar el
       // contacto sobre una posición antigua o un nodo que ya no es visible.
@@ -693,17 +695,42 @@
       sp.scanHoldUntil = index === words.length - 1 ? now + 100 : now;
     }
   }
-  function updateSpider(sp, now, dt) {
+  // La espera es solo visual: cada araña con reserva pasea por un carril
+  // diferente sin resaltar palabras, desplazar el visor ni simular una lectura.
+  function updateScanWait(sp, dt, frame) {
+    const width = Math.max(1, window.innerWidth), height = Math.max(1, window.innerHeight);
+    const mx = Math.min(20, width / 2), my = Math.min(20, height / 2);
+    let area = { left: mx, right: width - mx, top: my, bottom: height - my };
+    if (frame?.doc) {
+      const visible = { left: Math.max(area.left, frame.doc.left + mx), right: Math.min(area.right, frame.doc.right - mx),
+        top: Math.max(area.top, frame.doc.top + my), bottom: Math.min(area.bottom, frame.doc.bottom - my) };
+      if (visible.right - visible.left >= 150 && visible.bottom - visible.top >= 80) area = visible;
+    }
+    const index = spiders.indexOf(sp);
+    const slots = [[.16, .27], [.5, .25], [.84, .27], [.28, .72], [.72, .72]];
+    const slot = slots[index % slots.length], w = area.right - area.left, h = area.bottom - area.top;
+    const radius = Math.min(26, w * .075, h * .12);
+    const angle = sp.wait.turn * Math.PI / 2 + index * .8;
+    const target = { x: area.left + w * slot[0] + Math.cos(angle) * radius,
+      y: area.top + h * slot[1] + Math.sin(angle) * radius };
+    if (walk(sp, [target], dt, 85, false, false).done) sp.wait.turn++;
+  }
+
+  function updateSpider(sp, now, dt, frame) {
     const S = store();
     if (!S) return;
-    // Esperar el visor es trabajo válido mientras su escáner siga avanzando;
-    // si este se bloquea, ambos relojes conservan el mismo límite de inactividad.
-    if (sp.phase === 'IR_A_PALABRA' && scanOwner && scanOwner !== sp) {
+    const waiting = sp.phase === 'IR_A_PALABRA' && scanOwner && scanOwner !== sp;
+    if (waiting) {
+      // El propietario tiene su propio límite de inactividad. La reserva que
+      // espera no caduca antes de que el propietario pueda liberar el visor.
       sp.lastProgressAt = Math.max(sp.lastProgressAt, scanOwner.lastProgressAt);
+    } else if (sp.wait) {
+      // Al liberarse el visor, reanuda la ruta real con tiempo para alcanzarla.
+      sp.wait = null; sp.route = null; sp.approach = 'pending'; sp.lastProgressAt = now;
     }
     // Una tarea inmóvil y bloqueada se libera; un recorrido largo que sí
     // avanza no se cancela solo por durar más de 30 segundos.
-    if (sp.phase !== 'IDLE' && now - sp.lastProgressAt > 30000) { cancelTarget(sp); return; }
+    if (sp.phase !== 'IDLE' && !waiting && now - sp.lastProgressAt > 30000) { cancelTarget(sp); return; }
     if (sp.targetSentence && !S.getSentence(sp.targetSentence.id)) { cancelTarget(sp); return; }
     if (sp.phase === 'IDLE') {
       // Una consulta pendiente tiene prioridad; espera sin desplazar otra lectura.
@@ -720,12 +747,16 @@
     if (sp.phase === 'IR_A_PALABRA') {
       // Si el usuario cambia de página, no se usa la posición obsoleta de otro texto.
       if (S.state.activeDocId !== sp.targetSentence.docId || S.state.activePage !== sp.targetSentence.pageNum) { cancelTarget(sp); return; }
+      if (waiting) {
+        if (!sp.wait) { sp.wait = { turn: 0 }; sp.route = null; sp.approach = false; }
+        if (!isReduced()) updateScanWait(sp, dt, frame);
+        return;
+      }
       const element = chunkElements(sp.targetSentence)[0], word = firstWord(element);
       if (!element || !word) return; // El visor puede estar esperando su siguiente render.
-      if (!isWordVisible(word) && scanOwner && scanOwner !== sp) return;
-      const pos = wordPosition(word, !scanOwner || scanOwner === sp);
+      const pos = wordPosition(word, true);
       if (!pos) return;
-      if (travel(sp, pos, true, dt) && (!scanOwner || scanOwner === sp)) beginScan(sp, element, now);
+      if (travel(sp, pos, true, dt)) beginScan(sp, element, now);
       return;
     }
     if (sp.phase === 'EXTRAER_DATOS') { updateScan(sp, now, dt); return; }
@@ -878,23 +909,20 @@
       for (let remaining = dt; remaining > 1e-6;) {
         const step = Math.min(.05, remaining); remaining -= step;
         animationTime += step * 1000;
-        spiders.forEach(sp => { sp.motionActive = false; updateSpider(sp, animationTime, step); });
-        if (spiders.some(sp => sp.phase !== 'IDLE')) clearIdleAnimations();
-        else if (!reduced) {
+        spiders.forEach(sp => { sp.motionActive = false; updateSpider(sp, animationTime, step, frame); });
+        if (!reduced) {
           idleTime += step * 1000;
-          spiders.forEach(sp => updateIdle(sp, step, frame));
+          spiders.filter(sp => sp.phase === 'IDLE').forEach(sp => updateIdle(sp, step, frame));
           idleWebs = idleWebs.filter(web => web.expiresAt === null || web.expiresAt > idleTime);
         }
         spiders.forEach(sp => { finishMotion(sp, step, reduced); updateCargo(sp, step, reduced); });
       }
     }
-    const working = spiders.some(sp => sp.phase !== 'IDLE');
-    if (working && !running) clearIdleAnimations();
     if (reduced) shockwaves = [];
     if (ctx) {
-      // El reposo puede aparecer en cualquier punto visible y no intercepta clics.
-      if (!working) { drawIdleWebs(); drawIdleMassages(frame); }
-      spiders.filter(sp => sp.phase === 'IDLE' || sp.approach).forEach(drawSpider);
+      // El reposo y la espera visual pueden aparecer en el viewport sin interceptar clics.
+      drawIdleWebs(); drawIdleMassages(frame);
+      spiders.filter(sp => sp.phase === 'IDLE' || sp.approach || sp.wait).forEach(drawSpider);
       // Las acciones de lectura y entrega siguen limitadas al visor, la red y su corredor.
       ctx.save(); ctx.beginPath();
       if (frame) {
@@ -906,7 +934,7 @@
           ctx.rect(bridge.left, bridge.top, bridge.right - bridge.left, bridge.bottom - bridge.top);
       }
       ctx.clip();
-      spiders.filter(sp => sp.phase !== 'IDLE' && !sp.approach).forEach(drawSpider);
+      spiders.filter(sp => sp.phase !== 'IDLE' && !sp.approach && !sp.wait).forEach(drawSpider);
       shockwaves = shockwaves.filter(sw => sw.alpha > .05);
       shockwaves.forEach(sw => {
         if (running) { sw.r += 108 * dt; sw.alpha *= Math.exp(-6.3 * dt); }

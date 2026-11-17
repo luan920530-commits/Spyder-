@@ -73,6 +73,36 @@ function makeHarness(options = {}) {
     setScroll: value => { scroll = value; }, setReduced: value => { reduced = value; } };
 }
 
+function makeLongScan(h) {
+  const element = h.w.document.querySelector('[data-sid="s1"]');
+  element.replaceChildren();
+  const terms = Array.from({ length: 18 }, (_, i) => 'palabra' + (i + 1));
+  h.sentences[0].text = terms.join(' ');
+  terms.forEach((term, i) => {
+    const word = h.w.document.createElement('span');
+    word.className = 'word-span'; word.textContent = term;
+    const left = i % 2 ? 260 : 40;
+    word.getBoundingClientRect = () => ({ left, right: left + 20, top: 60, bottom: 75, width: 20, height: 15 });
+    word.getClientRects = () => [word.getBoundingClientRect()];
+    element.appendChild(word);
+  });
+}
+
+function startLongScan(h, count = 2) {
+  makeLongScan(h);
+  h.w.SpiderEngine.setSpiderCount(count);
+  h.store.state.allSentences = [h.sentences[0]];
+  h.store.emit('spider:dispatchToSentence', { sentence: h.sentences[0] });
+  let ticks = 0;
+  while (h.w.SpiderEngine.getStatus().spiders[0].scanIndex < 0 && ticks++ < 1000) h.tick();
+  assert.ok(ticks < 1000 && h.w.SpiderEngine.getStatus().spiders[0].phase === 'EXTRAER_DATOS');
+}
+
+function reserveSecond(h) {
+  h.store.state.allSentences.push(h.sentences[1]);
+  h.store.emit('spider:dispatchToSentence', { sentence: h.sentences[1] });
+}
+
 test('ciclo escanea palabras, transporta y entrega una vez; repetir no duplica', () => {
   const h = makeHarness();
   try {
@@ -330,6 +360,55 @@ test('en reposo visita y masajea nodos reales sin crear datos; pausa y reducció
     assert.equal(h.store.state.patterns.length, 0);
     assert.equal(h.store.state.claimedTargets.size, 0);
     assert.equal(h.events.filter(event => ['spider:scanStart', 'spider:extracted', 'spider:delivered'].includes(event.type)).length, 0);
+  } finally { h.dom.window.close(); }
+});
+
+test('un masaje de otra araña continúa cuando se asigna una tarea real', () => {
+  const h = makeHarness({ reduced: false });
+  try {
+    h.store.state.allSentences = [];
+    h.w.SpiderEngine.setSpiderCount(2);
+    const node = frame => ({ id: 'real', x: frame.left + 250, y: frame.top + 200, links: [] });
+    h.w.NeuralGraph.getIdleTargets = frame => [node(frame)];
+    h.w.NeuralGraph.getIdleTarget = (id, frame) => id === 'real' ? node(frame) : null;
+    let massagePhase = null;
+    const draw = h.w.NCSpiderVisual.draw;
+    h.w.NCSpiderVisual.draw = (ctx, options) => { if (options.massaging) massagePhase = options.massagePhase; return draw(ctx, options); };
+    let ticks = 0;
+    while (h.w.SpiderEngine.getStatus().spiders[0].idleActivity !== 'massage' && ticks++ < 400) h.tick();
+    assert.ok(ticks < 400);
+    h.store.state.allSentences = [h.sentences[0]];
+    assert.equal(h.w.SpiderEngine.dispatchFromNetwork({ cluster: 'AGT-02' }).sent, 1);
+    const assigned = h.w.SpiderEngine.getStatus().spiders.find(sp => sp.phase !== 'IDLE');
+    assert.equal(assigned.id, 'SPDR-02');
+    const before = massagePhase;
+    h.tick(8);
+    assert.equal(h.w.SpiderEngine.getStatus().spiders[0].idleActivity, 'massage');
+    assert.ok(massagePhase > before, 'el masaje de la otra araña no se cancela');
+    assert.equal(h.store.state.claimedTargets.has('s1'), true);
+    assert.equal(h.store.state.patterns.length, 0);
+  } finally { h.dom.window.close(); }
+});
+
+test('el tejido de otra araña permanece visible y sigue avanzando durante una tarea', () => {
+  const h = makeHarness({ reduced: false });
+  try {
+    h.store.state.allSentences = [];
+    h.w.Math.random = () => .5;
+    h.w.SpiderEngine.setSpiderCount(2);
+    let ticks = 0;
+    while ((h.w.SpiderEngine.getStatus().spiders[0].idleActivity !== 'weave' || !h.drawing.webLines.length) && ticks++ < 500) h.tick();
+    assert.ok(ticks < 500, 'la primera araña debe estar tejiendo');
+    h.store.state.allSentences = [h.sentences[0]];
+    assert.equal(h.w.SpiderEngine.dispatchFromNetwork({ cluster: 'AGT-02' }).sent, 1);
+    const strokes = h.drawing.webStrokes;
+    h.tick(10);
+    const spiders = h.w.SpiderEngine.getStatus().spiders;
+    assert.equal(spiders[0].idleActivity, 'weave');
+    assert.equal(spiders[1].sentenceId, 's1');
+    assert.ok(h.drawing.webLines.length > 0 && h.drawing.webStrokes > strokes);
+    assert.equal(h.store.state.patterns.length, 0);
+    assert.deepEqual([...h.store.state.claimedTargets], ['s1']);
   } finally { h.dom.window.close(); }
 });
 
@@ -685,17 +764,7 @@ test('una araña despachada desde el paseo regresa visible al panel antes de ent
 test('un escaneo largo que sigue avanzando no pierde la reserva al superar 30 segundos', () => {
   const h = makeHarness({ reduced: false });
   try {
-    const element = h.w.document.querySelector('[data-sid="s1"]');
-    element.replaceChildren();
-    const terms = Array.from({ length: 18 }, (_, i) => 'palabra' + (i + 1));
-    h.sentences[0].text = terms.join(' ');
-    terms.forEach((term, i) => {
-      const word = h.w.document.createElement('span');
-      word.className = 'word-span'; word.textContent = term;
-      const left = i % 2 ? 260 : 40;
-      word.getBoundingClientRect = () => ({ left, right: left + 20, top: 60, bottom: 75, width: 20, height: 15 });
-      word.getClientRects = () => [word.getBoundingClientRect()]; element.appendChild(word);
-    });
+    makeLongScan(h);
     h.store.state.allSentences = [h.sentences[0]];
     h.store.emit('spider:dispatchToSentence', { sentence: h.sentences[0] });
     let longScan = false;
@@ -833,29 +902,217 @@ test('cambio de página y redimensionado durante un escaneo normal liberan la p�
   } finally { h.dom.window.close(); }
 });
 
+test('las arañas libres siguen moviéndose mientras otra escanea y la pausa las congela', () => {
+  const h = makeHarness({ reduced: false });
+  try {
+    h.w.Math.random = () => .35;
+    startLongScan(h, 5);
+    const before = h.w.SpiderEngine.getStatus().spiders;
+    assert.equal(before[0].phase, 'EXTRAER_DATOS');
+    assert.ok(before.slice(1).every(sp => sp.phase === 'IDLE'));
+    const maxDistance = Array(4).fill(0);
+    for (let i = 0; i < 100; i++) {
+      h.tick();
+      const spiders = h.w.SpiderEngine.getStatus().spiders;
+      assert.equal(spiders[0].phase, 'EXTRAER_DATOS');
+      spiders.slice(1).forEach((sp, j) => {
+        assert.equal(sp.phase, 'IDLE');
+        maxDistance[j] = Math.max(maxDistance[j], Math.hypot(sp.x - before[j + 1].x, sp.y - before[j + 1].y));
+      });
+    }
+    assert.ok(maxDistance.every(distance => distance > 8), `una araña libre quedó inmóvil: ${maxDistance}`);
+    assert.ok(h.w.SpiderEngine.getStatus().spiders[0].scanIndex > before[0].scanIndex, 'el escaneo real sigue avanzando');
+    assert.equal(h.store.state.patterns.length, 0);
+    assert.deepEqual([...h.store.state.claimedTargets], ['s1']);
+    assert.equal(h.events.filter(event => event.type === 'spider:scanStart').length, 1);
+    h.w.document.getElementById('btn-toggle-spiders').click();
+    const paused = h.w.SpiderEngine.getStatus(); h.tick(40);
+    assert.deepEqual(h.w.SpiderEngine.getStatus(), paused);
+    h.w.document.getElementById('btn-toggle-spiders').click();
+    h.tick(30);
+    assert.ok(h.w.SpiderEngine.getStatus().spiders.slice(1).some((sp, i) =>
+      Math.hypot(sp.x - paused.spiders[i + 1].x, sp.y - paused.spiders[i + 1].y) > 3));
+  } finally { h.dom.window.close(); }
+});
+
+test('una araña con reserva se mueve al esperar el visor y después escanea su propia fuente', () => {
+  const h = makeHarness({ reduced: false });
+  try {
+    startLongScan(h); reserveSecond(h);
+    h.tick(160);
+    const before = h.w.SpiderEngine.getStatus().spiders[1];
+    let maxDistance = 0;
+    for (let i = 0; i < 100; i++) {
+      h.tick();
+      const spiders = h.w.SpiderEngine.getStatus().spiders, waiting = spiders[1];
+      assert.equal(spiders[0].phase, 'EXTRAER_DATOS');
+      assert.equal(waiting.phase, 'IR_A_PALABRA');
+      assert.equal(waiting.sentenceId, 's2');
+      assert.equal(h.store.state.claimedTargets.has('s2'), true);
+      maxDistance = Math.max(maxDistance, Math.hypot(waiting.x - before.x, waiting.y - before.y));
+    }
+    assert.ok(maxDistance > 8, `la araña asignada quedó inmóvil esperando: ${maxDistance}`);
+    assert.equal(h.events.filter(event => event.type === 'spider:scanStart').length, 1, 'no se simulan dos lecturas');
+    for (let i = 0; i < 2200 && !h.sentences[1].harvested; i++) h.tick();
+    assert.deepEqual(h.store.state.patterns.map(p => p.sentenceId).sort(), ['s1', 's2']);
+    assert.equal(h.events.filter(event => event.type === 'spider:scanStart' && event.payload.sentenceId === 's2').length, 1);
+    assert.equal(h.store.state.claimedTargets.size, 0);
+  } finally { h.dom.window.close(); }
+});
+
+test('cinco reservas concurrentes se mantienen únicas y se escanean de una en una', () => {
+  const h = makeHarness({ reduced: false });
+  try {
+    startLongScan(h, 5);
+    const others = [h.sentences[1]];
+    for (let i = 3; i <= 5; i++) {
+      const sentence = { id: 's' + i, docId: 'd1', docName: 'd.txt', pageNum: 1, text: `Otra frase ${i}.` };
+      others.push(sentence);
+      const element = h.w.document.createElement('span'); element.className = 'sentence-block'; element.dataset.sid = sentence.id;
+      sentence.text.split(' ').forEach((text, j) => {
+        const word = h.w.document.createElement('span'); word.className = 'word-span'; word.textContent = text;
+        const left = 40 + j * 35, top = 75 + i * 25;
+        word.getBoundingClientRect = () => ({ left, right: left + 25, top, bottom: top + 15, width: 25, height: 15 });
+        word.getClientRects = () => [word.getBoundingClientRect()]; element.appendChild(word);
+      });
+      h.w.document.getElementById('doc-content').appendChild(element);
+    }
+    others.forEach(sentence => {
+      h.store.state.allSentences.push(sentence);
+      h.store.emit('spider:dispatchToSentence', { sentence });
+    });
+    assert.equal(h.store.state.claimedTargets.size, 5);
+    const initial = h.w.SpiderEngine.getStatus().spiders;
+    const movements = Array(4).fill(0), previous = initial.slice(1);
+    for (let i = 0; i < 100; i++) {
+      h.tick();
+      const spiders = h.w.SpiderEngine.getStatus().spiders;
+      assert.equal(spiders[0].phase, 'EXTRAER_DATOS');
+      spiders.slice(1).forEach((sp, j) => {
+        assert.equal(sp.phase, 'IR_A_PALABRA');
+        assert.equal(sp.sentenceId, initial[j + 1].sentenceId);
+        assert.ok(Math.hypot(sp.x - previous[j].x, sp.y - previous[j].y) <= 9.55, 'la espera no teletransporta al agente');
+        previous[j] = sp;
+        movements[j] = Math.max(movements[j], Math.hypot(sp.x - initial[j + 1].x, sp.y - initial[j + 1].y));
+      });
+      assert.equal(h.events.filter(e => e.type === 'spider:scanStart').length, 1);
+    }
+    assert.ok(movements.every(distance => distance > 8), `separación insuficiente: ${movements}`);
+    for (let i = 0; i < 3500 && h.store.state.patterns.length < 5; i++) {
+      h.tick();
+      const spiders = h.w.SpiderEngine.getStatus().spiders;
+      assert.ok(spiders.filter(sp => sp.phase === 'EXTRAER_DATOS').length <= 1, 'el visor tiene un solo lector');
+      const assigned = spiders.filter(sp => sp.sentenceId).map(sp => sp.sentenceId);
+      assert.equal(new Set(assigned).size, assigned.length);
+    }
+    assert.equal(h.store.state.patterns.length, 5);
+    assert.deepEqual(h.store.state.patterns.map(p => p.sentenceId).sort(), ['s1', 's2', 's3', 's4', 's5']);
+    assert.equal(h.events.filter(e => e.type === 'spider:scanStart').length, 5);
+    assert.equal(h.events.filter(e => e.type === 'spider:delivered').length, 5);
+    assert.equal(h.store.state.claimedTargets.size, 0);
+  } finally { h.dom.window.close(); }
+});
+
+test('una reserva fuera de pantalla espera sin desplazar el visor y se lee al quedar libre', () => {
+  const h = makeHarness({ reduced: false });
+  try {
+    const zone = h.w.document.getElementById('doc-dropzone');
+    h.w.document.querySelectorAll('[data-sid="s2"] .word-span').forEach((word, i) => {
+      word.getBoundingClientRect = () => ({ left: 40 + i * 30, right: 65 + i * 30,
+        top: 400 - zone.scrollTop, bottom: 415 - zone.scrollTop, width: 25, height: 15 });
+      word.getClientRects = () => [word.getBoundingClientRect()];
+    });
+    startLongScan(h); reserveSecond(h);
+    const start = h.w.SpiderEngine.getStatus().spiders[1];
+    let moved = 0, frames = 0;
+    while (h.w.SpiderEngine.getStatus().spiders[0].phase === 'EXTRAER_DATOS' && frames++ < 1800) {
+      h.tick();
+      const [scanner, waiter] = h.w.SpiderEngine.getStatus().spiders;
+      if (scanner.phase !== 'EXTRAER_DATOS') break;
+      assert.equal(zone.scrollTop, 0, 'la espera no mueve el texto de otra lectura');
+      assert.equal(waiter.sentenceId, 's2');
+      assert.equal(h.store.state.claimedTargets.has('s2'), true);
+      assert.equal(h.events.filter(e => e.type === 'spider:scanStart').length, 1);
+      moved = Math.max(moved, Math.hypot(waiter.x - start.x, waiter.y - start.y));
+    }
+    assert.ok(frames < 1800 && moved > 8);
+    for (let i = 0; i < 1400 && !h.sentences[1].harvested; i++) h.tick();
+    assert.ok(zone.scrollTop > 0, 'solo la lectura propia revela su palabra');
+    assert.deepEqual(h.store.state.patterns.map(p => p.sentenceId).sort(), ['s1', 's2']);
+    assert.deepEqual(h.events.filter(e => e.type === 'spider:scanStart').map(e => e.payload.sentenceId), ['s1', 's2']);
+    assert.equal(h.store.state.claimedTargets.size, 0);
+  } finally { h.dom.window.close(); }
+});
+
+test('la espera visual respeta pausa, pestaña oculta y desplazamientos del visor', () => {
+  const h = makeHarness({ reduced: false });
+  try {
+    startLongScan(h); reserveSecond(h);
+    h.tick(30);
+    h.w.document.getElementById('btn-toggle-spiders').click();
+    const paused = h.w.SpiderEngine.getStatus(); h.tick(40);
+    assert.deepEqual(h.w.SpiderEngine.getStatus(), paused);
+    h.setScroll(50);
+    h.w.document.getElementById('doc-dropzone').scrollTop = 25;
+    h.tick();
+    assert.deepEqual(h.w.SpiderEngine.getStatus().spiders[1], paused.spiders[1], 'la espera pertenece al viewport');
+    assert.equal(h.w.SpiderEngine.getStatus().spiders[0].y, paused.spiders[0].y - 75, 'el lector sigue el texto');
+    h.w.document.getElementById('btn-toggle-spiders').click();
+    Object.defineProperty(h.w.document, 'hidden', { configurable: true, value: true });
+    const hidden = h.w.SpiderEngine.getStatus(); h.tick(40);
+    assert.deepEqual(h.w.SpiderEngine.getStatus(), hidden);
+    Object.defineProperty(h.w.document, 'hidden', { configurable: true, value: false });
+    h.tick(30);
+    assert.ok(Math.hypot(h.w.SpiderEngine.getStatus().spiders[1].x - hidden.spiders[1].x,
+      h.w.SpiderEngine.getStatus().spiders[1].y - hidden.spiders[1].y) > 5);
+    assert.equal(h.store.state.claimedTargets.size, 2);
+    assert.equal(h.events.filter(e => e.type === 'spider:scanStart').length, 1);
+  } finally { h.dom.window.close(); }
+});
+
+test('una araña en espera se dibuja también fuera de los paneles, sin ocultar al lector', () => {
+  const h = makeHarness({ reduced: false });
+  try {
+    startLongScan(h); reserveSecond(h);
+    h.tick(10);
+    let clipped = false, stack = [], draws = [];
+    h.ctx.save = () => stack.push(clipped);
+    h.ctx.restore = () => { clipped = stack.pop() || false; };
+    h.ctx.clip = () => { clipped = true; };
+    const draw = h.w.NCSpiderVisual.draw;
+    h.w.NCSpiderVisual.draw = (ctx, options) => { draws.push(clipped); return draw(ctx, options); };
+    h.setScroll(500); h.tick();
+    assert.deepEqual(draws, [false, true], 'la espera se dibuja en el viewport; el lector sigue limitado al visor');
+    const waiter = h.w.SpiderEngine.getStatus().spiders[1];
+    assert.ok(waiter.x >= 0 && waiter.x <= h.w.innerWidth && waiter.y >= 0 && waiter.y <= h.w.innerHeight);
+    assert.equal(h.store.state.claimedTargets.size, 2);
+    assert.equal(h.events.filter(e => e.type === 'spider:scanStart').length, 1);
+  } finally { h.dom.window.close(); }
+});
+
+test('movimiento reducido omite el paseo de espera pero conserva las lecturas reales', () => {
+  const h = makeHarness();
+  try {
+    h.w.SpiderEngine.setSpiderCount(2);
+    h.store.emit('spider:dispatchToSentence', { sentence: h.sentences[0] });
+    h.store.emit('spider:dispatchToSentence', { sentence: h.sentences[1] });
+    const before = h.w.SpiderEngine.getStatus().spiders[1];
+    h.tick();
+    const [scanner, waiter] = h.w.SpiderEngine.getStatus().spiders;
+    assert.equal(scanner.phase, 'EXTRAER_DATOS');
+    assert.equal(waiter.phase, 'IR_A_PALABRA');
+    assert.equal(waiter.x, before.x); assert.equal(waiter.y, before.y);
+    assert.equal(h.events.filter(e => e.type === 'spider:scanStart').length, 1);
+    h.tick(6);
+    assert.deepEqual(h.store.state.patterns.map(p => p.sentenceId).sort(), ['s1', 's2']);
+    assert.equal(h.store.state.claimedTargets.size, 0);
+  } finally { h.dom.window.close(); }
+});
+
 test('una araña que espera al escáner ocupado conserva su reserva mientras la otra avanza', () => {
   const h = makeHarness({ reduced: false });
   try {
-    const element = h.w.document.querySelector('[data-sid="s1"]');
-    element.replaceChildren();
-    const terms = Array.from({ length: 18 }, (_, i) => 'palabra' + (i + 1));
-    h.sentences[0].text = terms.join(' ');
-    terms.forEach((term, i) => {
-      const word = h.w.document.createElement('span');
-      word.className = 'word-span'; word.textContent = term;
-      const left = i % 2 ? 260 : 40;
-      word.getBoundingClientRect = () => ({ left, right: left + 20, top: 60, bottom: 75, width: 20, height: 15 });
-      word.getClientRects = () => [word.getBoundingClientRect()]; element.appendChild(word);
-    });
-    h.w.SpiderEngine.setSpiderCount(2);
-    // Se reserva solo la primera frase inicialmente, para iniciar su escaneo
-    // antes de que la segunda araña intente acceder al mismo visor.
-    h.store.state.allSentences = [h.sentences[0]];
-    h.store.emit('spider:dispatchToSentence', { sentence: h.sentences[0] });
-    for (let i = 0; i < 1000 && h.w.SpiderEngine.getStatus().spiders[0].scanIndex < 0; i++) h.tick();
-    assert.equal(h.w.SpiderEngine.getStatus().spiders[0].phase, 'EXTRAER_DATOS');
-    h.store.state.allSentences.push(h.sentences[1]);
-    h.store.emit('spider:dispatchToSentence', { sentence: h.sentences[1] });
+    startLongScan(h); reserveSecond(h);
     let longWait = false;
     for (let i = 0; i < 1600 && !h.sentences[1].harvested; i++) {
       h.tick();
@@ -869,6 +1126,97 @@ test('una araña que espera al escáner ocupado conserva su reserva mientras la 
     assert.ok(longWait, 'la espera duró más de 30 segundos mientras avanzaba el escáner');
     assert.deepEqual(h.store.state.patterns.map(p => p.sentenceId).sort(), ['s1', 's2']);
     assert.equal(h.events.filter(e => e.type === 'spider:scanStart' && e.payload.sentenceId === 's2').length, 1);
+    assert.equal(h.store.state.claimedTargets.size, 0);
+  } finally { h.dom.window.close(); }
+});
+
+test('el trabajo automático interrumpe solo a la araña libre aunque otra esté escaneando', () => {
+  const h = makeHarness({ reduced: false });
+  try {
+    startLongScan(h);
+    assert.equal(h.w.SpiderEngine.getStatus().spiders[1].phase, 'IDLE');
+    h.store.state.allSentences.push(h.sentences[1]);
+    h.tick(8);
+    const [scanner, next] = h.w.SpiderEngine.getStatus().spiders;
+    assert.equal(scanner.phase, 'EXTRAER_DATOS');
+    assert.equal(next.phase, 'IR_A_PALABRA');
+    assert.equal(next.idleActivity, null);
+    assert.equal(next.sentenceId, 's2');
+    assert.deepEqual([...h.store.state.claimedTargets].sort(), ['s1', 's2']);
+    assert.equal(h.events.filter(e => e.type === 'spider:scanStart').length, 1);
+    assert.ok(h.events.some(e => e.type === 'spiders:dispatched' && e.payload.source === 'auto' && e.payload.spiderIds.includes(next.id)));
+  } finally { h.dom.window.close(); }
+});
+
+test('una consulta cancelada libera su araña en espera sin interrumpir el escáner', () => {
+  const h = makeHarness({ reduced: false });
+  try {
+    startLongScan(h);
+    h.store.state.allSentences.push(h.sentences[1]);
+    h.store.emit('spider:queryVisual', { requestId: 'espera', method: 'local', hits: [{ sentence: h.sentences[1] }] });
+    h.tick(30);
+    assert.equal(h.w.SpiderEngine.getStatus().spiders[1].sentenceId, 's2');
+    assert.equal(h.store.state.claimedTargets.size, 2);
+    h.store.emit('spider:queryCancelled', { requestId: 'espera' });
+    assert.equal(h.w.SpiderEngine.getStatus().spiders[0].phase, 'EXTRAER_DATOS');
+    assert.equal(h.w.SpiderEngine.getStatus().spiders[1].phase, 'IDLE');
+    assert.deepEqual([...h.store.state.claimedTargets], ['s1']);
+    h.store.state.allSentences = [h.sentences[0]];
+    h.tick(10);
+    assert.ok(h.w.SpiderEngine.getStatus().spiders[1].idleActivity);
+    assert.equal(h.events.filter(e => e.type === 'spider:scanStart').length, 1);
+    assert.equal(h.store.state.patterns.length, 0);
+  } finally { h.dom.window.close(); }
+});
+
+test('cambiar de página cancela también las reservas que esperan el visor', () => {
+  const h = makeHarness({ reduced: false });
+  try {
+    h.w.document.getElementById('chk-auto-page').checked = false;
+    startLongScan(h); reserveSecond(h);
+    h.tick(30);
+    assert.equal(h.store.state.claimedTargets.size, 2);
+    h.store.setActivePage(2);
+    assert.equal(h.store.state.claimedTargets.size, 0);
+    assert.ok(h.w.SpiderEngine.getStatus().spiders.every(sp => sp.phase === 'IDLE'));
+    assert.equal(h.w.document.querySelectorAll('.word-scanning,.word-scanned,.sentence-scanning').length, 0);
+    h.tick(15);
+    assert.ok(h.w.SpiderEngine.getStatus().spiders.every(sp => sp.idleActivity));
+    assert.equal(h.store.state.patterns.length, 0);
+  } finally { h.dom.window.close(); }
+});
+
+test('una espera que se actualiza antes del escáner bloqueado retoma su reserva al liberarse', () => {
+  const h = makeHarness({ reduced: false });
+  try {
+    h.w.SpiderEngine.setSpiderCount(2);
+    h.store.state.allSentences = [h.sentences[0]];
+    assert.equal(h.w.SpiderEngine.dispatchFromNetwork({ cluster: 'AGT-02' }).sent, 1);
+    for (let i = 0; i < 1000 && h.w.SpiderEngine.getStatus().spiders[1].scanIndex < 0; i++) h.tick();
+    assert.equal(h.w.SpiderEngine.getStatus().spiders[1].phase, 'EXTRAER_DATOS');
+    h.store.state.allSentences.push(h.sentences[1]);
+    h.store.emit('spider:dispatchToSentence', { sentence: h.sentences[1] });
+    const word = h.w.document.querySelectorAll('[data-sid="s1"] .word-span')[1];
+    word.getClientRects = () => []; word.getBoundingClientRect = () => null;
+    h.w.document.getElementById('chk-auto-page').checked = false;
+    h.store.getActiveDoc = () => null; // No reasignar el pasaje que se bloqueará.
+    const start = h.w.SpiderEngine.getStatus().spiders[0];
+    let moved = 0;
+    for (let i = 0; i < 500; i++) {
+      h.tick();
+      const waiter = h.w.SpiderEngine.getStatus().spiders[0];
+      moved = Math.max(moved, Math.hypot(waiter.x - start.x, waiter.y - start.y));
+      assert.equal(waiter.sentenceId, 's2');
+      assert.equal(h.store.state.claimedTargets.has('s1'), true);
+      assert.equal(h.store.state.claimedTargets.has('s2'), true);
+    }
+    assert.ok(moved > 8);
+    for (let i = 0; i < 1200 && !h.sentences[1].harvested; i++) h.tick();
+    assert.equal(h.sentences[1].harvested, true);
+    assert.equal(h.sentences[0].harvested, undefined);
+    assert.deepEqual(h.store.state.patterns.map(p => p.sentenceId), ['s2']);
+    assert.deepEqual(h.events.filter(e => e.type === 'spider:scanStart').map(e => e.payload.sentenceId), ['s1', 's2']);
+    assert.equal(h.events.filter(e => e.type === 'spider:delivered').length, 1);
     assert.equal(h.store.state.claimedTargets.size, 0);
   } finally { h.dom.window.close(); }
 });
