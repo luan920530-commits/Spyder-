@@ -19,7 +19,7 @@ La demo y el anexo son **material sintético para probar el recorrido**, no resu
 
 ## Qué recuerda y qué no
 
-El hilo retoma el **último turno del tutor en la misma selección**. Conserva el tema, las referencias y la posición del índice al consultar. Cada cita guarda documento, oración, página del visor, página de origen cuando existe y desplazamiento UTF-16 dentro de la oración original. Antes de justificar o revisar, vuelve a cotejar el texto con la fuente. El historial, la Bóveda y las palabras generadas por Qwen **no son evidencia**.
+El hilo retoma el **último turno de estudio del tutor en la misma selección**. Un saludo o agradecimiento en ese mismo tutor no se usa como fuente ni corta el hilo. Conserva el tema, las referencias y la posición del índice al consultar. Cada cita guarda documento, oración, página del visor, página de origen cuando existe y desplazamiento UTF-16 dentro de la oración original. Antes de justificar o revisar, vuelve a cotejar el texto con la fuente. El historial, la Bóveda y las palabras generadas por Qwen **no son evidencia**.
 
 Añadir apuntes amplía lo que puede consultar; no reentrena a un modelo. La lectura sin Qwen usa términos, expresiones y unidades reconocibles, con hasta **cuatro citas de 500 caracteres**. No es una lectura exhaustiva: puede no entender una reformulación, no enlazar un anexo o no detectar un contraejemplo. Reconocer una cita exacta comprueba **dónde lo dice**, no **si es cierto**. Los [vínculos que sí se aprenden de votos](APRENDIZAJE_LOCAL.md) son un mecanismo diferente.
 

@@ -10,6 +10,12 @@ python3 -m http.server 8080
 
 Abre `http://localhost:8080`, carga un archivo, pega apuntes o pulsa **Demo**. Pulsa **2 · Analizar** para ver el tutor junto a la red, **Asistente** para abrir el chat o **4 · Estudio → Mi repaso** para una sesión corta de tarjetas. La aplicación no necesita npm para ejecutarse. Una vez completada la instalación del service worker, la interfaz y sus librerías básicas funcionan sin conexión. El funcionamiento sin conexión y el modelo opcional requieren HTTPS o localhost, almacenamiento disponible y un navegador compatible.
 
+### Charla básica en el chat principal
+
+Abre **3 · Asistente → Automático** y escribe **«¡Buenos días!»**, **«¿Cómo estás?»**, **«Muchas gracias»** o **«Hasta luego»**. Spyder contesta sin buscar documentos ni descargar un modelo. Puedes responder «Bien, ¿y tú?» si te pregunta cómo va tu día. Si escribes **«Hola, ¿cuánto es 7 + 3?»**, usa la calculadora; **«Hola, resume mis apuntes»** sigue siendo una petición de estudio. En **Tutor con fuentes**, decir «gracias» no interrumpe el tema si mantienes la misma selección.
+
+Este chat sí entra en el respaldo académico. Para una charla personal separada, usa **✦ HABLAR**.
+
 ### Hablar con Spyder, sin abrir un libro
 
 Pulsa **✦ HABLAR**. Prueba «Me preocupa mi examen de química» y elige **Solo escúchame** o **Un paso pequeño**. Puedes hablar de otra cosa, hacer una pausa o pasar al tutor sin enviarle la charla. En **Personalidad y memoria** eliges cómo quieres que te llame y si prefieres un tono cálido, práctico o curioso.

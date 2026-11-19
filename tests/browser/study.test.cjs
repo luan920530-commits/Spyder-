@@ -113,3 +113,27 @@ test('desde la interfaz: modos de estudio, redacción con fuentes, bóveda, mét
   const restored = await page.evaluate(() => { const s = window.NeuralStore.state; return [s.docs.length, s.evalRuns.length, s.vault.some(v => v.phrase === 'Preparar mi exposición')]; });
   assert.deepEqual(restored, [2, 1, true]); assert.deepEqual(errors, []);
 });
+
+test('chat principal offline: saludar sin libros, contestar una cortesía y pasar a una pregunta con fuentes', async t => {
+  const { url, closeServer } = await serve(t);
+  const ctx = await (await openBrowser(t)).newContext({ reducedMotion:'reduce' });
+  const page = await ctx.newPage(), errors = [], external = [];
+  page.on('pageerror', e => errors.push(e.message));
+  ctx.on('request', r => { if (/^https?:/.test(r.url()) && !r.url().startsWith(url)) external.push(r.url()); });
+  await boot(page,url); await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+  await closeServer(); await ctx.setOffline(true); await boot(page,url);
+  await page.click('[data-workspace="chat"]'); assert.equal(await page.inputValue('#mode-select'),'auto');
+  const answers = page.locator('#chat-messages .msg-ai');
+  async function say(text) {
+    const n = await answers.count(); await page.fill('#chat-input',text); await page.press('#chat-input','Enter');
+    await answers.nth(n).waitFor(); return answers.nth(n);
+  }
+  assert.match(await (await say('¡Buenos días!')).textContent(),/¡Buenos días!/);
+  const polite = await say('¿Cómo estás?'); assert.match(await polite.textContent(),/listo para conversar/); assert.equal(await polite.locator('button').count(),0);
+  assert.match(await (await say('Bien, gracias')).textContent(),/¡Qué bueno!/);
+  assert.match(await (await say('Gracias, ¿cuánto es 7 + 3?')).textContent(),/= 10/);
+  await page.click('#open-dialogue'); await page.click('#dialogue-demo');
+  assert.match(await (await say('Hola, ¿qué dicen los informes sobre la latencia?')).textContent(),/12 ms y 40 ms/);
+  await say('Gracias'); const why = await say('¿Por qué?'); assert.ok(await why.locator('.dialogue-source').count() >= 2);
+  assert.deepEqual(errors,[]); assert.deepEqual(external,[]);
+});

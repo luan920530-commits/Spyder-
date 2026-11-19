@@ -37,6 +37,11 @@
     if (!box) return;
     const div = element('article', 'msg msg-ai');
     const body = element('div', 'answer-body');
+    if (result.intent === 'smalltalk' && result.smalltalk) {
+      body.textContent = result.text; div.append(body, element('small','muted','Spyder · charla local'));
+      box.appendChild(div); box.scrollTop = box.scrollHeight;
+      return div; // No es evidencia: sin citas, valoración de fuentes ni entrenamiento.
+    }
     const sources = Array.isArray(result.sources) ? result.sources : [];
     function sourceButton(n, source) {
       const button = element('button', 'cite-ref', `[${n}]`);
@@ -159,7 +164,7 @@
     S().emit('spider:queryStart', { requestId });
     controller.signal.addEventListener('abort', () => S().emit('spider:queryCancelled', { requestId }), { once: true });
     if (stop) stop.classList.toggle('hidden', !usingQwen || !!target);
-    const pending = !target ? message('system', usingQwen ? 'Qwen está preparando la respuesta local…' : selectedMode === 'conversacion' ? 'Buscando en el libro elegido…' : 'Buscando en tus documentos…') : null;
+    const pending = !target ? message('system', usingQwen ? 'Qwen está preparando la respuesta local…' : selectedMode === 'conversacion' ? 'Buscando en el libro elegido…' : 'Preparando la respuesta local…') : null;
     try {
       const result = await root.NCRag.ask(q, { mode: selectedMode, signal: controller.signal,
         onGenerating() {
@@ -197,7 +202,7 @@
     const box = document.getElementById('chat-messages');
     if (!box) return;
     box.replaceChildren();
-    message('system', 'Carga un documento o usa Demo. En Tutor con fuentes puedes preguntar por tus apuntes, pedir razones y revisar la respuesta con material nuevo.');
+    message('system', 'Puedes saludar sin cargar un libro. Para trabajar con tus apuntes, añade un documento o usa Demo. Este chat se guarda con el estudio; ✦ HABLAR abre el espacio personal separado.');
     (S().state.chat || []).slice(-30).forEach(entry => {
       if (entry.role !== 'assistant') return;
       if (entry.question) message('user', entry.question);
@@ -226,7 +231,7 @@
       document.getElementById('study-quick-actions')?.classList.toggle('hidden', active || tutor);
       document.getElementById('character-quick-actions')?.classList.toggle('hidden', !active);
       const chat = document.getElementById('chat-input');
-      if (chat) chat.placeholder = active ? 'Habla con tu personaje…' : tutor ? 'Pregunta o sigue el hilo…' : 'Pregunta sobre tus documentos…';
+      if (chat) chat.placeholder = active ? 'Habla con tu personaje…' : tutor ? 'Pregunta o sigue el hilo…' : 'Saluda o pregunta por tus apuntes…';
       const docs = textDocs(), key = JSON.stringify(docs.map(doc => [doc.id, doc.name]));
       if (key !== optionsKey) {
         optionsKey = key;

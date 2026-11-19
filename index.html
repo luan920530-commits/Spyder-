@@ -24,6 +24,7 @@
   <script defer src="js/chunks.js"></script>
   <script defer src="js/highlights.js"></script>
   <script defer src="js/passage-links.js"></script>
+  <script defer src="js/smalltalk.js"></script>
   <script defer src="js/companion.js"></script>
   <script defer src="js/store.js"></script>
   <script defer src="js/local-model.js"></script>
@@ -284,7 +285,7 @@
           <div id="dialogue-quick-actions" class="chat-quick-actions" hidden><button class="btn-chip" data-prompt="¿Por qué?">¿Por qué?</button><button class="btn-chip" data-prompt="Contrasta las fuentes">Contrastar fuentes</button><button class="btn-chip" data-prompt="¿Qué evidencia falta?">¿Qué falta?</button><button class="btn-chip" data-prompt="Revisa con la nueva evidencia">Revisar conclusión</button><button class="btn-chip" data-prompt="Ponme a prueba">Ponme a prueba</button></div>
           <div id="study-quick-actions" class="chat-quick-actions"><button type="button" id="open-dialogue" class="btn-mini">Tutor con fuentes</button><button class="btn-chip" data-mode="resumen" data-prompt="Resume y analiza el documento completo">RESUMIR</button><button class="btn-chip" data-mode="critico" data-prompt="Detecta contradicciones en el documento">CONTRASTAR</button><button class="btn-chip" data-prompt="Aprende que ">ENSEÑAR</button></div>
           <div id="character-quick-actions" class="chat-quick-actions hidden"><button class="btn-chip" data-prompt="Háblame de ti">HÁBLAME DE TI</button><button class="btn-chip" data-prompt="¿Qué pasó después?">¿Y DESPUÉS?</button><button class="btn-chip" data-prompt="Necesito hablar">NECESITO HABLAR</button></div>
-          <form id="chat-form" class="chat-form"><label class="sr-only" for="chat-input">Pregunta</label><input type="text" id="chat-input" placeholder="Pregunta sobre tus documentos…" autocomplete="off"><button type="button" id="btn-stop-generation" class="btn-mini hidden">DETENER</button><button type="submit" id="btn-send" class="btn-hud btn-cyan">ENVIAR</button></form>
+          <form id="chat-form" class="chat-form"><label class="sr-only" for="chat-input">Pregunta</label><input type="text" id="chat-input" placeholder="Saluda o pregunta por tus apuntes…" autocomplete="off"><button type="button" id="btn-stop-generation" class="btn-mini hidden">DETENER</button><button type="submit" id="btn-send" class="btn-hud btn-cyan">ENVIAR</button></form>
         </div>
         <div id="tab-writer" class="tab-pane" role="tabpanel">
           <div class="writer-bar"><label class="sr-only" for="writer-prompt">Tema de redacción</label><input type="text" id="writer-prompt" placeholder="Tema o instrucción de redacción…"><button class="btn-hud btn-cyan" id="btn-run-writer">REDACTAR</button></div>

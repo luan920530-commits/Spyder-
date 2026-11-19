@@ -15,10 +15,11 @@
   const M = root.NCMemory || {};
   const C = root.NCCharacter || ((typeof require === 'function' && typeof module !== 'undefined') ? require('./character.js') : {});
   const D = root.NCStudyDialogue || ((typeof module !== 'undefined' && module.exports) ? require('./study-dialogue.js') : {});
-  const api = factory(U, R, A, P, M, C, D);
+  const Talk = root.NCSmalltalk || ((typeof module !== 'undefined' && module.exports) ? require('./smalltalk.js') : null);
+  const api = factory(U, R, A, P, M, C, D, Talk);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.NCRag = Object.assign(root.NCRag || {}, api);
-})(typeof window !== 'undefined' ? window : globalThis, function (U, R, A, P, M, C, D) {
+})(typeof window !== 'undefined' ? window : globalThis, function (U, R, A, P, M, C, D, Talk) {
   'use strict';
 
   const MAX_CONTEXT_CHARS = 7000;
@@ -39,9 +40,8 @@
     if (expr !== q && /^(?:[.\d(+\-]|(?:sqrt|log|ln|abs|sin|cos|tan|exp|round|floor|ceil|pi)\b)/.test(expr)) return expr;
     return /\d/.test(q) && /^[\d\s().,+\-*/%^]+$/.test(q) ? q : null;
   }
-  function detectIntent(question) {
+  function taskIntent(question) {
     const q = U.normalize(question || '');
-    if (/^(hola|buenas|hey|que tal|saludos|buenos dias|buenas tardes|buenas noches)\b/.test(q) && q.split(/\s+/).length <= 14) return 'smalltalk';
     if (/^(aprende|consolida|recuerda|guarda|memoriza)\b/.test(q)) return 'learn';
     if (mathExpression(question) !== null) return 'math';
     if (/(resum|sintetiza|sintesis|de que trata|idea principal|panorama)/.test(q)) return 'resumen';
@@ -52,12 +52,17 @@
     return 'auto';
   }
 
-  function resolveMode(question, requested) {
+  function detectIntent(question) {
+    const { social, request } = Talk.parse(question);
+    return social ? 'smalltalk' : taskIntent(request);
+  }
+  function modeFor(intent, requested) {
     if (requested && requested !== 'auto') return requested;
-    const intent = detectIntent(question);
     if (['resumen', 'critico', 'redaccion', 'socratico', 'examen'].includes(intent)) return intent;
     return 'examen';
   }
+
+  const resolveMode = (question, requested) => modeFor(detectIntent(question), requested);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Utilidades de composición
@@ -367,17 +372,16 @@
     }
   }
 
-  async function askStudy(q, o, t0, S) {
-    const scope = o.dialogueScope ?? S?.getSetting('dialogueDocId', '') ?? '';
+  async function askStudy({ question, request, scope, o, t0, S }) {
     const index = S?.state.index, length = index?.sentences.length;
-    const { reply, chunks } = D.prepare({ question: q, scope, index, history: S?.state.chat });
+    const { reply, chunks } = D.prepare({ question: request, scope, index, history: S?.state.chat });
     const engine = typeof window !== 'undefined' && window.NCQwenModel;
     const withModel = reply.action !== 'practice' && chunks.length && S?.getSetting('dialogueQwen', false) === true && engine?.info?.().enabled;
     if (withModel) {
       const job = new AbortController(), cancel = () => job.abort();
       activeLocalJob?.abort(); activeLocalJob = job; o.signal?.addEventListener('abort', cancel, { once: true });
       try {
-        const prompt = window.NCQwenPrompt.buildStudy({ ...reply, question: q, chunks });
+        const prompt = window.NCQwenPrompt.buildStudy({ ...reply, question: request, chunks });
         o.onGenerating?.();
         const output = await engine.generate(prompt, { signal: job.signal });
         const clean = window.NCQwenPrompt.cleanOutput(output).slice(0,2000);
@@ -392,7 +396,7 @@
       }
       if (job.signal.aborted || o.signal?.aborted || S.state.index !== index || index.sentences.length !== length) throw abortError();
     }
-    return finalize({ question: q, text: D.transcript(reply,chunks), provider: reply.generated ? 'qwen-local' : 'internal',
+    return finalize({ question, text: D.transcript(reply,chunks), provider: reply.generated ? 'qwen-local' : 'internal',
       model: reply.generated ? 'Qwen3-0.6B Q4_K_M' : 'tutor documental', fallback: !!reply.notice,
       mode: 'tutor', intent: reply.action, dialogue: reply, chunks, t0, S });
   }
@@ -413,7 +417,6 @@
     // Los dos chats dedicados no ejecutan comandos de memoria. Cada uno
     // construye su propio contexto: el tutor no hereda una ficción del personaje.
     const requestedMode = o.mode || (S ? S.getSetting('mode', 'auto') : 'auto');
-    if (requestedMode === 'tutor') return askStudy(q, o, t0, S);
     if (requestedMode === 'conversacion') {
       const docId = o.characterDocId ?? (S ? S.getSetting('characterDocId', '') : '');
       const name = o.characterName ?? (S ? S.getSetting('characterName', '') : '');
@@ -424,7 +427,7 @@
       // Las reglas básicas de crisis/acompañamiento y los errores de selección
       // conservan prioridad: no se prometen detección ni seguridad completas.
       const noContinuation = reply.intent === 'continuation' && !reply.chunks.length;
-      if (qwen?.info().enabled && promptBuilder && !noContinuation && !['crisis', 'emotional', 'setup', 'missing-character'].includes(reply.intent)) {
+      if (qwen?.info().enabled && promptBuilder && !noContinuation && !['crisis', 'emotional', 'setup', 'missing-character', 'courtesy'].includes(reply.intent)) {
         return await askCharacterQwen({ q, name, doc, reply, qwen, promptBuilder, options: o, t0, S });
       }
       return finalize({ question: q, text: reply.text, provider: 'internal', model: 'personaje por reglas',
@@ -432,11 +435,21 @@
         character: reply.character, characterReply: reply.reply, t0, S });
     }
 
-    const intent = detectIntent(q);
+    if (requestedMode === 'tutor' && q.length > D.MAX_QUESTION) throw new Error(`Escribe una pregunta de hasta ${D.MAX_QUESTION} caracteres.`);
+    const scope = requestedMode === 'tutor' ? (o.dialogueScope ?? S?.getSetting('dialogueDocId', '') ?? '') : null;
+    const last = S?.state.chat.at(-1);
+    const previous = last?.mode === requestedMode && last?.intent === 'smalltalk' && last.smalltalk?.scope === scope ? last.smalltalk.kind : null;
+    const { social, request } = Talk.parse(q, { afterCheckin: ['hello','checkin'].includes(previous) });
+    if (social) {
+      return finalize({ question:q, text:Talk.reply(social, { tutor:requestedMode === 'tutor', again:previous === 'hello' }),
+        provider:'internal', model:'charla por reglas', mode:requestedMode, intent:'smalltalk', smalltalk:{ kind:social.kind, scope }, chunks:[], citations:null, t0, S });
+    }
+    if (requestedMode === 'tutor') return askStudy({question:q, request, scope, o, t0, S});
+    const intent = taskIntent(request);
 
     // 1. Comandos directos
     if (intent === 'learn') {
-      const fact = q.replace(/^(aprende|consolida|recuerda|guarda|memoriza)(\s+que)?[:;\s-]*/i, '').trim();
+      const fact = request.replace(/^(aprende|consolida|recuerda|guarda|memoriza)(\s+que)?[:;\s-]*/i, '').trim();
       const entry = M.addFact ? M.addFact(fact) : null;
       if (fact && M.vaultAdd) M.vaultAdd({ phrase: fact, detail: fact });
       const text = fact
@@ -446,7 +459,7 @@
     }
 
     if (intent === 'math') {
-      const expr = mathExpression(q);
+      const expr = mathExpression(request);
       const value = U.evaluateArithmetic(expr);
       const text = value == null
         ? `No pude evaluar «${expr}» como expresión aritmética. Admite + - * / % ^ y funciones como sqrt(), log(), sin().`
@@ -454,17 +467,8 @@
       return finalize({ question: q, text, provider: 'internal', model: 'calculadora', mode: 'math', chunks: [], citations: null, intent, t0, S });
     }
 
-    if (intent === 'smalltalk') {
-      const st = S ? S.stats() : { docs: 0, sentences: 0, nodes: 0 };
-      const refl = M.selfReflection ? M.selfReflection() : null;
-      const text = `¡Hola! Soy **KIMI-CORE v11**, tu cerebro local. Tengo ${st.docs} documento(s), ${st.sentences} pasajes y ${st.nodes} conceptos en la red.` +
-        (refl ? `\n\n${refl.text}` : '') +
-        `\n\nPuedo resumir, explicar como en un examen, hacerte preguntas socráticas, criticar el material o redactar. También acepto filtros: \`=doc:nombre\`, \`=pag:12\`, \`"frase exacta"\` y \`-excluir\`.`;
-      return finalize({ question: q, text, provider: 'internal', model: 'kimi-core', mode: 'auto', chunks: [], citations: null, intent, t0, S });
-    }
-
     // 2. Recuperación
-    const mode = resolveMode(q, o.mode || (S ? S.getSetting('mode', 'auto') : 'auto'));
+    const mode = modeFor(intent, requestedMode);
     const k = o.k || (S ? S.getSetting('topK', 6) : 6);
     const window_ = S ? S.getSetting('window', 1) : 1;
 
@@ -472,13 +476,13 @@
     const localModel = typeof window !== 'undefined' ? window.NCLocalModel : null;
     const initialIndex = S?.state.index, initialLength = initialIndex?.sentences.length;
     if (S && S.getSetting('embedEnabled', true) && localModel?.info().enabled) {
-      try { neuralScores = await localModel.scores(R.parseQuery(q).cleaned); }
+      try { neuralScores = await localModel.scores(R.parseQuery(request).cleaned); }
       catch (_) { /* La búsqueda interna sigue operativa si se desactiva o falla el modelo. */ }
       if (o.signal?.aborted || S.state.index !== initialIndex || initialIndex.sentences.length !== initialLength) throw abortError();
       if (!S.getSetting('embedEnabled', true) || !localModel.info().enabled) neuralScores = null;
     }
     if (o.signal?.aborted) throw abortError();
-    let searchResult = S ? S.search(q, { k, fuzzy: S.getSetting('fuzzy', true), neuralScores }) : { hits: [], tookMs: 0, total: 0 };
+    let searchResult = S ? S.search(request, { k, fuzzy: S.getSetting('fuzzy', true), neuralScores }) : { hits: [], tookMs: 0, total: 0 };
     const searchedIndex = S?.state.index, searchedLength = searchedIndex?.sentences.length;
 
     // Para una petición global, muestra una muestra del corpus en lugar de tratar
@@ -519,7 +523,7 @@
     }
     const sourceRestricted = !!(filters?.docs?.length || filters?.pages?.length || filters?.phrases?.length);
     const safeText = text => !R.containsExcluded({ text: text || '' }, filters);
-    const memoryQuery = searchResult.parsed?.cleaned || q;
+    const memoryQuery = searchResult.parsed?.cleaned || request;
     const graphNodes = relatedNodes(memoryQuery, 8).filter(node => {
       if (!safeText(`${node.label || ''} ${node.text || ''}`)) return false;
       if (!searchResult.parsed?.hasFilters) return true;
@@ -537,7 +541,7 @@
       .filter(item => safeText(`${item.question || ''} ${item.answer || ''}`));
 
     const ctx = {
-      question: q,
+      question: request,
       mode,
       chunks,
       graphNodes,
@@ -642,6 +646,7 @@
       latencyMs: latency,
       trace,
       intent: p.intent,
+      ...(p.smalltalk ? { smalltalk: p.smalltalk } : {}),
       fallback: !!p.fallback,
       ...(p.dialogue ? { dialogue: p.dialogue } : {}),
       character: p.character || null,
@@ -658,6 +663,7 @@
         id: U.uid('msg'), role: 'assistant', question: p.question, text: p.text,
         mode: p.mode, provider: p.provider, model: p.model, intent: p.intent, fallback: !!p.fallback, citations: p.citations, sources, trace,
         ...(p.dialogue ? { dialogue: p.dialogue } : {}),
+        ...(p.smalltalk ? { smalltalk: p.smalltalk } : {}),
         character: result.character, characterReply: result.characterReply,
         nodeIds: result.nodeIds, vaultIds: result.vaultIds, latencyMs: result.latencyMs, at: result.at
       });

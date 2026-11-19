@@ -1,14 +1,14 @@
 /** Spyder personal. Diálogo local sin documentos, herramientas externas ni inferencias de perfil. */
 (function (root, factory) {
   const node = typeof module !== 'undefined' && module.exports;
-  const api = factory(node ? require('./util.js') : root.NCUtil);
+  const api = factory(node ? require('./util.js') : root.NCUtil, node ? require('./smalltalk.js') : root.NCSmalltalk);
   if (node) module.exports = api;
   root.NCCompanion = api;
-})(typeof window !== 'undefined' ? window : globalThis, function (U) {
+})(typeof window !== 'undefined' ? window : globalThis, function (U, Talk) {
   'use strict';
   const LIMIT = 20, MAX_INPUT = 1000, MAX_REPLY = 1500;
   const TONES = Object.freeze({ calm: 'Cálido y sereno', practical: 'Breve y práctico', curious: 'Curioso y reflexivo' });
-  const intents = new Set(['hello','identity','recall','remember','switch','ordinary','plan','ideas','decide','offer','listen','step','pause','celebrate','people','health','urgent','care','tools']);
+  const intents = new Set(['hello','checkin','courtesy','identity','recall','remember','switch','ordinary','plan','ideas','decide','offer','listen','step','pause','celebrate','people','health','urgent','care','tools']);
   const generative = new Set(['ordinary','ideas']); // Los planes con tiempos o notas se resuelven aquí.
   const transient = new Set(['urgent','care']);
   const cap = (v,n) => typeof v === 'string' ? v.trim().slice(0,n).trimEnd() : '';
@@ -28,9 +28,9 @@
     return { version:1, profile:profile(v.profile), keep, useQwen:v.useQwen === true, turns };
   }
   const styled = (tone,calm,practical,curious) => tone === 'practical' ? practical : tone === 'curious' ? curious : calm;
-  function hello(p) {
+  function hello(p, salutation = 'Hola') {
     const name = p.alias ? `, ${p.alias}` : '';
-    return `Hola${name}. ` + styled(p.tone,
+    return `${salutation}${name}. ` + styled(p.tone,
       'Soy Spyder. Podemos hablar de tu día sin tener que resolverlo todo. ¿Qué te gustaría contarme?',
       'Soy Spyder. ¿Qué te vendría mejor hoy: hablar un rato, ordenar una idea o preparar un plan?',
       'Soy Spyder. Si pudieras dedicar este rato a una sola pregunta, ¿qué te gustaría explorar?');
@@ -69,7 +69,7 @@
     return cap(match?.[1] || match?.[0],100);
   }
   function noteDraft(question) {
-    return cap(question.replace(/^(?:recuerda(?: para otro d[ií]a)? que|guarda (?:que|esto)|anota que)\b[\s:,-]*/iu,''),240);
+    return cap(Talk.parse(question).request.replace(/^(?:recuerda(?: para otro d[ií]a)? que|guarda (?:que|esto)|anota que)\b[\s:,-]*/iu,''),240);
   }
   function planFor(focus,raw,tone) {
     const min = raw.match(/\b(\d{1,3})\s*(?:minutos?|min)\b/i);
@@ -115,7 +115,7 @@
     if (/\b(?:retomar el hilo|continuar donde lo deje|en que quedamos|(?:de que|por donde) (?:hablabamos|ibamos|nos quedamos))\b/.test(q)) {
       for (const t of [...history].reverse()) {
         if (['switch','urgent','care'].includes(t.intent)) break;
-        if (['recall','hello','identity','remember','tools'].includes(t.intent)) continue;
+        if (['recall','hello','checkin','courtesy','identity','remember','tools'].includes(t.intent)) continue;
         const key = cap(t.focus || t.question,110);
         return say('recall',`En este hilo ${t.focus ? 'mencionaste' : 'escribiste'} «${key}». ¿Seguimos por ahí o prefieres otra cosa?`, key);
       }
@@ -124,15 +124,25 @@
     if (/\b(?:que recuerdas|mi nota|retom[ae]r? (?:mi |la |lo )?(?:nota|guardado))\b/.test(q)) return say('recall',p.note ? `Tu nota guardada dice: «${p.note}». ¿Sigue siendo eso lo que quieres retomar hoy?` : 'Todavía no hay una nota en tu perfil. Puedes guardar una con tus propias palabras o contarme por dónde quieres empezar.',p.note.slice(0,110));
   }
   function respond(raw, p, history = [], forceUrgent = false) {
-    const question = String(raw || '').trim(), q = clean(question), prev = history.at(-1);
+    const question = String(raw || '').trim(), prev = history.at(-1);
+    const { social, request } = Talk.parse(question,{ afterCheckin:['hello','checkin'].includes(prev?.intent) });
+    const q = clean(request);
     p = profile(p);
     const say = (intent,text,focus='') => ({ question:cap(question,MAX_INPUT), text, intent, focus, engine:'rules' });
     const support = boundary(q,prev,forceUrgent,say,/[¿?]/.test(question));
     if (support) return support;
-    if (!q || question.length > MAX_INPUT) throw new Error(`Escribe un mensaje de hasta ${MAX_INPUT} caracteres.`);
+    if ((!q && !social) || question.length > MAX_INPUT) throw new Error(`Escribe un mensaje de hasta ${MAX_INPUT} caracteres.`);
     const memory = memoryReply(q,p,history,say);
     if (memory) return memory;
-    const focus = subject(question) || prev?.focus || '';
+    const focus = subject(request) || prev?.focus || '';
+    // Mismas fórmulas en los dos espacios, contextos distintos: el nombre
+    // y el tono del perfil solo se usan aquí. La ayuda urgente tiene prioridad.
+    if (social) {
+      if (social.kind === 'hello') return say('hello', hello(p,social.salutation),focus);
+      if (social.kind === 'thanks' && prev?.intent === 'listen') return say('listen','Gracias a ti por contármelo. Podemos dejarlo aquí si quieres.',focus);
+      const intent = social.kind === 'rough' ? 'offer' : social.kind === 'checkin' ? 'checkin' : 'courtesy';
+      return say(intent,Talk.reply(social,{ personal:true }),focus);
+    }
     if (/\b(?:como me llamo|cual es mi nombre)\b/.test(q)) return say('recall',p.alias ? `Elegiste que te llame ${p.alias}. Puedes cambiarlo en tu perfil.` : 'Aún no has elegido cómo quieres que te llame. Puedes decírmelo en Personalidad y memoria.');
     if (/\b(?:recuerdame (?:manana|el|en|a)|pon(?:me)? (?:una alarma|un recordatorio)|llama por mi|manda un mensaje por mi)\b/.test(q)) return say('tools','No puedo programar avisos, llamar ni enviar mensajes. Sí puedo ayudarte a escribir una nota para tu calendario o dividir el pendiente en un primer paso.');
     const ref = focus ? ` Cuando dices «${focus}»,` : '';
@@ -167,11 +177,10 @@
       return say('decide',options ? `Entre «${options[1]}» y «${options[2]}», ¿qué pesa más hoy: tiempo, energía o ganas? No hace falta que decidas todavía.` : 'Podemos mirar dos opciones sin decidir por ti. ¿Cuáles son y qué te importa más proteger al elegir?',options ? cap(options[0],110) : focus);
     }
     if (prev?.intent === 'decide') return say('decide',`Tomemos «${cap(question,80)}» como criterio${focus ? ` ${focus}` : ''}. ¿Cuál de tus opciones lo respeta mejor? Si siguen parejas, piensa cuál podrías probar y deshacer con menos coste.`,focus);
-    if (/^(?:hola|buenas|hey|buenos dias|buenas tardes|buenas noches|saludos)(?: spyder| como estas)?$/.test(q)) return say('hello',hello(p));
     if (prev?.intent === 'ideas' && /ejemplo|borrador|para mi|para un|para la/.test(q)) return say('ideas',`Un comienzo posible${focus ? ` para «${focus}»` : ''}: «Hay algo que me gustaría compartir. Todo empezó con…». Añade una escena que se pueda ver u oír, en vez de explicar la idea entera. ¿Qué imagen escogerías?`,focus);
     if (/\b(?:ideas?|creativ\w*|escribir|redactar|imagina\w*)\b/.test(q)) return say('ideas',styled(p.tone,'Podemos hacer un primer borrador sin exigirle que quede bien.', 'Empieza por el destinatario y una frase central.', 'Probemos dos versiones de la misma idea: una cotidiana y otra inesperada.')+' ¿Para quién es y qué quieres transmitir?',focus);
     if (/\b(?:explica\w*|que es|como funciona|que significa)\b/.test(q)) return say('ordinary','Sin un pasaje a la vista, no puedo comprobar esa explicación con los apuntes. Puedes abrir Tutor con fuentes para trabajarla con un libro o usar el modelo local opcional para una respuesta sin verificar.',focus);
-    if (/^(?:gracias|muchas gracias|vale|ok)$/.test(q)) return say('ordinary','De nada. Podemos seguir con lo que estábamos viendo o dejarlo aquí.',focus);
+    if (/^(?:vale|ok)$/.test(q)) return say('ordinary','De nada. Podemos seguir con lo que estábamos viendo o dejarlo aquí.',focus);
     return say('ordinary',styled(p.tone,'Cuéntame un poco más: ¿quieres conversar sobre eso o buscas ayuda para hacer algo concreto?', '¿Qué resultado buscas: una idea, un plan breve o simplemente hablar?', '¿Qué te llamó la atención de eso? Podemos tirar de esa pregunta o explorar otra.') ,focus);
   }
   // Solo un tramo consecutivo de turnos que ya usaron Qwen. No se

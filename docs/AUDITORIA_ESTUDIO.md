@@ -70,8 +70,8 @@ El [tutor con fuentes](TUTOR_CON_FUENTES.md) distingue las palabras del document
 
 ```bash
 npm ci
-npm test                # shell 28: 211/211 tanto en Node 20 como en Node 22
-npm run test:browser    # shell 28: 21/21 en Chromium; requiere Chrome o CHROMIUM_PATH
+npm test                # shell 29: 217/217 tanto en Node 20 como en Node 22
+npm run test:browser    # shell 29: 22/22 en Chromium; requiere Chrome o CHROMIUM_PATH
 ```
 
 La línea base del tutor era **160/160** en Node y **6/6** en Chromium. Con revisión docente y OCR se alcanzaron **170/170** y **10/10**. El repaso y la órbita añaden [pruebas del calendario y de la sesión](../tests/learner-review.test.js), [geometría y gestos](../tests/orbit.test.js) y [dos recorridos de navegador](../tests/browser/learner-orbit.test.cjs). Se conservan los [casos de revisión](../tests/course-review.test.js), [OCR, tramos y subtítulos](../tests/ocr.test.js) y pruebas de cancelación, navegación y cobertura. Las [pruebas de habilidades](../tests/study-skills.test.js) cubren anclas, selección de material y comparación; las [de integración](../tests/study-dom.test.js), borradores, programación, cancelación, migración y privacidad; las [de navegador](../tests/browser/) usan el selector de archivos, clics, teclado, descargas y recarga real. La aplicación sigue sin necesitar npm para usarse.

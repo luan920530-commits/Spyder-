@@ -2,6 +2,8 @@
 
 Pulsa **✦ HABLAR** en la barra superior. También puedes abrir **Spyder personal ↗** desde el espacio de estudio. No necesitas un libro, una cuenta ni descargar un modelo. Es un asistente virtual con un estilo de conversación propio, no un personaje de una novela.
 
+Los saludos, preguntas como «¿cómo estás?», agradecimientos y despedidas también funcionan en **3 · Asistente → Automático**. Allí no se usa tu nombre ni tu nota personal, y lo que escribes se guarda con el estudio.
+
 ### Prueba una conversación
 
 1. Escribe **«Me preocupa mi examen de química»**. Spyder te pregunta si prefieres que te escuche o pensar en un paso pequeño.

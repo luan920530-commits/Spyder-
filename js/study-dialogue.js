@@ -28,7 +28,11 @@
     return follow.find(([,re]) => re.test(t))?.[0] || 'ask';
   }
   function lastTurn(history, scope) {
-    const last = history?.at(-1), d = last?.dialogue;
+    // Una cortesía en el mismo tutor no es una lectura nueva. No cruzar
+    // cambios de modo o de alcance, ni reutilizar el saludo como evidencia.
+    let i = (history?.length || 0) - 1;
+    while (i >= 0 && history[i]?.mode === 'tutor' && history[i].intent === 'smalltalk' && history[i].smalltalk?.scope === scope) i--;
+    const last = history?.[i], d = last?.dialogue;
     return last?.mode === 'tutor' && d?.version === 1 && d.scope === scope && typeof d.topic === 'string' &&
       d.topic.trim() && d.topic.length <= MAX_QUESTION && Array.isArray(last.sources) ? last : null;
   }
