@@ -171,7 +171,7 @@
     const found = profile(index, doc.id, name);
     if (!found.mentions.length) return finish(makeReply(
       `No encontré «${name}» en el texto extraído de este libro. Comprueba la escritura o prueba otro nombre tal como aparece en la obra.`,
-      { closing: 'Si el PDF no contiene texto extraíble, este modo no puede leerlo y no incluye OCR.', intent: 'missing-character' }
+      { closing: 'Si el PDF es un escaneo, usa «Leer un escaneo · OCR» en Documento y selecciona el texto reconocido.', intent: 'missing-character' }
     ));
 
     const q = U.normalize(question);

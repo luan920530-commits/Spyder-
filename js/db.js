@@ -17,6 +17,7 @@
   const STORE = 'kv';
   const LEGACY_DB = 'NeuralSpiderDB';
   const LS_PREFIX = 'nc11:';
+  const PERSONAL = 'companionPrivate'; // Registro local separado de los respaldos académicos.
 
   let db = null;
   let opened = false;
@@ -71,7 +72,10 @@
         try {
           const tx = database.transaction(STORE, 'readwrite');
           tx.objectStore(STORE).put({ k, v, updatedAt: Date.now() });
-          tx.oncomplete = () => resolve(true);
+          tx.oncomplete = () => {
+            if (k === PERSONAL) { try { localStorage.removeItem(LS_PREFIX + k); } catch (_) {} }
+            resolve(true);
+          };
           tx.onerror = () => resolve(false);
           tx.onabort = () => resolve(false);
         } catch (e) {
@@ -126,13 +130,14 @@
   function del(k) {
     memory.delete(k);
     return open().then(database => {
-      if (!database) { try { localStorage.removeItem(LS_PREFIX + k); } catch (_) {} return; }
+      if (!database) { try { localStorage.removeItem(LS_PREFIX + k); return true; } catch (_) { return false; } }
       return new Promise(resolve => {
         try {
           const tx = database.transaction(STORE, 'readwrite');
+          if (k === PERSONAL) { try { localStorage.removeItem(LS_PREFIX + k); } catch (_) {} }
           tx.objectStore(STORE).delete(k);
           tx.oncomplete = () => resolve(true);
-          tx.onerror = () => resolve(false);
+          tx.onerror = tx.onabort = () => resolve(false);
         } catch (_) { resolve(false); }
       });
     });
@@ -150,9 +155,10 @@
       return new Promise(resolve => {
         try {
           const tx = database.transaction(STORE, 'readwrite');
+          try { localStorage.removeItem(LS_PREFIX + PERSONAL); } catch (_) {}
           tx.objectStore(STORE).clear();
           tx.oncomplete = () => resolve(true);
-          tx.onerror = () => resolve(false);
+          tx.onerror = tx.onabort = () => resolve(false);
         } catch (_) { resolve(false); }
       });
     });
@@ -161,14 +167,14 @@
   async function exportAll() {
     const keys = await getAllKeys();
     const out = { exportedAt: new Date().toISOString(), schema: DB_VERSION, data: {} };
-    for (const k of keys) out.data[k] = await get(k);
+    for (const k of keys) if (k !== PERSONAL) out.data[k] = await get(k);
     return out;
   }
 
   async function importAll(obj, opts) {
     const o = Object.assign({ merge: false, only: null }, opts || {});
     if (!obj || !obj.data || typeof obj.data !== 'object') throw new Error('Formato de respaldo no reconocido');
-    const keys = o.only ? o.only.filter(k => Object.prototype.hasOwnProperty.call(obj.data, k)) : Object.keys(obj.data);
+    const keys = (o.only ? o.only.filter(k => Object.hasOwn(obj.data,k)) : Object.keys(obj.data)).filter(k => k !== PERSONAL);
     const database = await open();
     if (database) {
       // Una única transacción: una cuota o un registro inválido no borra el estado previo.
@@ -177,30 +183,37 @@
         try {
           tx = database.transaction(STORE, 'readwrite');
           const table = tx.objectStore(STORE);
-          if (!o.merge) table.clear();
+          if (!o.merge) {
+            // Leer y conservar el registro de ESTE navegador, en la misma
+            // transacción. Un JSON de estudio no puede leerlo ni sustituirlo.
+            const own = table.get(PERSONAL);
+            own.onsuccess = () => { if (own.result) table.put(own.result); };
+            table.clear();
+          }
           for (const key of keys) table.put({ k: key, v: obj.data[key], updatedAt: Date.now() });
           tx.oncomplete = resolve;
           tx.onerror = () => reject(tx.error || new Error('No se pudo importar el respaldo'));
           tx.onabort = () => reject(tx.error || new Error('Importación cancelada'));
         } catch (error) { try { tx?.abort(); } catch (_) {} reject(error); }
       });
-      if (!o.merge) memory.clear();
+      if (!o.merge) for (const k of memory.keys()) if (k !== PERSONAL) memory.delete(k);
       keys.forEach(key => memory.set(key, obj.data[key]));
       return keys;
     }
     // localStorage no tiene transacciones; se conserva una copia para intentar revertir.
     const previous = new Map();
+    const publicKeys = () => Object.keys(localStorage).filter(k => k.startsWith(LS_PREFIX) && k !== LS_PREFIX + PERSONAL);
     try {
-      for (const key of Object.keys(localStorage).filter(k => k.startsWith(LS_PREFIX))) previous.set(key, localStorage.getItem(key));
+      for (const key of publicKeys()) previous.set(key, localStorage.getItem(key));
       const encoded = keys.map(key => [LS_PREFIX + key, JSON.stringify(obj.data[key])]);
       if (!o.merge) previous.forEach((_, key) => localStorage.removeItem(key));
       encoded.forEach(([key, value]) => localStorage.setItem(key, value));
-      if (!o.merge) memory.clear();
+      if (!o.merge) for (const k of memory.keys()) if (k !== PERSONAL) memory.delete(k);
       keys.forEach(key => memory.set(key, obj.data[key]));
       return keys;
     } catch (error) {
       try {
-        for (const key of Object.keys(localStorage).filter(k => k.startsWith(LS_PREFIX))) localStorage.removeItem(key);
+        for (const key of publicKeys()) localStorage.removeItem(key);
         previous.forEach((value, key) => localStorage.setItem(key, value));
       } catch (_) {}
       throw new Error('No se pudo importar el respaldo: ' + error.message);
@@ -222,7 +235,7 @@
   }
 
   return {
-    DB_NAME, DB_VERSION, STORE,
+    DB_NAME, DB_VERSION, STORE, PERSONAL,
     hasIDB, open, put, get, del, clearAll, getAllKeys,
     exportAll, importAll, estimate, status
   };

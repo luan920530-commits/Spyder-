@@ -31,7 +31,7 @@ async function initialize() {
 async function generate(id, prompt) {
   if (!llama) throw new Error('Qwen no está activo.');
   if (generating) throw new Error('Ya hay una generación en curso.');
-  const current = new AbortController(); generating = current;
+  const current = new AbortController(); generating = { id, controller:current };
   try {
     const tokens = await llama.tokenize(String(prompt || ''), true);
     if (current.signal.aborted) throw aborted();
@@ -51,12 +51,12 @@ async function generate(id, prompt) {
     });
     if (current.signal.aborted) throw aborted();
     return result;
-  } finally { if (generating === current) generating = null; }
+  } finally { if (generating?.controller === current) generating = null; }
 }
 
 self.onmessage = event => {
   const { id, type, prompt } = event.data || {};
-  if (type === 'cancel') { generating?.abort(); return; }
+  if (type === 'cancel') { if (generating && generating.id === id) generating.controller.abort(); return; }
   const operation = type === 'init' ? initialize() : type === 'generate' ? generate(id, prompt) : Promise.reject(new Error('Operación desconocida.'));
   Promise.resolve(operation).then(
     result => self.postMessage({ id, result }),

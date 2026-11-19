@@ -196,7 +196,7 @@
     for (let i = 0; i < claims.length; i++) {
       for (let j = i + 1; j < claims.length; j++) {
         const a = claims[i], b = claims[j];
-        if (a.docName === b.docName && a.pageNum === b.pageNum && Math.abs(a.index - b.index) <= 1) continue;
+        if ((a.docId || a.docName) === (b.docId || b.docName) && a.pageNum === b.pageNum && Math.abs(a.index - b.index) <= 1) continue;
         const shared = [...a.subject].filter(t => b.subject.has(t));
         const sharedCount = shared.length;
         if (sharedCount < o.minShared) continue;
@@ -350,13 +350,22 @@
 
   function quizItems(sentences, opts) {
     const o = Object.assign({ n: 5, minLen: 60 }, opts || {});
+    const random = o.random || Math.random;
+    function shuffle(list) {
+      const a = [...list];
+      for (let i = a.length - 1; i > 0; --i) {
+        const j = Math.floor(random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
     const pool = (sentences || []).filter(s => textOf(s).length >= o.minLen);
     if (pool.length < 2) return [];
 
     // Bolsa de términos candidatos de todo el corpus (para distractores plausibles)
     const vocab = [];
-    const seenStem = new Set();
+    const seenStem = new Set(), answers = new Map();
     pool.forEach(s => {
+      answers.set(s, pickAnswerTerm(textOf(s)));
       U.analyze(textOf(s)).raw.forEach(w => {
         const st = U.stem(w);
         if (w.length < 6 || U.isStopword(U.normalize(w)) || seenStem.has(st)) return;
@@ -365,29 +374,27 @@
       });
     });
 
-    const shuffled = [...pool].sort(() => Math.random() - 0.5).slice(0, Math.max(o.n * 4, 12));
+    const shuffled = shuffle(pool).slice(0, Math.max(o.n * 4, 12));
     const items = [];
     const usedAnswers = new Set();
 
     for (const s of shuffled) {
       if (items.length >= o.n) break;
       const text = textOf(s);
-      const answer = pickAnswerTerm(text);
+      const answer = answers.get(s);
       if (!answer || usedAnswers.has(answer.toLowerCase())) continue;
       if (text.split(answer).length - 1 !== 1) continue;
 
-      const near = d =>
-        U.stem(d) !== U.stem(answer) &&
-        !U.tokens(text).includes(U.stem(d)) &&
-        Math.abs(d.length - answer.length) <= Math.max(6, answer.length * 0.6);
+      const excluded = new Set(U.tokens(text)); excluded.add(U.stem(answer));
+      const near = d => Math.abs(d.length - answer.length) <= Math.max(6, answer.length * 0.6) && !excluded.has(U.stem(d));
 
       // 1º distractores del mismo clúster/documento, 2º del vocabulario global
-      const sameDoc = pool.filter(x => x !== s && (x.docId === s.docId || x.cluster === s.cluster))
-        .map(x => pickAnswerTerm(textOf(x))).filter(Boolean).filter(near);
+      const sameDoc = pool.filter(x => x !== s && (x.docId === s.docId || (s.cluster && x.cluster === s.cluster)))
+        .map(x => answers.get(x)).filter(Boolean).filter(near);
       const global = vocab.filter(near);
 
       const candidates = [];
-      for (const cand of [...sameDoc, ...global.sort(() => Math.random() - 0.5)]) {
+      for (const cand of [...sameDoc, ...shuffle(global)]) {
         const low = cand.toLowerCase();
         if (candidates.some(c => c.toLowerCase() === low)) continue;
         candidates.push(cand);
@@ -395,7 +402,7 @@
       }
       if (candidates.length < 3) continue;
 
-      const options = [answer, ...candidates].sort(() => Math.random() - 0.5);
+      const options = shuffle([answer, ...candidates]);
       usedAnswers.add(answer.toLowerCase());
       items.push({
         id: 'q-' + (s.id || U.hash(text)),

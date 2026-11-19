@@ -150,8 +150,8 @@
     const src = String(input || '').replace(/,/g, '.').replace(/\s+/g, '');
     if (!src || !/^[0-9+\-*/%^().a-z]+$/i.test(src)) return null;
 
-    const tokens = src.match(/(\d*\.?\d+(?:e[+-]?\d+)?)|([a-z]+)|([+\-*/%^()])/gi);
-    if (!tokens) return null;
+    const tokens = src.match(/((?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)|([a-z]+)|([+\-*/%^()])/gi);
+    if (!tokens || tokens.join('') !== src) return null;
     let i = 0;
     const peek = () => tokens[i];
     const next = () => tokens[i++];
@@ -219,13 +219,13 @@
         const name = t.toLowerCase();
         next();
         if (name === 'pi') return Math.PI;
-        if (!FN[name]) return null;
+        if (!Object.hasOwn(FN, name)) return null;
         if (next() !== '(') return null;
         const arg = parseExpr();
         if (arg === null || next() !== ')') return null;
         return FN[name](arg);
       }
-      if (/^\d/.test(t)) { next(); return parseFloat(t); }
+      if (/^(?:\d|\.\d)/.test(t)) { next(); return parseFloat(t); }
       return null;
     }
 
@@ -351,6 +351,12 @@
     return out;
   }
 
+  /** Muestra determinista repartida hasta el último elemento, sin mutar la lista. */
+  function sampleEvenly(list, limit) {
+    const n = Math.min(list.length, limit);
+    return Array.from({ length: n }, (_, i) => list[Math.floor(i * (list.length - 1) / Math.max(1, n - 1))]);
+  }
+
   function mean(arr) {
     if (!arr || !arr.length) return 0;
     return arr.reduce((a, b) => a + b, 0) / arr.length;
@@ -380,7 +386,7 @@
     hash, sha256, uid,
     truncate, words3, sentenceSplit, isHeading,
     jaccard, trigrams, trigramSim, cosine,
-    formatMs, pct, debounce, groupBy, mean, percentile, todayKey, dayDiff,
+    formatMs, pct, debounce, groupBy, sampleEvenly, mean, percentile, todayKey, dayDiff,
     evaluateArithmetic
   };
 });

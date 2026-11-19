@@ -24,5 +24,8 @@ jobs:
       - name: Comprobar sintaxis
         run: for file in js/*.js sw.js; do node --check "$file"; done
       - run: npm test
+      - name: Comprobar asistente personal, tutor, estudio y red 3D en Chrome (disco, vista aislada y PWA offline)
+        if: matrix.node == 22
+        run: npm run test:browser
       - name: Benchmark sintético informativo (sin ONNX)
         run: npm run bench -- 20000

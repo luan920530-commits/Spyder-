@@ -40,6 +40,7 @@
     const sectionEl = document.getElementById('doc-section');
     const statusEl = document.getElementById('ingest-status');
 
+    const appendText = root.NCQuestionUI.prepare(doc, S.state.activePage);
     sentenceElements.clear();
     renderDocTabs();
     showIngestMessage(ingestError || (doc?.ingestWarnings || []).join(' '));
@@ -89,13 +90,14 @@
     if (pageInd) pageInd.textContent = `Pág ${S.state.activePage} / ${doc.pages.length}`;
     if (btnPrev) btnPrev.disabled = S.state.activePage <= 1;
     if (btnNext) btnNext.disabled = S.state.activePage >= doc.pages.length;
-    if (sectionEl) sectionEl.textContent = (page?.section || 'Sin sección') + (page?.sourcePage ? ` · PDF pág. ${page.sourcePage}` : '');
+    if (sectionEl) sectionEl.textContent = (page?.section || 'Sin sección') + (page?.sourcePage ? ` · PDF pág. ${page.sourcePage}${page.ocr ? ' · OCR' : ''}` : '');
 
     if (!contentEl) return;
     contentEl.innerHTML = '';
 
     if (!page || !(page.sentences || []).length) {
-      contentEl.textContent = page?.text || '';
+      contentEl.textContent = page?.text || (page?.sourcePage
+        ? `La página ${page.sourcePage} del PDF no tiene texto extraíble. Usa las flechas para leer las otras páginas.` : '');
       return;
     }
 
@@ -103,18 +105,19 @@
       const block = document.createElement('span');
       block.className = 'sentence-block' + (sent.harvested ? ' sentence-harvested' : '');
       block.dataset.sid = sent.id;
-      block.title = 'Clic en una palabra para enviar una araña';
+      block.title = 'Selecciona texto para crear una pregunta; un clic envía una araña';
 
       const words = sent.text.split(/(\s+)/);
       words.forEach(w => {
         if (/^\s+$/.test(w)) {
-          block.appendChild(document.createTextNode(w));
+          appendText(block, w);
           return;
         }
         const span = document.createElement('span');
         span.className = 'word-span';
-        span.textContent = w;
+        appendText(span, w);
         span.addEventListener('click', () => {
+          if (root.getSelection()?.toString()) return;
           S.emit('spider:dispatchToSentence', { sentence: S.getSentence(sent.id) || sent });
         });
         block.appendChild(span);
@@ -122,8 +125,9 @@
 
       contentEl.appendChild(block);
       sentenceElements.set(sent.id, block);
-      contentEl.appendChild(document.createTextNode(' '));
+      appendText(contentEl, ' ');
     });
+    root.NCQuestionUI.finish();
   }
 
   function renderDocTabs() {
@@ -136,13 +140,13 @@
       wrap.className = 'doc-tab' + (d.id === S.state.activeDocId ? ' active' : '');
       const btn = document.createElement('button');
       btn.className = 'doc-tab-name';
-      btn.textContent = d.name;
-      btn.title = `${d.name} · ${d.pages.length} pág.`;
+      btn.textContent = d.displayName || d.name;
+      btn.title = `${btn.textContent} · ${d.pages.length} pág.`;
       btn.addEventListener('click', () => { S.holdAutoNavigation(); S.setActiveDoc(d.id, 1); });
       const close = document.createElement('button');
       close.className = 'doc-tab-close';
       close.textContent = '✕';
-      close.setAttribute('aria-label', 'Quitar documento ' + d.name);
+      close.setAttribute('aria-label', 'Quitar documento ' + btn.textContent);
       close.addEventListener('click', e => {
         e.stopPropagation();
         S.removeDocument(d.id);
@@ -216,10 +220,11 @@
     const S = store();
     if (!S) return;
 
-    setupModals();
+    setupModals(); root.NCQuestionUI.init();
 
     S.on('doc:pageChanged', () => { ingestError = ''; scheduleRender(); });
     S.on('doc:added', scheduleRender);
+    S.on('questions:changed', scheduleRender);
     S.on('doc:removed', scheduleRender);
     S.on('system:reset', scheduleRender);
     S.on('brain:imported', scheduleRender);
@@ -231,6 +236,10 @@
         status.textContent = `Analizando ${detail.name}…`;
       } else if (detail.phase === 'pdf-page') {
         status.textContent = `Leyendo PDF ${detail.page} / ${detail.limit} pág.`;
+      } else if (detail.phase === 'ocr-page') {
+        status.textContent = `OCR local · pág. ${detail.page}`;
+      } else if (detail.phase === 'cancelled') {
+        status.textContent = 'Lectura cancelada';
       } else if (detail.phase === 'indexed') {
         status.textContent = `${detail.doc.name} · ${detail.method} · listo`;
         showIngestMessage((detail.doc.ingestWarnings || []).join(' '));

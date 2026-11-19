@@ -15,6 +15,8 @@ function hybrid(index, query, options = {}) {
 }
 
 test('normalización, aritmética segura y markdown escapan contenido', () => {
+  assert.equal(U.evaluateArithmetic('.5 + ,5'), 1);
+  assert.equal(U.evaluateArithmetic('4 + ...2'), null);
   assert.equal(U.stem('definición'), U.stem('definicion'));
   assert.equal(U.stem('redes'), U.stem('red'));
   assert.equal(U.evaluateArithmetic('2+3*4'), 14);

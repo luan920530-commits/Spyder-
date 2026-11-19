@@ -14,15 +14,16 @@
   const P = root.NCProviders || {};
   const M = root.NCMemory || {};
   const C = root.NCCharacter || ((typeof require === 'function' && typeof module !== 'undefined') ? require('./character.js') : {});
-  const api = factory(U, R, A, P, M, C);
+  const D = root.NCStudyDialogue || ((typeof module !== 'undefined' && module.exports) ? require('./study-dialogue.js') : {});
+  const api = factory(U, R, A, P, M, C, D);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.NCRag = Object.assign(root.NCRag || {}, api);
-})(typeof window !== 'undefined' ? window : globalThis, function (U, R, A, P, M, C) {
+})(typeof window !== 'undefined' ? window : globalThis, function (U, R, A, P, M, C, D) {
   'use strict';
 
   const MAX_CONTEXT_CHARS = 7000;
   let contradictionCache = { index: null, length: -1, value: [] };
-  let activeCharacterJob = null;
+  let activeLocalJob = null;
   const abortError = () => new DOMException('Generación cancelada', 'AbortError');
 
   const store = () => (typeof window !== 'undefined' ? window.NeuralStore : (globalThis.NeuralStore || null));
@@ -30,11 +31,19 @@
   // ─────────────────────────────────────────────────────────────────────────
   // Intención
   // ─────────────────────────────────────────────────────────────────────────
+  function mathExpression(question) {
+    const q = U.normalize(question).trim().replace(/^¿\s*/, '').replace(/\?$/, '').trim();
+    if (/^calcula\b/.test(q)) return q.replace(/^calcula\b[:\s]*/, '');
+    const expr = q.replace(/^(?:cuanto es|cuanto vale|resultado de)\s+/, '');
+    // «¿Cuánto vale la latencia?» sigue siendo una consulta al material.
+    if (expr !== q && /^(?:[.\d(+\-]|(?:sqrt|log|ln|abs|sin|cos|tan|exp|round|floor|ceil|pi)\b)/.test(expr)) return expr;
+    return /\d/.test(q) && /^[\d\s().,+\-*/%^]+$/.test(q) ? q : null;
+  }
   function detectIntent(question) {
     const q = U.normalize(question || '');
     if (/^(hola|buenas|hey|que tal|saludos|buenos dias|buenas tardes|buenas noches)\b/.test(q) && q.split(/\s+/).length <= 14) return 'smalltalk';
     if (/^(aprende|consolida|recuerda|guarda|memoriza)\b/.test(q)) return 'learn';
-    if (/^(calcula|cuanto es|cuanto vale|resultado de)\b/.test(q) || /^[\d\s().+\-*/%^]+$/.test(q)) return 'math';
+    if (mathExpression(question) !== null) return 'math';
     if (/(resum|sintetiza|sintesis|de que trata|idea principal|panorama)/.test(q)) return 'resumen';
     if (/(critic|debilidad|falla|sesgo|contradic|inconsisten|revisa|evalua)/.test(q)) return 'critico';
     if (/(redacta|ensayo|articulo|escribe un|escribe una|monografia)/.test(q)) return 'redaccion';
@@ -111,23 +120,32 @@
       .map(x => x.n);
   }
 
-  function contradictionsForAll() {
+  function contradictionScan(filters) {
     const S = store();
-    if (!S) return [];
+    if (!S) return { value: [], eligible: 0, sampled: 0 };
     const sents = S.state.allSentences || [], index = S.state.index;
-    if (contradictionCache.index === index && contradictionCache.length === sents.length) return contradictionCache.value;
+    const scope = filters ? JSON.stringify(filters) : '';
+    if (contradictionCache.index === index && contradictionCache.length === sents.length && contradictionCache.scope === scope) return contradictionCache;
     // Contrastar oraciones originales evita contar como afirmaciones distintas
     // el mismo número repetido en las ventanas solapadas.
-    const sample = sents.slice(0, 1500).map(s => ({ ...s, text: s.sourceText || s.text }));
+    const literal = s => ({ id: s.id, docName: s.docName, docId: s.docId, pageNum: s.pageNum, sourcePage: s.sourcePage, text: s.sourceText ?? s.text });
+    const eligible = filters ? sents.filter(s => {
+      const item = literal(s);
+      return R.passesFilters(item, filters) && !R.containsExcluded(item, filters);
+    }) : sents;
+    const sample = U.sampleEvenly(eligible, 1500).map(literal);
     let value = [];
     try { value = A.detectContradictions(sample, { max: 20 }); } catch (e) { console.warn('[RAG] contradicciones:', e.message); }
-    contradictionCache = { index, length: sents.length, value };
-    return value;
+    contradictionCache = { index, length: sents.length, scope, value, eligible: eligible.length, sampled: sample.length };
+    return contradictionCache;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
   // Compositor interno (extractivo, verificable, sin descargas)
   // ─────────────────────────────────────────────────────────────────────────
+  const contradictionsForAll = filters => contradictionScan(filters).value;
+  const sourceOf = (side, chunks) => chunks.find(x => x.docId === side.docId && (x.id === side.id || x.sentenceIds?.includes(side.id)));
+
   function composeExtractive(ctx) {
     const chunks = ctx.chunks || [];
     const mode = ctx.mode || 'examen';
@@ -138,7 +156,7 @@
     const claims = A.extractClaims(items);
     const summary = A.summarize(items, Math.min(4, items.length));
     const keyphrases = A.keyphrases(items, 6);
-    const contradictions = (ctx.contradictions || []).slice(0, 4);
+    const contradictions = (ctx.contradictions || []).filter(pair => sourceOf(pair.a, chunks) && sourceOf(pair.b, chunks)).slice(0, 4);
     const critique = A.critique(chunks, claims, contradictions);
 
     if (mode === 'socratico') return composeSocratic(ctx, chunks, claims, keyphrases);
@@ -235,7 +253,7 @@
   function composeSocratic(ctx, chunks, claims, keyphrases) {
     const questions = A.socraticQuestions(chunks, claims, keyphrases);
     let out = `### Guía socrática\n`;
-    out += `No te doy la respuesta: te doy el camino. Responde por escrito y vuelve a preguntarme.\n\n`;
+    out += `Usa estas preguntas para orientar tu lectura. Para responder, pedir pistas y comparar tu explicación con el original, abre **Analizar → Tutor de estudio**.\n\n`;
     questions.forEach((q, i) => {
       const idx = Math.min(chunks.length, i + 1);
       out += `**${i + 1}.** ${q.q}\n   - *Por qué importa:* ${q.why} (pista en la fuente ${idx})\n`;
@@ -258,15 +276,18 @@
     if (contradictions.length) {
       out += `**Contradicciones entre fuentes.**\n`;
       contradictions.forEach(c => {
-        const aPage = (c.a.sourcePage || c.a.pageNum) ? ` (Pág ${c.a.sourcePage || c.a.pageNum})` : '';
-        const bPage = (c.b.sourcePage || c.b.pageNum) ? ` (Pág ${c.b.sourcePage || c.b.pageNum})` : '';
         out += `- ${c.type === 'numeric' ? 'Cifras' : 'Tendencias'} discrepantes: ${c.reason}.\n`;
-        out += `  · «${U.truncate(c.a.text, 150)}»${aPage}\n`;
-        out += `  · «${U.truncate(c.b.text, 150)}»${bPage}\n`;
+        for (const side of [c.a, c.b]) {
+          const source = sourceOf(side, chunks);
+          const page = side.sourcePage || side.pageNum;
+          out += `  · «${U.truncate(side.text, 150)}» — ${side.docName || 'Documento'}${page ? ` · Pág ${page}` : ''}${cite(source.index)}\n`;
+        }
       });
       out += `\n`;
     }
 
+    if (ctx.coverage?.eligible > ctx.coverage?.sampled) out += `**Cobertura del detector:** muestra de ${ctx.coverage.sampled} de ${ctx.coverage.eligible} oraciones elegibles. No se contrastó el libro completo. Para revisar una parte concreta, usa =doc: o =pag:.\n\n`;
+    if (ctx.contradictions?.length > contradictions.length) out += 'Solo se detallan pares con ambas fuentes en el contexto mostrado, hasta cuatro. Acota el tema o ajusta el máximo de fuentes.\n\n';
     const missing = [];
     if (!claims.some(c => c.numbers.length)) missing.push('ninguna cifra verificable');
     if (!chunks.some(c => /(metodolog|muestra|experimento|medici[oó]n)/i.test(c.text))) missing.push('descripción metodológica');
@@ -318,9 +339,9 @@
       .slice(-2).map(entry => ({ question: entry.question, answer: entry.characterReply?.lead || entry.text }));
     const job = new AbortController(), abortFromCaller = () => job.abort();
     if (options.signal?.aborted) throw abortError();
-    activeCharacterJob?.abort();
+    activeLocalJob?.abort();
     options.signal?.addEventListener('abort', abortFromCaller, { once: true });
-    activeCharacterJob = job;
+    activeLocalJob = job;
     try {
       if (q.length > 1000) throw new Error('La pregunta supera 1.000 caracteres; prueba una más corta.');
       const prompt = promptBuilder.build({ name, question: q, snippets: excerpt ? [excerpt] : [], history, noEvidence });
@@ -342,8 +363,38 @@
         character: reply.character, characterReply: { ...reply.reply, lead: notice + reply.reply.lead }, t0, S });
     } finally {
       options.signal?.removeEventListener('abort', abortFromCaller);
-      if (activeCharacterJob === job) activeCharacterJob = null;
+      if (activeLocalJob === job) activeLocalJob = null;
     }
+  }
+
+  async function askStudy(q, o, t0, S) {
+    const scope = o.dialogueScope ?? S?.getSetting('dialogueDocId', '') ?? '';
+    const index = S?.state.index, length = index?.sentences.length;
+    const { reply, chunks } = D.prepare({ question: q, scope, index, history: S?.state.chat });
+    const engine = typeof window !== 'undefined' && window.NCQwenModel;
+    const withModel = reply.action !== 'practice' && chunks.length && S?.getSetting('dialogueQwen', false) === true && engine?.info?.().enabled;
+    if (withModel) {
+      const job = new AbortController(), cancel = () => job.abort();
+      activeLocalJob?.abort(); activeLocalJob = job; o.signal?.addEventListener('abort', cancel, { once: true });
+      try {
+        const prompt = window.NCQwenPrompt.buildStudy({ ...reply, question: q, chunks });
+        o.onGenerating?.();
+        const output = await engine.generate(prompt, { signal: job.signal });
+        const clean = window.NCQwenPrompt.cleanOutput(output).slice(0,2000);
+        if (!clean) throw new Error('Sin texto');
+        reply.generated = clean;
+      } catch (error) {
+        if (job.signal.aborted || error?.name === 'AbortError') throw abortError();
+        reply.notice = 'Qwen no pudo completar la explicación. Se conserva la lectura local con sus citas.';
+      } finally {
+        o.signal?.removeEventListener('abort',cancel);
+        if (activeLocalJob === job) activeLocalJob = null;
+      }
+      if (job.signal.aborted || o.signal?.aborted || S.state.index !== index || index.sentences.length !== length) throw abortError();
+    }
+    return finalize({ question: q, text: D.transcript(reply,chunks), provider: reply.generated ? 'qwen-local' : 'internal',
+      model: reply.generated ? 'Qwen3-0.6B Q4_K_M' : 'tutor documental', fallback: !!reply.notice,
+      mode: 'tutor', intent: reply.action, dialogue: reply, chunks, t0, S });
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -359,9 +410,10 @@
     if (o.signal?.aborted) throw abortError();
     if (!q) return emptyResult(q);
 
-    // No se ejecutan comandos de memoria ni se mezclan otros documentos o
-    // conversaciones: el contexto procede solo del libro y personaje elegidos.
+    // Los dos chats dedicados no ejecutan comandos de memoria. Cada uno
+    // construye su propio contexto: el tutor no hereda una ficción del personaje.
     const requestedMode = o.mode || (S ? S.getSetting('mode', 'auto') : 'auto');
+    if (requestedMode === 'tutor') return askStudy(q, o, t0, S);
     if (requestedMode === 'conversacion') {
       const docId = o.characterDocId ?? (S ? S.getSetting('characterDocId', '') : '');
       const name = o.characterName ?? (S ? S.getSetting('characterName', '') : '');
@@ -394,7 +446,7 @@
     }
 
     if (intent === 'math') {
-      const expr = q.replace(/^(calcula|cuanto es|cuanto vale|resultado de)\s*/i, '').replace(/[?¿]/g, '').trim();
+      const expr = mathExpression(q);
       const value = U.evaluateArithmetic(expr);
       const text = value == null
         ? `No pude evaluar «${expr}» como expresión aritmética. Admite + - * / % ^ y funciones como sqrt(), log(), sin().`
@@ -431,13 +483,29 @@
 
     // Para una petición global, muestra una muestra del corpus en lugar de tratar
     // las palabras «resumir documento» como si fueran un tema presente en él.
-    const genericWords = new Set(['resum', 'resumen', 'sintetiz', 'analiz', 'analisis', 'critic', 'evalu', 'revis', 'document', 'material', 'texto', 'complet', 'corpus', 'archiv', 'general', 'todo', 'principal', 'redact', 'contradicc', 'inconsist', 'compar']);
-    const contentTerms = (searchResult.parsed?.uniqueTerms || []).filter(t => !genericWords.has(t));
+    const genericWords = new Set(['resum', 'resumen', 'sintetiz', 'analiz', 'analisis', 'critic', 'evalu', 'revis', 'document', 'material', 'texto', 'complet', 'corpus', 'archiv', 'general', 'todo', 'principal', 'redact', 'contradicc', 'inconsist', 'compar', ...U.tokens('detecta contradicciones inconsistencias')]);
+    // Las expansiones aprendidas de una consulta nunca cambian su alcance.
+    const contentTerms = U.tokens(searchResult.parsed?.cleaned || '').filter(t => !genericWords.has(t));
+    const filters = searchResult.parsed?.filters;
+    const filteredIndex = searchResult.contextIndex || S?.state.index;
+    const targetTerms = new Set(contentTerms);
+    const scan = contradictionScan(searchResult.parsed?.hasFilters ? filters : null);
+    const contradictions = scan.value
+      .filter(c => !targetTerms.size || (c.sharedTerms || []).some(term => targetTerms.has(term)));
     if (S && ['resumen', 'critico', 'redaccion'].includes(mode) && !contentTerms.length && S.state.index.sentences.length) {
-      const filters = searchResult.parsed?.filters;
-      const all = (searchResult.contextIndex || S.state.index).sentences.filter(sentence => R.passesFilters(sentence, filters) && !R.containsExcluded(sentence, filters));
+      const all = filteredIndex.sentences.filter(sentence => R.passesFilters(sentence, filters) && !R.containsExcluded(sentence, filters));
       const count = Math.min(k, all.length);
-      const hits = Array.from({ length: count }, (_, i) => ({ sentence: all[Math.floor(i * all.length / count)], score: 1 }));
+      const selected = new Map();
+      // Al contrastar, mostrar primero las fuentes de ambos lados del hallazgo,
+      // no una muestra que por casualidad podría no contener ninguno de ellos.
+      if (mode === 'critico') for (const pair of contradictions.slice(0, 4)) {
+        for (const side of [pair.a, pair.b]) {
+          const source = filteredIndex.sentences[filteredIndex.posById.get(side.id)];
+          if (source && R.passesFilters(source, filters) && !R.containsExcluded(source, filters)) selected.set(source.id, source);
+        }
+      }
+      for (const sentence of U.sampleEvenly(all, count)) selected.set(sentence.id, sentence);
+      const hits = [...selected.values()].slice(0, count).map(sentence => ({ sentence, score: 1 }));
       searchResult = { ...searchResult, hits, total: all.length, globalSample: true, neuralUsed: false, neuralOnly: false };
     }
 
@@ -449,8 +517,6 @@
       o.onRetrieved({ hits: searchResult.globalSample ? [] : searchResult.hits,
         method: searchResult.neuralUsed ? 'minilm' : 'local', globalSample: !!searchResult.globalSample });
     }
-    const filters = searchResult.parsed?.filters;
-    const filteredIndex = searchResult.contextIndex || S?.state.index;
     const sourceRestricted = !!(filters?.docs?.length || filters?.pages?.length || filters?.phrases?.length);
     const safeText = text => !R.containsExcluded({ text: text || '' }, filters);
     const memoryQuery = searchResult.parsed?.cleaned || q;
@@ -469,11 +535,6 @@
       .filter(item => safeText(`${item.phrase || ''} ${item.detail || ''}`));
     const fewShots = sourceRestricted || !M.fewShots ? [] : M.fewShots(memoryQuery, 2)
       .filter(item => safeText(`${item.question || ''} ${item.answer || ''}`));
-    const targetTerms = new Set(contentTerms);
-    const contradictions = contradictionsForAll().filter(c => {
-      if (![c.a, c.b].every(item => R.passesFilters(item, filters) && !R.containsExcluded(item, filters))) return false;
-      return !targetTerms.size || (c.sharedTerms || []).some(term => targetTerms.has(term));
-    });
 
     const ctx = {
       question: q,
@@ -483,7 +544,7 @@
       facts,
       memory: facts.map(f => ({ fact: f.fact })).concat(vaultHits.map(v => ({ fact: v.phrase }))),
       fewShots,
-      contradictions,
+      contradictions, coverage: { sampled: scan.sampled, eligible: scan.eligible },
       settings: S ? S.state.settings : {},
       signal: o.signal
     };
@@ -547,6 +608,7 @@
       n: c.index || i + 1,
       text: c.text,
       excerpt: U.truncate(c.text, 220),
+      ...(p.dialogue ? { offset: c.offset } : {}),
       pageNum: c.pageNum,
       sourcePage: c.sourcePage || null,
       docName: c.docName,
@@ -581,6 +643,7 @@
       trace,
       intent: p.intent,
       fallback: !!p.fallback,
+      ...(p.dialogue ? { dialogue: p.dialogue } : {}),
       character: p.character || null,
       characterReply: p.characterReply || null,
       nodeIds: (p.graphNodes || []).map(n => n.id),
@@ -594,6 +657,7 @@
       S.state.chat.push({
         id: U.uid('msg'), role: 'assistant', question: p.question, text: p.text,
         mode: p.mode, provider: p.provider, model: p.model, intent: p.intent, fallback: !!p.fallback, citations: p.citations, sources, trace,
+        ...(p.dialogue ? { dialogue: p.dialogue } : {}),
         character: result.character, characterReply: result.characterReply,
         nodeIds: result.nodeIds, vaultIds: result.vaultIds, latencyMs: result.latencyMs, at: result.at
       });
@@ -627,11 +691,11 @@
   function init() {
     if (P.setInternalComposer) P.setInternalComposer(composeExtractive);
     const S = store();
-    const cancel = () => activeCharacterJob?.abort();
+    const cancel = () => activeLocalJob?.abort();
     const invalidateContradictions = () => { contradictionCache = { index: null, length: -1, value: [] }; };
     ['doc:added', 'doc:removed', 'system:resetting', 'brain:importing'].forEach(event => S?.on(event, invalidateContradictions));
-    ['system:resetting', 'brain:importing', 'doc:removed', 'chat:clearing'].forEach(event => S?.on(event, cancel));
-    S?.on('settings:changed', ({ key }) => { if (['mode', 'characterDocId', 'characterName'].includes(key)) cancel(); });
+    ['system:resetting', 'brain:importing', 'doc:added', 'doc:removed', 'chat:clearing'].forEach(event => S?.on(event, cancel));
+    S?.on('settings:changed', ({ key }) => { if (['mode', 'characterDocId', 'characterName', 'dialogueDocId', 'dialogueQwen'].includes(key)) cancel(); });
     return api;
   }
 

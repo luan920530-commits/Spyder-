@@ -179,7 +179,7 @@
         startEngine();
         await send('init', {}, { signal: abort.signal }); current(token);
         S()?.setSetting('qwenEnabled', true);
-        update({ status: 'ready', enabled: true, message: 'Qwen activo en este dispositivo · conversación por personaje.' });
+        update({ status: 'ready', enabled: true, message: 'Qwen activo en este dispositivo · personaje, tutor y asistente personal.' });
         // Es una solicitud opcional, no debe bloquear la activación ni su cancelación.
         // El navegador puede denegarla y seguir eliminando datos por cuota.
         try { Promise.resolve(navigator.storage?.persist?.()).catch(() => {}); } catch (_) { /* opcional */ }
