@@ -5,7 +5,7 @@ const path = require('node:path');
 const { JSDOM, VirtualConsole } = require('jsdom');
 const { IDBFactory } = require('fake-indexeddb');
 const root = path.join(__dirname, '..');
-const scripts = ['util', 'retrieval', 'analysis', 'srs', 'db', 'embeddings', 'chunks', 'store', 'local-model', 'semantic-clusters', 'qwen-config', 'qwen-prompt', 'qwen-model', 'parsers', 'memory', 'providers', 'character', 'rag', 'kimi-aux-model', 'viewer', 'spider-visual', 'neural-graph', 'spider-paths', 'spider-motion', 'spiders', 'eval', 'brain-rag', 'study-bots', 'app'];
+const scripts = ['util', 'retrieval', 'knowledge-base', 'analysis', 'srs', 'db', 'embeddings', 'chunks', 'store', 'local-model', 'semantic-clusters', 'qwen-config', 'qwen-prompt', 'qwen-model', 'parsers', 'memory', 'providers', 'character', 'rag', 'kimi-aux-model', 'viewer', 'spider-visual', 'graph-projection', 'neural-graph', 'spider-paths', 'spider-motion', 'spiders', 'eval', 'brain-rag', 'study-bots', 'app'];
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(fn, timeout = 4000) {
   const end = Date.now() + timeout;
@@ -18,7 +18,7 @@ function canvasContext() {
   ['arc', 'beginPath', 'bezierCurveTo', 'quadraticCurveTo', 'clearRect', 'clip', 'closePath', 'ellipse', 'fill', 'fillRect', 'fillText', 'lineTo', 'moveTo', 'rect', 'restore', 'rotate', 'save', 'scale', 'setLineDash', 'setTransform', 'stroke', 'strokeRect', 'translate'].forEach(name => { ctx[name] = () => {}; });
   return ctx;
 }
-async function createApp(indexedDB, withD3 = false, reducedMotion = true) {
+async function createApp(indexedDB, withD3 = false, reducedMotion = true, clock = null) {
   const errors = [];
   const vc = new VirtualConsole();
   vc.on('jsdomError', e => errors.push(e.message));
@@ -31,7 +31,18 @@ async function createApp(indexedDB, withD3 = false, reducedMotion = true) {
   w.confirm = () => true;
   w.URL.createObjectURL = () => 'blob:https://local.test/fake';
   w.URL.revokeObjectURL = () => {};
-  w.HTMLCanvasElement.prototype.getContext = canvasContext;
+  w.HTMLCanvasElement.prototype.getContext = function () {
+    const context = canvasContext();
+    if (clock && this.id === 'core-3d-canvas') context.clearRect = () => { clock.sphereDraws++; };
+    return context;
+  };
+  if (clock) {
+    let time = 0, next = 1;
+    const queue = new Map(); clock.sphereDraws = 0;
+    w.requestAnimationFrame = callback => { const id = next++; queue.set(id, callback); return id; };
+    w.cancelAnimationFrame = id => queue.delete(id);
+    clock.tick = delta => { time += delta; const callbacks = [...queue.values()]; queue.clear(); callbacks.forEach(callback => callback(time)); };
+  }
   w.HTMLElement.prototype.scrollIntoView = function () {};
   if (withD3) w.eval(fs.readFileSync(path.join(root, 'vendor', 'd3', 'd3.min.js'), 'utf8'));
   for (const name of scripts) w.eval(fs.readFileSync(path.join(root, 'js', name + '.js'), 'utf8'));
@@ -246,6 +257,15 @@ test('nodos D3 mantienen inspector, citas y filtros; hubs y teclado no duplican 
     const other = groups.find(el => el.__data__.label === 'Relación');
     const hub = groups.find(el => el.__data__.id === 'AGT-02');
     assert.ok(node && other && hub);
+    node.focus();
+    node.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    const inspector = w.document.getElementById('node-inspector');
+    assert.equal(inspector.getAttribute('role'), 'region');
+    assert.equal(inspector.getAttribute('aria-labelledby'), 'insp-label');
+    assert.equal(w.document.activeElement, inspector, 'el teclado lleva el foco al inspector');
+    inspector.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    assert.equal(inspector.classList.contains('hidden'), true);
+    assert.equal(w.document.activeElement, node, 'cerrar devuelve el foco al concepto');
     node.dispatchEvent(new w.MouseEvent('click', { bubbles: true, clientX: 250, clientY: 200 }));
     assert.equal(dispatches, 0);
     assert.equal(w.document.getElementById('node-inspector').classList.contains('hidden'), false);
@@ -263,6 +283,11 @@ test('nodos D3 mantienen inspector, citas y filtros; hubs y teclado no duplican 
     hub.dispatchEvent(new w.KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
     assert.equal(dispatches, 1);
     assert.match(w.document.getElementById('swarm-feedback').textContent, /pausado/i);
+    w.document.getElementById('btn-close-inspector').click();
+    node.focus(); node.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    w.NeuralStore.removeNode(node.__data__.originId || node.__data__.id);
+    assert.equal(inspector.classList.contains('hidden'), true, 'no queda un inspector de un nodo eliminado');
+    assert.equal(w.document.activeElement, stage, 'si el nodo ya no existe, el foco vuelve a la red');
     assert.deepEqual(errors, []);
   } finally { dom.window.close(); }
 });
@@ -1070,6 +1095,187 @@ test('los compositores nunca recuperan texto descartado del objeto ancla', async
   } finally { dom.window.close(); }
 });
 
+test('la decoración reduce su frecuencia ante un bloqueo y la recupera cuando el navegador se estabiliza', async () => {
+  const clock = {}, { dom, errors } = await createApp(new IDBFactory(), false, false, clock);
+  try {
+    for (let i = 0; i < 10; i++) clock.tick(50);
+    const normal = clock.sphereDraws;
+    assert.ok(normal >= 8, 'la animación normal se dibuja con frecuencia');
+    clock.tick(300); // una caída prolongada de fotogramas activa el modo liviano
+    const beforeLimited = clock.sphereDraws;
+    for (let i = 0; i < 12; i++) clock.tick(50);
+    assert.ok(clock.sphereDraws - beforeLimited <= 5, 'se espacian los dibujos decorativos');
+    for (let i = 0; i < 360; i++) clock.tick(16.7);
+    const beforeRecovery = clock.sphereDraws;
+    for (let i = 0; i < 20; i++) clock.tick(34);
+    assert.ok(clock.sphereDraws - beforeRecovery >= 10, 'tras varios segundos fluidos se restaura la frecuencia');
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('la simulación pagina copias sin alterar los nodos ni los extremos persistidos', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory(), true);
+  try {
+    const S = w.NeuralStore;
+    S.setSetting('autoHarvest', false);
+    S.addDocument({ id: 'fuente', name: 'fuente.txt', pages: [{ pageNum: 1,
+      sentences: [{ id: 's', text: 'El último concepto tiene una fuente real.' }] }] });
+    const nodes = Array.from({ length: 85 }, (_, i) => ({ id: `n${i}`, cluster: 'AGT-01',
+      label: `Concepto ${i}`, text: `Contenido ${i}`, weight: 1, sentenceIds: i === 84 ? ['s'] : [] }));
+    const links = nodes.map(node => ({ key: `hub>${node.id}`, source: 'AGT-01', target: node.id, kind: 'hierarchy' }));
+    links.push({ key: 'n84>n0', source: 'n84', target: 'n0', kind: 'synaptic' });
+    S.state.nodes.push(...nodes); S.state.links.push(...links);
+    const before = JSON.stringify({ nodes, links });
+    S.emit('brain:imported');
+    assert.equal(w.document.getElementById('graph-page').textContent, '1–40 / 85');
+    assert.equal(w.document.querySelectorAll('#neural-svg .node-group').length, 44);
+    w.document.getElementById('graph-next').click();
+    assert.equal(w.document.getElementById('graph-page').textContent, '41–80 / 85');
+    w.document.getElementById('graph-next').click();
+    assert.equal(w.document.getElementById('graph-page').textContent, '81–85 / 85');
+    const last = [...w.document.querySelectorAll('#neural-svg .node-group')].find(el => el.__data__.id === 'n84');
+    last.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    assert.equal(w.document.getElementById('insp-label').textContent, 'Concepto 84');
+    assert.match(w.document.getElementById('insp-citations').textContent, /fuente.txt/);
+    assert.match(w.document.getElementById('insp-connection-list').textContent, /Concepto 0/);
+    [...w.document.querySelectorAll('#insp-connection-list button')].find(button => button.textContent.includes('Concepto 0')).click();
+    assert.equal(w.document.getElementById('insp-label').textContent, 'Concepto 0');
+    assert.equal(JSON.stringify({ nodes, links }), before, 'D3 no escribe posiciones ni cambia extremos del store');
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('una cita espera el render del visor y respeta una navegación manual intermedia', async () => {
+  const clock = {}, { dom, w, errors } = await createApp(new IDBFactory(), false, true, clock);
+  try {
+    clock.tick(16);
+    const S = w.NeuralStore;
+    S.setSetting('autoHarvest', false);
+    S.addDocument({ id: 'lento', name: 'lento.txt', pages: [
+      { pageNum: 1, text: 'Primera fuente.', sentences: [{ id: 'primera', text: 'Primera fuente.' }] },
+      { pageNum: 2, text: 'Última fuente.', sentences: [{ id: 'ultima', text: 'Última fuente.' }] }
+    ] });
+    clock.tick(16);
+    const answer = { question: 'Prueba', text: 'La última fuente [1].', mode: 'examen', provider: 'internal',
+      sources: [{ origin: 'document', docId: 'lento', docName: 'lento.txt', pageNum: 2, sentenceId: 'ultima', text: 'Última fuente.' }] };
+    const article = w.BrainRAG.renderAnswer(answer), citation = article.querySelector('.answer-body .cite-ref');
+    citation.click();
+    S.setActivePage(1); // una navegación explícita posterior invalida la cita pendiente
+    await wait(150);
+    clock.tick(16);
+    assert.equal(S.state.activePage, 1);
+    assert.equal(w.document.querySelector('.sentence-active'), null);
+    citation.click();
+    await wait(150); // el rAF no ha dibujado todavía, aunque ya pasaron 100 ms
+    assert.equal(w.document.querySelector('[data-sid="ultima"]'), null);
+    clock.tick(16);
+    assert.equal(S.state.activePage, 2);
+    assert.equal(w.document.querySelector('[data-sid="ultima"]').classList.contains('sentence-active'), true);
+    assert.ok(S.state.autoNavigationPausedUntil > Date.now());
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('un concepto con muchas citas pagina sin perder la última fuente ni construir todos los botones', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const S = w.NeuralStore;
+    S.setSetting('autoHarvest', false);
+    const pages = Array.from({ length: 25 }, (_, i) => ({ pageNum: i + 1, sourcePage: i + 1,
+      text: `Texto de la fuente ${i + 1}.`, sentences: [{ id: `cita-${i + 1}`, text: `Texto de la fuente ${i + 1}.` }] }));
+    S.addDocument({ id: 'muchas-citas', name: 'muchas.txt', pages });
+    S.state.nodes.push({ id: 'popular', cluster: 'AGT-01', label: 'Concepto popular',
+      sentenceIds: pages.map((_, i) => `cita-${i + 1}`).concat('fuente-eliminada') });
+    S.state.nodes.push(...pages.map((_, i) => ({ id: `vecino-${i + 1}`, cluster: 'AGT-01', label: `Vecino ${i + 1}`, sentenceIds: [] })));
+    S.state.links.push(...pages.map((_, i) => ({ source: 'popular', target: `vecino-${i + 1}`, kind: 'synaptic' })));
+    S.emit('brain:imported');
+    const openPopular = () => [...w.document.querySelectorAll('#graph-fallback .fallback-node')].find(button => button.textContent.includes('Concepto popular')).click();
+    openPopular();
+    const status = w.document.getElementById('insp-citation-status');
+    assert.equal(status.textContent, 'Citas 1–12 / 25');
+    assert.equal(w.document.querySelectorAll('#insp-citations button').length, 12);
+    assert.equal(w.document.getElementById('insp-citation-prev').disabled, true);
+    w.document.getElementById('insp-citation-next').click();
+    assert.equal(status.textContent, 'Citas 13–24 / 25');
+    const citationPage = w.document.getElementById('insp-citation-page');
+    citationPage.value = '999'; citationPage.dispatchEvent(new w.Event('change'));
+    assert.equal(citationPage.value, '3', 'el salto se limita a la última página');
+    assert.equal(status.textContent, 'Citas 25–25 / 25');
+    assert.equal(w.document.querySelectorAll('#insp-citations button').length, 1);
+    assert.equal(w.document.getElementById('insp-citation-next').disabled, true);
+    const connectionPage = w.document.getElementById('insp-connection-page');
+    connectionPage.value = '3'; connectionPage.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    assert.equal(w.document.getElementById('insp-connection-status').textContent, '25–25 / 25');
+    assert.match(w.document.getElementById('insp-connection-list').textContent, /Vecino 25/);
+    w.document.querySelector('#insp-connection-list button').click();
+    assert.equal(w.document.getElementById('insp-label').textContent, 'Vecino 25');
+    openPopular();
+    citationPage.value = '3'; citationPage.dispatchEvent(new w.Event('change'));
+    w.document.querySelector('#insp-citations button').click();
+    assert.equal(S.state.activeDocId, 'muchas-citas');
+    assert.equal(S.state.activePage, 25, 'la última cita abre su página original');
+    assert.equal(S.state.nodes.find(node => node.id === 'popular').sentenceIds.length, 26, 'la paginación no modifica las citas guardadas');
+    assert.equal(S.state.links.filter(link => link.source === 'popular').length, 25, 'no se eliminan relaciones');
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('la proyección semántica se reutiliza al paginar y se invalida cuando cambian los datos', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory(), true);
+  try {
+    await wait(180); // agotar el aviso semántico inicial
+    const S = w.NeuralStore, assignments = new Map();
+    let calls = 0;
+    w.NCSemantic.info = () => ({ active: true, indexed: 70, total: 70, modelEnabled: true });
+    w.NCSemantic.topics = () => [
+      { id: 'SEM-1', number: 1, label: 'Tema 1', color: '#38dcff' },
+      { id: 'SEM-2', number: 2, label: 'Tema 2', color: '#a78bfa' }
+    ];
+    w.NCSemantic.topicId = id => { calls++; return assignments.get(id) || 'SEM-1'; };
+    w.NCSemantic.preferenceWeights = () => new w.Map();
+    S.state.nodes.push(...Array.from({ length: 70 }, (_, i) => ({ id: `cached-${i}`, cluster: 'AGT-01',
+      label: `Concepto ${i}`, text: `Texto ${i}`, sentenceIds: [`s-${i}`] })));
+    S.emit('node:removed', { nodeId: 'ninguno' });
+    const initial = calls;
+    assert.ok(initial >= 70);
+    w.document.getElementById('graph-next').click();
+    w.document.getElementById('graph-prev').click();
+    assert.equal(calls, initial, 'paginación reutiliza los temas derivados');
+    assignments.set('s-0', 'SEM-2');
+    S.emit('semantic:updated');
+    await until(() => calls > initial);
+    w.NeuralGraph.setClusterFilter('SEM-2');
+    assert.equal(w.document.getElementById('graph-page').textContent, '1–1 / 1');
+    assert.ok([...w.document.querySelectorAll('#neural-svg .node-group')].some(el => el.__data__.id === 'cached-0' && el.__data__.topicId === 'SEM-2'));
+    S.state.nodes = S.state.nodes.filter(node => node.id !== 'cached-0');
+    S.emit('node:removed', { nodeId: 'cached-0' });
+    assert.equal(w.document.getElementById('graph-page').textContent, '0–0 / 0');
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('la vista textual sin D3 pagina y abre el inspector de cada concepto', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const S = w.NeuralStore;
+    S.state.nodes.push(...Array.from({ length: 45 }, (_, i) => ({ id: `fallback-${i}`, cluster: 'AGT-01',
+      label: `Concepto ${i}`, text: `Texto ${i}`, sentenceIds: [] })));
+    S.emit('brain:imported');
+    assert.equal(w.document.querySelectorAll('#graph-fallback button.fallback-node').length, 40);
+    w.document.getElementById('graph-next').click();
+    assert.equal(w.document.querySelectorAll('#graph-fallback button.fallback-node').length, 5);
+    const first = w.document.querySelector('#graph-fallback button.fallback-node');
+    first.focus(); first.click();
+    const inspector = w.document.getElementById('node-inspector');
+    assert.equal(w.document.getElementById('insp-label').textContent, 'Concepto 40');
+    assert.equal(inspector.classList.contains('hidden'), false);
+    assert.equal(w.document.activeElement, inspector);
+    w.document.getElementById('btn-close-inspector').click();
+    assert.equal(w.document.activeElement, first);
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
 test('la vista de texto sin D3 se actualiza con nodos, temas y eliminación', async () => {
   const { dom, w, errors } = await createApp(new IDBFactory());
   try {
@@ -1085,6 +1291,173 @@ test('la vista de texto sin D3 se actualiza con nodos, temas y eliminación', as
     S.removeDocument('d');
     await until(() => !fallback.textContent.includes('Planetas'));
     assert.match(fallback.textContent, /D3 no disponible/);
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('los compositores distinguen fichas locales, fuentes originales y documentos', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const chunks = Array.from({ length: 3 }, (_, i) => ({ id: `kb:${i}`, index: i + 1,
+      knowledgeId: `kb:${i}`, docId: `kb:${i}`, pageNum: null, text: `El sistema mejora la prevención número ${i}.`,
+      sentence: { sourceUrl: 'https://local.test/misma-norma' } }));
+    const same = w.NCRag.composeExtractive({ question: 'Critica', mode: 'critico', chunks });
+    assert.doesNotMatch(same, /una sola página/);
+    assert.match(same, /diversidad de fuentes/);
+    chunks[2].sentence.sourceUrl = 'https://local.test/otra-norma';
+    const distinct = w.NCRag.composeExtractive({ question: 'Critica', mode: 'critico', chunks });
+    assert.doesNotMatch(distinct, /diversidad de fuentes/);
+    const summary = w.NCRag.composeExtractive({ question: 'Resume', mode: 'resumen', chunks });
+    assert.match(summary, /3 de la base local/);
+    assert.doesNotMatch(summary, /3 documento\(s\)/);
+    const exam = w.NCRag.composeExtractive({ question: 'Explica', mode: 'examen', chunks });
+    assert.doesNotMatch(exam, /sin datos inventados|una sola página|No hay cifras asociadas/);
+    assert.match(exam, /No se identificaron cifras con unidad/);
+    const numeric = [{ id: 'norma', index: 1, text: 'La norma prevé una jornada de 42 horas.' }];
+    const numericSummary = w.NCRag.composeExtractive({ question: 'Resume', mode: 'resumen', chunks: numeric });
+    assert.match(numericSummary, /Cifras con unidad detectadas/);
+    assert.doesNotMatch(numericSummary, /Evidencia cuantitativa/);
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('la base local se consulta sin documentos, muestra fecha y permite verificar la ficha offline', async () => {
+  const db = new IDBFactory(), first = await createApp(db), { w } = first;
+  try {
+    w.document.getElementById('btn-toggle-spiders').click();
+    w.document.querySelector('[data-workspace="chat"]').click();
+    const scope = w.document.getElementById('search-scope');
+    assert.equal(scope.value, 'both');
+    assert.match(w.document.getElementById('knowledge-meta').textContent, /fichas.*2026-11-16/);
+    assert.equal(w.document.querySelectorAll('.knowledge-entry').length, w.NCKnowledge.info().count);
+    scope.value = 'knowledge'; scope.dispatchEvent(new w.Event('change', { bubbles: true }));
+    let guidance;
+    const answer = await w.NCRag.ask('¿Qué es SG-SST?', { onRetrieved: result => { guidance = result; } });
+    assert.ok(answer.sources.length);
+    assert.ok(answer.sources.every(source => source.origin === 'knowledge'));
+    assert.equal(answer.sources[0].knowledgeId, 'kb:sst-sistema');
+    assert.equal(guidance.hits.length, 0, 'las fichas no se envían como texto de un documento al enjambre');
+    assert.match(answer.text, /no se actualiza automáticamente/);
+    assert.match(answer.text, /no sustituye asesoría jurídica/);
+    assert.equal(w.NeuralStore.state.docs.length, 0);
+    assert.equal(w.NeuralStore.state.allSentences.length, 0);
+    assert.equal(w.NeuralStore.state.vault.length, 0);
+    assert.equal(w.NeuralStore.state.nodes.filter(n => !n.isHub).length, 0);
+    let visualOrders = 0;
+    w.NeuralStore.on('spider:queryVisual', () => { visualOrders++; });
+    w.document.getElementById('chat-input').value = '¿Qué es SG-SST?';
+    const previous = w.NeuralStore.state.chat.length;
+    w.document.getElementById('chat-form').dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
+    await until(() => w.NeuralStore.state.chat.length > previous);
+    assert.equal(visualOrders, 0, 'una consulta solo de fichas no despacha ni muestra guía documental');
+    assert.equal(w.document.getElementById('swarm-feedback').textContent, '');
+    const article = w.BrainRAG.renderAnswer(answer);
+    const details = article.querySelector('.sources-details');
+    assert.equal(details.open, false);
+    article.querySelector('.answer-body .cite-ref').click();
+    assert.equal(details.open, true);
+    const source = article.querySelector('[data-source-number="1"]');
+    assert.match(source.textContent, /BASE LOCAL.*SG-SST/);
+    assert.match(source.textContent, /2026-11-16/);
+    assert.match(source.textContent, /requiere conexión/);
+    assert.equal(source.querySelector('a').href, answer.sources[0].sourceUrl);
+    assert.equal(w.NeuralStore.state.activeDocId, null);
+    const md = w.NCRag.toMarkdown(answer);
+    assert.match(md, /Base local:/); assert.match(md, /2026-11-16/); assert.match(md, /funcionpublica\.gov\.co/);
+    await w.NeuralStore.savePersistent();
+    assert.deepEqual(first.errors, []);
+  } finally { first.dom.window.close(); }
+  const second = await createApp(db);
+  try {
+    assert.equal(second.w.document.getElementById('search-scope').value, 'knowledge');
+    const restored = second.w.document.querySelector('.sources-details');
+    assert.ok(restored);
+    second.w.document.querySelector('.answer-body .cite-ref').click();
+    assert.equal(restored.open, true);
+    assert.match(restored.textContent, /BASE LOCAL/);
+    assert.deepEqual(second.errors, []);
+  } finally { second.dom.window.close(); }
+});
+
+test('ámbitos, filtros y feedback separan fichas públicas de documentos privados', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    w.document.getElementById('btn-toggle-spiders').click();
+    const S = w.NeuralStore;
+    S.addDocument({ id: 'privado', name: 'privado.txt', pages: [{ pageNum: 1, sentences: [
+      { id: 'priv-s', text: 'La jornada laboral de nuestro proyecto es de 42 horas semanales en Colombia.' }
+    ] }] });
+    const before = { docs: S.state.docs.length, sentences: S.state.allSentences.length, vault: S.state.vault.length, nodes: S.state.nodes.length };
+    const q = 'jornada laboral 42 horas Colombia';
+    const both = await w.NCRag.ask(q, { scope: 'both' });
+    assert.ok(both.sources.some(source => source.origin === 'document' && source.docId === 'privado'));
+    assert.ok(both.sources.some(source => source.origin === 'knowledge' && source.knowledgeId === 'kb:jornada-42'));
+    assert.equal(S.state.docs.length, before.docs); assert.equal(S.state.allSentences.length, before.sentences);
+    assert.equal(S.state.vault.length, before.vault); assert.equal(S.state.nodes.length, before.nodes);
+    const docs = await w.NCRag.ask(q, { scope: 'documents' });
+    assert.ok(docs.sources.length); assert.ok(docs.sources.every(source => source.origin === 'document'));
+    S.state.vault.push({ phrase: 'La jornada privada secreta', detail: 'datos secretos', keywords: ['jornada'] });
+    const local = await w.NCRag.ask(q, { scope: 'knowledge' });
+    assert.ok(local.sources.length); assert.ok(local.sources.every(source => source.origin === 'knowledge'));
+    assert.doesNotMatch(local.text, /nuestro proyecto|secreta/i);
+    const filtered = await w.NCRag.ask('jornada laboral =doc:privado', { scope: 'both' });
+    assert.ok(filtered.sources.length); assert.ok(filtered.sources.every(source => source.docId === 'privado'));
+    const pages = await w.NCRag.ask('jornada laboral =pag:1', { scope: 'both' });
+    assert.ok(pages.sources.length); assert.ok(pages.sources.every(source => source.origin === 'document'));
+    const noMatch = await w.NCRag.ask('seguridad social desconocida', { scope: 'knowledge' });
+    assert.equal(noMatch.sources.length, 0); assert.match(noMatch.text, /Sin evidencia suficiente/);
+    const article = w.BrainRAG.renderAnswer(local);
+    const train = w.KimiAuxModel.trainOnPattern, negative = w.KimiAuxModel.recordNegativeEpisode;
+    let training = 0; w.KimiAuxModel.trainOnPattern = () => training++; w.KimiAuxModel.recordNegativeEpisode = () => training++;
+    article.querySelector('[aria-label="Respuesta útil"]').click();
+    assert.equal(training, 0); assert.equal(S.state.feedback.at(-1).sentenceIds.length, 0);
+    w.KimiAuxModel.trainOnPattern = train; w.KimiAuxModel.recordNegativeEpisode = negative;
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('una búsqueda documental sin resultados informa sin despachar y no deja avisos en solo base', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const S = w.NeuralStore;
+    S.setSetting('autoHarvest', false);
+    S.setSetting('searchScope', 'documents');
+    S.addDocument({ id: 'doc-feedback', name: 'privado.txt', pages: [{ pageNum: 1, sentences: [
+      { id: 'feedback-source', text: 'La huerta contiene tomates y plantas.' }
+    ] }] });
+    let visualOrders = 0, dispatched = 0;
+    S.on('spider:queryVisual', () => { visualOrders++; });
+    S.on('spiders:dispatched', () => { dispatched++; });
+    const absent = await w.BrainRAG.send('xyzzyplugh inexistente');
+    assert.equal(absent.sources.length, 0);
+    assert.match(w.document.getElementById('swarm-feedback').textContent, /sin pasajes disponibles/i);
+    assert.equal(visualOrders, 0, 'un resultado vacío no debe producir una señal de despacho');
+    assert.equal(dispatched, 0);
+    assert.equal(S.state.claimedTargets.size, 0);
+
+    S.setSetting('searchScope', 'knowledge');
+    const knowledge = await w.BrainRAG.send('¿Qué es el SG-SST?');
+    assert.ok(knowledge.sources.some(source => source.origin === 'knowledge'));
+    assert.equal(w.document.getElementById('swarm-feedback').textContent, '', 'no conservar el aviso documental anterior');
+    assert.equal(visualOrders, 0);
+    assert.equal(dispatched, 0);
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('una cita de base importada nunca convierte URL arbitrarias ni HTML en una fuente confiable', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const base = w.NCKnowledge.get('kb:sst-sistema');
+    const fake = { question: 'prueba', text: 'Fuente [1] y [2].', mode: 'examen', provider: 'internal',
+      sources: [{ origin: 'knowledge', knowledgeId: base.id, sourceUrl: 'javascript:alert(1)', docName: '<img src=x>', text: '<script>mal</script>' },
+        { origin: 'knowledge', knowledgeId: 'kb:inventada', sourceUrl: 'https://evil.example/', text: 'inventado' }] };
+    const article = w.BrainRAG.renderAnswer(fake);
+    assert.equal(article.querySelectorAll('img,script').length, 0);
+    assert.equal(article.querySelectorAll('.sources-details a').length, 1);
+    assert.equal(article.querySelector('.sources-details a').href, base.sourceUrl);
+    assert.match(article.textContent, /Ficha local no disponible/);
+    assert.doesNotMatch(w.NCRag.toMarkdown(fake), /evil\.example|javascript:/);
     assert.deepEqual(errors, []);
   } finally { dom.window.close(); }
 });

@@ -14,10 +14,11 @@
   const P = root.NCProviders || {};
   const M = root.NCMemory || {};
   const C = root.NCCharacter || ((typeof require === 'function' && typeof module !== 'undefined') ? require('./character.js') : {});
-  const api = factory(U, R, A, P, M, C);
+  const K = root.NCKnowledge || ((typeof require === 'function' && typeof module !== 'undefined') ? require('./knowledge-base.js') : null);
+  const api = factory(U, R, A, P, M, C, K);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.NCRag = Object.assign(root.NCRag || {}, api);
-})(typeof window !== 'undefined' ? window : globalThis, function (U, R, A, P, M, C) {
+})(typeof window !== 'undefined' ? window : globalThis, function (U, R, A, P, M, C, K) {
   'use strict';
 
   const MAX_CONTEXT_CHARS = 7000;
@@ -155,7 +156,8 @@
       ? A.keyphrases(candidates.slice(0, 400), 5).map(k => k.surface || k.term)
       : [];
     let out = `### Sin evidencia suficiente\n`;
-    out += `No encontré fragmentos que respondan a «${ctx.question}» en los ${S ? S.state.allSentences.length : 0} pasajes indexados.\n\n`;
+    const location = ctx.scope === 'knowledge' ? 'la base local' : ctx.scope === 'documents' ? 'tus documentos' : 'los documentos y la base local';
+    out += `No encontré fragmentos que respondan a «${ctx.question}» en ${location}. La búsqueda por términos puede no cubrir el tema.\n\n`;
     if (ctx.facts && ctx.facts.length) out += `**Recuerdo guardado por ti (no verificado con documentos):** ${ctx.facts.map(f => f.fact).join('; ')}.\n\n`;
     if (suggestions.length) out += `**Términos que sí aparecen en el corpus:** ${suggestions.join(', ')}.\n\n`;
     out += `Puedes:\n- reformular con palabras del documento,\n- cargar más material,\n- o filtrar con \`=doc:nombre\`, \`=pag:12\` o \`"frase exacta"\`.`;
@@ -185,7 +187,7 @@
     if (numeric) {
       const nums = numeric.numbers.filter(n => n.unit).slice(0, 3).map(numberLabel).join(', ');
       const idx = chunks.findIndex(c => c.id === numeric.id) + 1;
-      out += `**Evidencia cuantitativa.** ${nums} — ${stripTrailingPunct(numeric.text).slice(0, 260)}${cite(idx || 1)}\n\n`;
+      out += `**Cifras con unidad detectadas.** ${nums} — ${stripTrailingPunct(numeric.text).slice(0, 260)}${cite(idx || 1)}. Comprueba su contexto; una cifra no demuestra por sí sola una afirmación.\n\n`;
     }
     if (mechanism) {
       out += `**Mecanismo.** ${stripTrailingPunct(mechanism.claim.text).slice(0, 300)}${cite(mechanism.citation)}\n\n`;
@@ -195,7 +197,9 @@
     const last = summary[summary.length - 1];
     const lastIndex = chunks.findIndex(c => c.id === last.item.id) + 1;
     out += `**Conclusión.** ${stripTrailingPunct(last.item.text)}${cite(lastIndex || 1)}\n\n`;
-    out += `> Basado en ${chunks.length} fragmento(s) de ${new Set(chunks.map(c => c.docName)).size} documento(s). Motor interno verificable.`;
+    const localCount = chunks.filter(chunk => chunk.knowledgeId).length, documentCount = chunks.length - localCount;
+    const origins = [documentCount && `${documentCount} de documentos`, localCount && `${localCount} de la base local`].filter(Boolean).join(' y ');
+    out += `> ${chunks.length} fragmento(s) consultado(s): ${origins}. Revisa las fuentes y su interpretación.`;
     return out;
   }
 
@@ -214,9 +218,9 @@
     out += `### 3. Evidencia\n`;
     if (numeric) {
       const nums = numeric.numbers.filter(n => n.unit).slice(0, 3).map(numberLabel).join(', ');
-      out += `Datos verificables: **${nums}**. ${stripTrailingPunct(numeric.text).slice(0, 300)}${cite(chunks.findIndex(c => c.id === numeric.id) + 1 || 1)}\n\n`;
+      out += `Cifras detectadas: **${nums}**. ${stripTrailingPunct(numeric.text).slice(0, 300)}${cite(chunks.findIndex(c => c.id === numeric.id) + 1 || 1)}\n\n`;
     } else {
-      out += `No hay cifras asociadas en los fragmentos recuperados.\n\n`;
+      out += `No se identificaron cifras con unidad en la extracción automática; revisa el texto por si contiene números relevantes.\n\n`;
     }
 
     out += `### 4. Límite o contraejemplo\n`;
@@ -228,7 +232,7 @@
       const idx = chunks.findIndex(c => c.id === extra.item.id) + 1;
       out += `**Cierre.** ${stripTrailingPunct(extra.item.text).slice(0, 320)}${cite(idx || chunks.length)}\n\n`;
     }
-    out += `> ${chunks.length} fuente(s) · modo examen · sin datos inventados.`;
+    out += `> ${chunks.length} fragmento(s) consultado(s) · modo examen · verifica la interpretación y las fuentes.`;
     return out;
   }
 
@@ -268,9 +272,14 @@
     }
 
     const missing = [];
-    if (!claims.some(c => c.numbers.length)) missing.push('ninguna cifra verificable');
+    if (!claims.some(c => c.numbers.length)) missing.push('no se detectaron cifras en la extracción automática');
     if (!chunks.some(c => /(metodolog|muestra|experimento|medici[oó]n)/i.test(c.text))) missing.push('descripción metodológica');
-    if (new Set(chunks.map(c => c.pageNum)).size === 1 && chunks.length > 2) missing.push('diversidad de fuentes');
+    // Varias páginas del mismo documento no son fuentes independientes;
+    // varias fichas pueden remitir a la misma norma o referencia original.
+    const origins = chunks.map(chunk => chunk.knowledgeId
+      ? (chunk.sentence?.sourceUrl || chunk.knowledgeId)
+      : (chunk.docId || chunk.docName || null));
+    if (origins.length > 2 && origins.every(Boolean) && new Set(origins).size === 1) missing.push('diversidad de fuentes');
     if (missing.length) {
       out += `**Qué falta para sostener la tesis.**\n`;
       missing.forEach(m => { out += `- ${m}\n`; });
@@ -351,7 +360,7 @@
   // ─────────────────────────────────────────────────────────────────────────
   async function ask(question, opts) {
     const o = Object.assign({
-      mode: null, provider: null, k: null, onToken: null, signal: null, forceProvider: false
+      mode: null, scope: null, provider: null, k: null, onToken: null, signal: null, forceProvider: false
     }, opts || {});
     const S = store();
     const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -413,27 +422,32 @@
 
     // 2. Recuperación
     const mode = resolveMode(q, o.mode || (S ? S.getSetting('mode', 'auto') : 'auto'));
-    const k = o.k || (S ? S.getSetting('topK', 6) : 6);
+    const k = Math.max(1, Math.min(10, Number(o.k || (S ? S.getSetting('topK', 6) : 6)) || 6));
     const window_ = S ? S.getSetting('window', 1) : 1;
+    const requestedScope = o.scope || (S ? S.getSetting('searchScope', 'both') : 'both');
+    const scope = ['both', 'documents', 'knowledge'].includes(requestedScope) ? requestedScope : 'both';
+    const useDocs = scope !== 'knowledge', useKnowledge = scope !== 'documents' && !!K;
 
     let neuralScores = null;
     const localModel = typeof window !== 'undefined' ? window.NCLocalModel : null;
     const initialIndex = S?.state.index, initialLength = initialIndex?.sentences.length;
-    if (S && S.getSetting('embedEnabled', true) && localModel?.info().enabled) {
+    if (useDocs && S && S.getSetting('embedEnabled', true) && localModel?.info().enabled) {
       try { neuralScores = await localModel.scores(R.parseQuery(q).cleaned); }
       catch (_) { /* La búsqueda interna sigue operativa si se desactiva o falla el modelo. */ }
       if (o.signal?.aborted || S.state.index !== initialIndex || initialIndex.sentences.length !== initialLength) throw abortError();
       if (!S.getSetting('embedEnabled', true) || !localModel.info().enabled) neuralScores = null;
     }
     if (o.signal?.aborted) throw abortError();
-    let searchResult = S ? S.search(q, { k, fuzzy: S.getSetting('fuzzy', true), neuralScores }) : { hits: [], tookMs: 0, total: 0 };
+    let searchResult = useDocs && S ? S.search(q, { k, fuzzy: S.getSetting('fuzzy', true), neuralScores }) :
+      { hits: [], tookMs: 0, total: 0, parsed: R.parseQuery(q), contextIndex: S?.state.index };
+    const knowledgeResult = useKnowledge ? K.search(q, { k }) : null;
     const searchedIndex = S?.state.index, searchedLength = searchedIndex?.sentences.length;
 
     // Para una petición global, muestra una muestra del corpus en lugar de tratar
     // las palabras «resumir documento» como si fueran un tema presente en él.
     const genericWords = new Set(['resum', 'resumen', 'sintetiz', 'analiz', 'analisis', 'critic', 'evalu', 'revis', 'document', 'material', 'texto', 'complet', 'corpus', 'archiv', 'general', 'todo', 'principal', 'redact', 'contradicc', 'inconsist', 'compar']);
     const contentTerms = (searchResult.parsed?.uniqueTerms || []).filter(t => !genericWords.has(t));
-    if (S && ['resumen', 'critico', 'redaccion'].includes(mode) && !contentTerms.length && S.state.index.sentences.length) {
+    if (useDocs && S && ['resumen', 'critico', 'redaccion'].includes(mode) && !contentTerms.length && S.state.index.sentences.length) {
       const filters = searchResult.parsed?.filters;
       const all = (searchResult.contextIndex || S.state.index).sentences.filter(sentence => R.passesFilters(sentence, filters) && !R.containsExcluded(sentence, filters));
       const count = Math.min(k, all.length);
@@ -441,12 +455,24 @@
       searchResult = { ...searchResult, hits, total: all.length, globalSample: true, neuralUsed: false, neuralOnly: false };
     }
 
-    const chunks = S ? R.buildContext(searchResult.contextIndex || S.state.index, searchResult.hits,
+    const documentChunks = useDocs && S ? R.buildContext(searchResult.contextIndex || S.state.index, searchResult.hits,
       { window: window_, maxChars: MAX_CONTEXT_CHARS, maxChunks: k, filters: searchResult.parsed?.filters }) : [];
+    const knowledgeChunks = knowledgeResult ? R.buildContext(knowledgeResult.contextIndex, knowledgeResult.hits,
+      { window: 0, maxChars: MAX_CONTEXT_CHARS, maxChunks: k, filters: knowledgeResult.parsed?.filters })
+      .map(chunk => ({ ...chunk, knowledgeId: chunk.id })) : [];
+    // Los dos índices son independientes. Cuando se consultan ambos, se reserva
+    // espacio para fichas pertinentes sin borrar ni desplazar documentos del store.
+    const knowledgeSlots = documentChunks.length ? Math.min(knowledgeChunks.length, Math.max(1, Math.min(2, Math.floor(k / 3)))) : k;
+    const chunks = documentChunks.slice(0, Math.max(0, k - knowledgeSlots)).concat(knowledgeChunks.slice(0, knowledgeSlots))
+      .map((chunk, i) => ({ ...chunk, index: i + 1 }));
+    // Las arañas solo siguen pasajes de documentos reales; las fichas públicas
+    // no se inyectan en el visor, la cosecha, la bóveda ni el índice privado.
+    searchResult.knowledgeTotal = knowledgeResult?.total || 0;
+    searchResult.scope = scope;
     // El enjambre recibe los mismos candidatos filtrados y ordenados mientras se
     // prepara la respuesta, no solo después de que esta ya esté terminada.
     if (typeof o.onRetrieved === 'function') {
-      o.onRetrieved({ hits: searchResult.globalSample ? [] : searchResult.hits,
+      o.onRetrieved({ hits: searchResult.globalSample ? [] : searchResult.hits, scope,
         method: searchResult.neuralUsed ? 'minilm' : 'local', globalSample: !!searchResult.globalSample });
     }
     const filters = searchResult.parsed?.filters;
@@ -454,7 +480,7 @@
     const sourceRestricted = !!(filters?.docs?.length || filters?.pages?.length || filters?.phrases?.length);
     const safeText = text => !R.containsExcluded({ text: text || '' }, filters);
     const memoryQuery = searchResult.parsed?.cleaned || q;
-    const graphNodes = relatedNodes(memoryQuery, 8).filter(node => {
+    const graphNodes = (useDocs ? relatedNodes(memoryQuery, 8) : []).filter(node => {
       if (!safeText(`${node.label || ''} ${node.text || ''}`)) return false;
       if (!searchResult.parsed?.hasFilters) return true;
       return (node.sentenceIds || []).some(id => {
@@ -464,13 +490,13 @@
     });
     // La memoria personal no tiene una página demostrable: no se mezcla con
     // consultas restringidas a documento/página/frase y respeta exclusiones.
-    const facts = sourceRestricted || !M.facts ? [] : M.facts(memoryQuery, 3).filter(item => safeText(item.fact));
-    const vaultHits = sourceRestricted || !M.vaultSearch ? [] : M.vaultSearch(memoryQuery, { limit: 4 })
+    const facts = !useDocs || sourceRestricted || !M.facts ? [] : M.facts(memoryQuery, 3).filter(item => safeText(item.fact));
+    const vaultHits = !useDocs || sourceRestricted || !M.vaultSearch ? [] : M.vaultSearch(memoryQuery, { limit: 4 })
       .filter(item => safeText(`${item.phrase || ''} ${item.detail || ''}`));
-    const fewShots = sourceRestricted || !M.fewShots ? [] : M.fewShots(memoryQuery, 2)
+    const fewShots = !useDocs || sourceRestricted || !M.fewShots ? [] : M.fewShots(memoryQuery, 2)
       .filter(item => safeText(`${item.question || ''} ${item.answer || ''}`));
     const targetTerms = new Set(contentTerms);
-    const contradictions = contradictionsForAll().filter(c => {
+    const contradictions = (useDocs && chunks.some(chunk => !chunk.knowledgeId) ? contradictionsForAll() : []).filter(c => {
       if (![c.a, c.b].every(item => R.passesFilters(item, filters) && !R.containsExcluded(item, filters))) return false;
       return !targetTerms.size || (c.sharedTerms || []).some(term => targetTerms.has(term));
     });
@@ -478,6 +504,7 @@
     const ctx = {
       question: q,
       mode,
+      scope,
       chunks,
       graphNodes,
       facts,
@@ -490,7 +517,7 @@
 
     // 3. Sin evidencia: respuesta honesta sin invocar LLM (evita alucinación)
     if (!chunks.length) {
-      ctx.suggestionSentences = (filteredIndex?.sentences || []).filter(sentence =>
+      ctx.suggestionSentences = (useDocs ? (filteredIndex?.sentences || []) : []).filter(sentence =>
         R.passesFilters(sentence, filters) && !R.containsExcluded(sentence, filters)).slice(0, 400);
       const text = composeExtractive(ctx);
       return finalize({ question: q, text, provider: 'internal', model: 'kimi-core', mode, chunks, citations: null, intent, t0, S, search: searchResult });
@@ -507,6 +534,12 @@
     if (o.signal?.aborted || (S && (S.state.index !== searchedIndex || searchedIndex.sentences.length !== searchedLength))) throw abortError();
 
     let text = (result.text || '').trim();
+    const localEntries = chunks.filter(chunk => chunk.knowledgeId).map(chunk => K.get(chunk.knowledgeId)).filter(Boolean);
+    if (localEntries.length) {
+      let notice = 'Base local: fichas resumidas recuperadas por términos; pueden no responder completamente. Revisa la ficha y su fuente.';
+      if (localEntries.some(entry => entry.legal)) notice += ` Revisión ${K.info().reviewed}; no se actualiza automáticamente y no sustituye asesoría jurídica. Verifica la vigencia y el régimen aplicable.`;
+      text = `> ${notice}\n\n${text}`;
+    }
     if (searchResult.neuralOnly && !searchResult.globalSample) {
       text = `> ⚠️ Al menos una fuente se seleccionó solo por similitud semántica. Podría no responder a la pregunta; revisa el pasaje original.\n\n${text}`;
     }
@@ -543,23 +576,30 @@
 
   function finalize(p) {
     const latency = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - p.t0;
-    const sources = (p.chunks || []).map((c, i) => ({
-      n: c.index || i + 1,
-      text: c.text,
-      excerpt: U.truncate(c.text, 220),
-      pageNum: c.pageNum,
-      sourcePage: c.sourcePage || null,
-      docName: c.docName,
-      docId: c.docId,
-      sentenceId: c.id || c.sentence?.id || null,
-      partIds: c.sentenceIds || (c.id ? [c.id] : []),
-      score: c.score || 0
-    }));
+    const sources = (p.chunks || []).map((c, i) => {
+      const entry = c.knowledgeId && K?.get(c.knowledgeId);
+      return {
+        n: c.index || i + 1,
+        text: c.text,
+        excerpt: U.truncate(c.text, 220),
+        pageNum: c.pageNum,
+        sourcePage: c.sourcePage || null,
+        docName: c.docName,
+        docId: c.docId,
+        sentenceId: c.id || c.sentence?.id || null,
+        partIds: c.sentenceIds || (c.id ? [c.id] : []),
+        score: c.score || 0,
+        ...(entry ? { origin: 'knowledge', knowledgeId: entry.id, title: entry.title,
+          sourceName: entry.sourceName, sourceUrl: entry.sourceUrl, reviewed: entry.reviewed,
+          category: entry.category, legal: entry.legal } : { origin: 'document' })
+      };
+    });
 
     const trace = [];
     trace.push(`intención: ${p.intent || 'auto'} → modo ${p.mode || 'auto'}`);
     if (p.search) {
-      trace.push(`recuperación: ${p.search.hits.length} de ${p.search.total} candidatas en ${p.search.tookMs} ms`);
+      trace.push(`documentos: ${p.search.hits.length} de ${p.search.total} candidatas en ${p.search.tookMs} ms · ámbito: ${p.search.scope || 'both'}`);
+      if (p.search.scope !== 'documents') trace.push(`base local: ${p.search.knowledgeTotal || 0} fichas coincidentes por términos`);
       if (p.search.neuralUsed) trace.push('recuperación semántica: MiniLM ONNX local');
       if (p.search.parsed && p.search.parsed.hasFilters) trace.push(`filtros: ${JSON.stringify(p.search.parsed.filters)}`);
     }
@@ -617,9 +657,14 @@
     ].join('\n');
     const body = result.text || '';
     const sources = result.sources.length
-      ? '\n\n---\n## Fuentes\n' + result.sources.map(s =>
-        `${s.n}. ${s.excerpt}${s.docName ? ' — *' + s.docName + '*' : ''}${(s.sourcePage || s.pageNum) ? ' (Pág ' + (s.sourcePage || s.pageNum) + ')' : ''}`
-      ).join('\n')
+      ? '\n\n---\n## Fuentes\n' + result.sources.map(s => {
+        // Los enlaces se resuelven desde la base canónica, nunca desde un
+        // respaldo importado que podría contener una URL arbitraria.
+        const entry = s.origin === 'knowledge' ? K?.get(s.knowledgeId) : null;
+        if (entry) return `${s.n}. Base local: ${entry.sourceText} — ${entry.sourceName}. Revisión: ${entry.reviewed}. ${entry.sourceUrl}`;
+        if (s.origin === 'knowledge') return `${s.n}. Ficha de base local no disponible en esta versión.`;
+        return `${s.n}. ${s.excerpt}${s.docName ? ' — *' + s.docName + '*' : ''}${(s.sourcePage || s.pageNum) ? ' (Pág ' + (s.sourcePage || s.pageNum) + ')' : ''}`;
+      }).join('\n')
       : '';
     return head + body + sources + '\n';
   }

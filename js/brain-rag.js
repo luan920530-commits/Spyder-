@@ -16,11 +16,17 @@
     const a = element('a'); a.href = url; a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+  function knowledgeLink(entry) {
+    const a = element('a', 'source-link knowledge-external', 'Abrir fuente original (requiere conexión) ↗');
+    a.href = entry.sourceUrl; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    return a;
+  }
   function goToSource(source) {
-    if (!source) return;
+    if (!source || source.origin === 'knowledge') return;
+    if (source.sentenceId && root.DocViewer?.goToSentence(source.sentenceId, source.docId)) return;
+    // El historial puede conservar una página cuya oración ya no está activa.
     S().holdAutoNavigation();
     S().setActiveDoc(source.docId, source.pageNum);
-    if (source.sentenceId) setTimeout(() => root.NeuralGraph?.scrollToSentence(source.sentenceId), 100);
   }
   function message(role, text) {
     const box = document.getElementById('chat-messages');
@@ -38,11 +44,22 @@
     const div = element('article', 'msg msg-ai');
     const body = element('div', 'answer-body');
     const sources = Array.isArray(result.sources) ? result.sources : [];
+    const localEntry = source => source?.origin === 'knowledge' ? root.NCKnowledge?.get(source.knowledgeId) : null;
+    function showLocalSource(n) {
+      const details = div.querySelector('.sources-details');
+      const row = div.querySelector(`[data-source-number="${n}"]`);
+      if (!details || !row) return;
+      details.open = true;
+      row.scrollIntoView({ block: 'nearest' });
+      row.focus({ preventScroll: true });
+    }
     function sourceButton(n, source) {
       const button = element('button', 'cite-ref', `[${n}]`);
       button.type = 'button';
-      button.title = `${source.docName || 'Fuente'} · pág. ${source.sourcePage || source.pageNum || '?'}`;
-      button.addEventListener('click', () => goToSource(source));
+      const entry = localEntry(source);
+      button.title = source.origin === 'knowledge' ? (entry ? `Ver ficha local: ${entry.title}` : 'Ficha local no disponible') :
+        `${source.docName || 'Fuente'} · pág. ${source.sourcePage || source.pageNum || '?'}`;
+      button.addEventListener('click', () => source.origin === 'knowledge' ? showLocalSource(n) : goToSource(source));
       return button;
     }
     const characterReply = result.mode === 'conversacion' && result.characterReply;
@@ -77,10 +94,22 @@
       details.appendChild(element('summary', '', `${sourceLabel} (${sources.length})`));
       const list = element('ol', 'source-list');
       sources.forEach((source, i) => {
-        const li = element('li');
-        const button = element('button', 'source-link', `[${i + 1}] ${source.docName || 'Documento'} · pág. ${source.sourcePage || source.pageNum || '?'}`);
-        button.type = 'button'; button.addEventListener('click', () => goToSource(source));
-        li.append(button, element('p', 'source-excerpt', source.excerpt || source.text || ''));
+        const li = element('li'); li.dataset.sourceNumber = String(i + 1); li.tabIndex = -1;
+        if (source.origin === 'knowledge') {
+          // Una ficha importada solo puede enlazar a entradas canónicas de esta
+          // instalación; no se ejecutan ni se abren URLs de un JSON externo.
+          const entry = localEntry(source);
+          li.appendChild(element('strong', 'knowledge-source-title', entry ? `[${i + 1}] BASE LOCAL · ${entry.title}` : `[${i + 1}] Ficha local no disponible en esta versión`));
+          if (entry) {
+            li.appendChild(element('p', 'source-excerpt', entry.sourceText));
+            li.appendChild(element('p', 'knowledge-source-meta', `${entry.category} · Revisión ${entry.reviewed} · ${entry.sourceName}`));
+            li.appendChild(knowledgeLink(entry));
+          }
+        } else {
+          const button = element('button', 'source-link', `[${i + 1}] ${source.docName || 'Documento'} · pág. ${source.sourcePage || source.pageNum || '?'}`);
+          button.type = 'button'; button.addEventListener('click', () => goToSource(source));
+          li.append(button, element('p', 'source-excerpt', source.excerpt || source.text || ''));
+        }
         list.appendChild(li);
       });
       details.appendChild(list); div.appendChild(details);
@@ -113,6 +142,7 @@
         // El historial puede conservar citas de un documento ya eliminado; no
         // atribuir una valoración nueva a IDs que ya no representan su fuente.
         const sentenceIds = [...new Set(rated.filter(source => {
+          if (source.origin === 'knowledge') return false;
           const live = source.sentenceId && S().getSentence(source.sentenceId);
           return live && live.docId === source.docId;
         }).map(source => source.sentenceId))];
@@ -122,8 +152,11 @@
           provider: result.provider || 'internal', mode: result.mode,
           citations: used, nodeIds, vaultIds: result.vaultIds || [], sentenceIds
         });
-        if (rating < 0) root.KimiAuxModel?.recordNegativeEpisode(result.text || '', { sentenceIds, question: result.question, feedbackId: record.id });
-        else root.KimiAuxModel?.trainOnPattern(result.text || '', 1.5);
+        // Las fichas de referencia no se entrenan como patrones personales.
+        if (!sources.some(source => source.origin === 'knowledge')) {
+          if (rating < 0) root.KimiAuxModel?.recordNegativeEpisode(result.text || '', { sentenceIds, question: result.question, feedbackId: record.id });
+          else root.KimiAuxModel?.trainOnPattern(result.text || '', 1.5);
+        }
         up.disabled = down.disabled = true;
         meta.textContent = sentenceIds.length ? 'Valoración guardada para las fuentes y, si MiniLM está activo, sus temas.' : 'Valoración guardada.';
       }
@@ -154,11 +187,17 @@
     S().emit('spider:queryStart', { requestId });
     controller.signal.addEventListener('abort', () => S().emit('spider:queryCancelled', { requestId }), { once: true });
     if (stop) stop.classList.toggle('hidden', !usingQwen || !!target);
-    const pending = !target ? message('system', usingQwen ? 'Qwen está preparando la respuesta local…' : selectedMode === 'conversacion' ? 'Buscando en el libro elegido…' : 'Buscando en tus documentos…') : null;
+    const pending = !target ? message('system', usingQwen ? 'Qwen está preparando la respuesta local…' : selectedMode === 'conversacion' ? 'Buscando en el libro elegido…' : 'Buscando en las fuentes seleccionadas…') : null;
     try {
       const result = await root.NCRag.ask(q, { mode: selectedMode, signal: controller.signal,
         onRetrieved(detail) {
-          if (!controller.signal.aborted) S().emit('spider:queryVisual', { ...detail, query: q, requestId });
+          // Las fichas locales no son páginas del visor; solo se anima el
+          // enjambre cuando hay candidatos privados. En búsquedas exclusivamente
+          // documentales, conservar el aviso de que no hubo pasajes para dirigir.
+          if (controller.signal.aborted) return;
+          if (detail.hits?.length) S().emit('spider:queryVisual', { ...detail, query: q, requestId });
+          else if (detail.scope === 'documents' && !detail.globalSample)
+            S().emit('spiders:queryGuidance', { method: detail.method, sent: 0, pending: 0 });
         },
         onToken(text) {
           if (!pending || controller.signal.aborted) return;
@@ -188,7 +227,7 @@
     const box = document.getElementById('chat-messages');
     if (!box) return;
     box.replaceChildren();
-    message('system', 'Procesamiento local. Carga un documento o usa Demo; Qwen opcional se activa desde MODELO para conversar con personajes.');
+    message('system', 'Procesamiento local. Consulta la base local o carga un documento; Qwen opcional se activa desde MODELO para conversar con personajes.');
     (S().state.chat || []).slice(-30).forEach(entry => {
       if (entry.role !== 'assistant') return;
       if (entry.question) message('user', entry.question);
@@ -215,8 +254,9 @@
       document.getElementById('btn-character-qwen').classList.toggle('hidden', qwen);
       document.getElementById('study-quick-actions')?.classList.toggle('hidden', active);
       document.getElementById('character-quick-actions')?.classList.toggle('hidden', !active);
+      document.getElementById('knowledge-controls')?.classList.toggle('hidden', active);
       const chat = document.getElementById('chat-input');
-      if (chat) chat.placeholder = active ? 'Habla con tu personaje…' : 'Pregunta sobre tus documentos…';
+      if (chat) chat.placeholder = active ? 'Habla con tu personaje…' : 'Pregunta a tus documentos o a la base local…';
       const docs = textDocs(), key = JSON.stringify(docs.map(doc => [doc.id, doc.name]));
       if (key !== optionsKey) {
         optionsKey = key;
@@ -285,15 +325,45 @@
     S().on('system:reset', reset); S().on('brain:imported', reset);
     sync();
   }
+  function setupKnowledge() {
+    const select = document.getElementById('search-scope'), catalog = document.getElementById('knowledge-catalog');
+    const meta = document.getElementById('knowledge-meta'), knowledge = root.NCKnowledge;
+    if (!select || !catalog || !meta || !knowledge) return;
+    const sync = () => {
+      const value = S().getSetting('searchScope', 'both');
+      select.value = ['both', 'documents', 'knowledge'].includes(value) ? value : 'both';
+    };
+    select.addEventListener('change', () => S().setSetting('searchScope', select.value));
+    S().on('settings:changed', ({ key }) => { if (key === 'searchScope') sync(); });
+    S().on('system:reset', sync); S().on('brain:imported', sync);
+    const info = knowledge.info();
+    meta.textContent = `${info.count} fichas · revisión ${info.reviewed} · referencias y ejemplos, no un modelo generativo.`;
+    for (const category of info.categories) {
+      const entries = knowledge.list().filter(entry => entry.category === category);
+      const group = element('details', 'knowledge-category');
+      group.appendChild(element('summary', '', `${category} (${entries.length})`));
+      entries.forEach(entry => {
+        const item = element('details', 'knowledge-entry');
+        item.appendChild(element('summary', '', entry.title));
+        item.appendChild(element('p', '', entry.sourceText));
+        item.appendChild(element('p', 'knowledge-source-meta', `${entry.sourceName} · revisión ${entry.reviewed}`));
+        item.appendChild(knowledgeLink(entry));
+        group.appendChild(item);
+      });
+      catalog.appendChild(group);
+    }
+    sync();
+  }
   function init() {
-    // Una recuperación pendiente no debe escribir ni despachar tras cambiar el corpus.
+    // Una recuperación pendiente no debe escribir ni despachar tras cambiar el corpus o ámbito.
     ['doc:added', 'doc:removed', 'system:resetting', 'brain:importing'].forEach(event => S().on(event, () => currentSend?.abort()));
     S().on('settings:changed', ({ key }) => {
-      if (['mode', 'characterDocId', 'characterName'].includes(key)) currentSend?.abort();
+      if (['mode', 'searchScope', 'characterDocId', 'characterName'].includes(key)) currentSend?.abort();
     });
     const form = document.getElementById('chat-form');
     const input = document.getElementById('chat-input');
     restoreChat();
+    setupKnowledge();
     setupCharacter();
     form?.addEventListener('submit', e => {
       e.preventDefault();

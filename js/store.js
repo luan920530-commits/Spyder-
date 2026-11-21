@@ -25,6 +25,7 @@
     provider: 'internal',
     model: '',
     mode: 'auto',
+    searchScope: 'both',
     characterDocId: '',
     characterName: '',
     qwenEnabled: false,
@@ -130,11 +131,12 @@
   // ─────────────────────────────────────────────────────────────────────────
   const dirty = new Set();
   const SAVE_DEBOUNCE = 900;
+  const ALL_COLLECTIONS = ['docs', 'nodes', 'links', 'patterns', 'vault', 'chat', 'feedback', 'cards', 'quizRuns', 'evalRuns', 'settings', 'memory'];
   let saveTimer = null;
 
   function scheduleSave(collection) {
     if (collection) dirty.add(collection);
-    else ['docs', 'nodes', 'links', 'patterns', 'vault', 'chat', 'feedback', 'cards', 'quizRuns', 'evalRuns', 'settings', 'memory'].forEach(c => dirty.add(c));
+    else ALL_COLLECTIONS.forEach(c => dirty.add(c));
     clearTimeout(saveTimer);
     saveTimer = setTimeout(flush, SAVE_DEBOUNCE);
   }
@@ -156,40 +158,69 @@
     }));
   }
 
-  let flushChain = Promise.resolve();
+  function snapshot(items, fullHistory = false) {
+    const data = {}, tail = (array, limit) => fullHistory ? array : array.slice(-limit);
+    // Las URL blob son efímeras; nunca se guardan como archivos originales.
+    if (items.includes('docs')) data.docs = state.docs.map(doc => ({ ...doc, mediaUrl: null }));
+    // Paginar la interfaz no debe descartar las cosechas más antiguas.
+    if (items.includes('patterns')) data.patterns = state.patterns;
+    if (items.includes('nodes')) data.nodes = serializeNodes();
+    if (items.includes('links')) data.links = serializeLinks();
+    if (items.includes('vault')) data.vault = state.vault;
+    if (items.includes('chat')) data.chat = tail(state.chat, 200);
+    if (items.includes('feedback')) data.feedback = tail(state.feedback, 400);
+    if (items.includes('cards')) data.cards = state.cards;
+    if (items.includes('quizRuns')) data.quizRuns = tail(state.quizRuns, 50);
+    if (items.includes('evalRuns')) data.evalRuns = tail(state.evalRuns, 50);
+    if (items.includes('memory')) data.consolidatedMemory = tail(state.consolidatedMemory, 300);
+    if (items.includes('settings')) data.settings = state.settings;
+    data.meta = { schema: 11, savedAt: Date.now(), docs: state.docs.length,
+      sentences: state.allSentences.length, nodes: state.nodes.filter(n => !n.isHub).length };
+    return data;
+  }
+
+  function detachSnapshot(value) {
+    if (typeof structuredClone === 'function') return structuredClone(value);
+    // Compatibilidad con navegadores sin structuredClone: las colecciones de la
+    // aplicación son objetos y arreglos; conservar funciones para que IDB las
+    // rechace en vez de descartarlas silenciosamente como haría JSON.stringify.
+    const seen = new WeakMap();
+    function copy(item) {
+      if (!item || typeof item !== 'object') return item;
+      if (seen.has(item)) return seen.get(item);
+      if (!Array.isArray(item) && Object.prototype.toString.call(item) !== '[object Object]') return item;
+      const result = Array.isArray(item) ? [] : {};
+      seen.set(item, result);
+      Object.keys(item).forEach(key => Object.defineProperty(result, key, {
+        value: copy(item[key]), enumerable: true, configurable: true, writable: true
+      }));
+      return result;
+    }
+    return copy(value);
+  }
+
+  let flushChain = Promise.resolve(true);
   function flush() {
     clearTimeout(saveTimer);
     if (!dirty.size) return flushChain;
     const items = Array.from(dirty); dirty.clear();
     flushChain = flushChain.then(async () => {
       const started = Date.now();
-      const put = async (key, value) => {
-        if (!(await DB.put(key, value))) throw new Error('almacenamiento lleno o no disponible');
-      };
-      if (items.includes('docs')) {
-        // Las URL blob son efímeras; nunca se guardan como si fueran archivos originales.
-        await put('docs', state.docs.map(doc => ({ ...doc, mediaUrl: null })));
-      }
-      if (items.includes('patterns')) await put('patterns', state.patterns.slice(-4000));
-      if (items.includes('nodes')) await put('nodes', serializeNodes());
-      if (items.includes('links')) await put('links', serializeLinks());
-      if (items.includes('vault')) await put('vault', state.vault);
-      if (items.includes('chat')) await put('chat', state.chat.slice(-200));
-      if (items.includes('feedback')) await put('feedback', state.feedback.slice(-400));
-      if (items.includes('cards')) await put('cards', state.cards);
-      if (items.includes('quizRuns')) await put('quizRuns', state.quizRuns.slice(-50));
-      if (items.includes('evalRuns')) await put('evalRuns', state.evalRuns.slice(-50));
-      if (items.includes('memory')) await put('consolidatedMemory', state.consolidatedMemory.slice(-300));
-      if (items.includes('settings')) await put('settings', state.settings);
-      await put('meta', { schema: 11, savedAt: Date.now(), docs: state.docs.length,
-        sentences: state.allSentences.length, nodes: state.nodes.filter(n => !n.isHub).length });
+      // Congelar una generación antes de esperar a la base evita que nuevas
+      // cosechas muten unas colecciones pero no otras durante la transacción.
+      // IndexedDB escribe juntas las claves; localStorage intenta revertir.
+      await DB.importAll({ data: detachSnapshot(snapshot(items)) }, { merge: true });
       state.persistence.lastSave = Date.now();
       state.persistence.bytes = JSON.stringify(state.docs).length;
       state.persistence.available = DB.status ? DB.status().available : true;
       emit('persistence:saved', { tookMs: Date.now() - started, collections: items });
+      return true;
     }).catch(error => {
+      // No se pierde la intención de guardar: el siguiente intento las incluye.
+      items.forEach(item => dirty.add(item));
       console.warn('[Store] No se pudo guardar:', error);
       emit('persistence:error', error);
+      return false;
     });
     return flushChain;
   }
@@ -332,22 +363,50 @@
     return `${source}>${target}:${kind || 'h'}`;
   }
 
+  // Índices derivados: una cosecha no debe recorrer todos los nodos y enlaces
+  // previos. Se reconstruyen si una importación, borrado o inserción externa
+  // sustituye las colecciones o cambia su longitud; nunca se serializan.
+  let indexedNodes = null, indexedNodeCount = -1, patternNodes = new Map(), unusualAnchors = false;
+  let indexedLinks = null, indexedLinkCount = -1, linkKeys = new Set();
+  function rememberPatternNode(node) {
+    if (!node || node.isHub) return;
+    const norm = U.normalize(node.label).trim();
+    let anchors = patternNodes.get(norm);
+    if (!anchors) { anchors = new Map(); patternNodes.set(norm, anchors); }
+    const ids = node.sentenceIds || [];
+    if (!Array.isArray(ids)) { unusualAnchors = true; return; }
+    if (!ids.length) { if (!anchors.has(null)) anchors.set(null, node); }
+    else ids.forEach(id => { if (id && !anchors.has(id)) anchors.set(id, node); });
+  }
+  function findPatternNode(norm, sentenceId) {
+    if (indexedNodes !== state.nodes || indexedNodeCount !== state.nodes.length) {
+      patternNodes = new Map(); unusualAnchors = false;
+      state.nodes.forEach(rememberPatternNode);
+      indexedNodes = state.nodes; indexedNodeCount = state.nodes.length;
+    }
+    if (unusualAnchors) return state.nodes.find(n => !n.isHub && U.normalize(n.label).trim() === norm &&
+      (sentenceId ? (n.sentenceIds || []).includes(sentenceId) : !(n.sentenceIds || []).length));
+    return patternNodes.get(norm)?.get(sentenceId || null);
+  }
   function addLink(source, target, kind, strength) {
+    if (indexedLinks !== state.links || indexedLinkCount !== state.links.length) {
+      linkKeys = new Set(state.links.map(link => link.key));
+      indexedLinks = state.links; indexedLinkCount = state.links.length;
+    }
     const key = linkKey(source, target, kind);
-    if (state.links.some(l => l.key === key)) return null;
+    if (linkKeys.has(key)) return null;
     const link = { key, source, target, kind: kind || 'hierarchy', strength: strength || 1 };
-    state.links.push(link);
+    state.links.push(link); linkKeys.add(key); indexedLinkCount = state.links.length;
     return link;
   }
 
   function addPattern({ cluster, label, text, pageNum, sentenceId, color, section }) {
     if (!label || !text) return null;
     const norm = U.normalize(label).trim();
-    const hash = U.hash(text);
+    const hash = U.hash(text), alreadyVisited = state.visitedPatternHashes.has(hash);
     // La misma etiqueta genérica puede aparecer en temas distintos. Solo se
     // fusiona otra cosecha del mismo ancla; las etiquetas ya no definen temas.
-    const existing = state.nodes.find(n => !n.isHub && U.normalize(n.label).trim() === norm &&
-      (sentenceId ? (n.sentenceIds || []).includes(sentenceId) : !(n.sentenceIds || []).length));
+    const existing = findPatternNode(norm, sentenceId);
 
     let node;
     const isNew = !existing;
@@ -374,11 +433,12 @@
         createdAt: Date.now()
       };
       state.nodes.push(node);
+      rememberPatternNode(node); indexedNodeCount = state.nodes.length;
       addLink(cluster, node.id, 'hierarchy');
       state.visitedPatternHashes.add(hash);
     }
 
-    if (!state.patterns.some(p => p.hash === hash)) {
+    if (!alreadyVisited) {
       state.patterns.push({ hash, cluster, label: node.label, text, pageNum, sentenceId, color, section: section || '', ts: Date.now() });
     }
 
@@ -607,15 +667,17 @@
   }
 
   async function exportBrain() {
+    // También si la cuota impide guardar, un respaldo debe contener el estado
+    // actual completo, no una mezcla de claves antiguas y nuevas en IndexedDB.
     await savePersistent();
-    const dump = DB.exportAll ? await DB.exportAll() : { data: {} };
+    const data = JSON.parse(JSON.stringify(snapshot(ALL_COLLECTIONS, true)));
     return {
       app: 'NEURAL COMMAND // AI SPIDER OS',
       version: 11,
       exportedAt: new Date().toISOString(),
       stats: R.stats(state.index),
       auxiliary: auxiliarySnapshot(),
-      data: dump.data
+      data
     };
   }
 

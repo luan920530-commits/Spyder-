@@ -11,6 +11,7 @@
 
   let renderScheduled = false;
   let ingestError = '';
+  let pendingSource = null;
   // El enjambre consulta posiciones con frecuencia; evita recorrer todo el DOM por frame.
   const sentenceElements = new Map();
 
@@ -18,6 +19,25 @@
     if (renderScheduled) return;
     renderScheduled = true;
     requestAnimationFrame(() => { renderScheduled = false; render(); });
+  }
+
+  // Las citas se revelan después del render real, no tras un plazo fijo:
+  // una página grande o un navegador lento pueden tardar más de 100 ms.
+  function goToSentence(id, expectedDocId) {
+    const S = store(), sentence = S?.getSentence(id);
+    if (!sentence || (expectedDocId && sentence.docId !== expectedDocId)) return false;
+    pendingSource = { id, docId: sentence.docId, pageNum: sentence.pageNum };
+    S.holdAutoNavigation();
+    S.setActiveDoc(sentence.docId, sentence.pageNum);
+    return true;
+  }
+
+  function revealPendingSource() {
+    if (!pendingSource) return;
+    const request = pendingSource; pendingSource = null;
+    const S = store();
+    if (S?.state.activeDocId === request.docId && S.state.activePage === request.pageNum)
+      root.NeuralGraph?.scrollToSentence(request.id);
   }
 
   function showIngestMessage(message) {
@@ -53,6 +73,7 @@
       if (btnNext) btnNext.disabled = true;
       if (sectionEl) sectionEl.textContent = 'Sin documento';
       if (statusEl) statusEl.textContent = 'Esperando material';
+      pendingSource = null;
       return;
     }
 
@@ -91,11 +112,12 @@
     if (btnNext) btnNext.disabled = S.state.activePage >= doc.pages.length;
     if (sectionEl) sectionEl.textContent = (page?.section || 'Sin sección') + (page?.sourcePage ? ` · PDF pág. ${page.sourcePage}` : '');
 
-    if (!contentEl) return;
+    if (!contentEl) { pendingSource = null; return; }
     contentEl.innerHTML = '';
 
     if (!page || !(page.sentences || []).length) {
       contentEl.textContent = page?.text || '';
+      pendingSource = null;
       return;
     }
 
@@ -124,6 +146,7 @@
       sentenceElements.set(sent.id, block);
       contentEl.appendChild(document.createTextNode(' '));
     });
+    revealPendingSource();
   }
 
   function renderDocTabs() {
@@ -218,11 +241,12 @@
 
     setupModals();
 
-    S.on('doc:pageChanged', () => { ingestError = ''; scheduleRender(); });
+    S.on('doc:pageChanged', ({ docId, pageNum } = {}) => {
+      if (pendingSource && (pendingSource.docId !== docId || pendingSource.pageNum !== pageNum)) pendingSource = null;
+      ingestError = ''; scheduleRender();
+    });
     S.on('doc:added', scheduleRender);
-    S.on('doc:removed', scheduleRender);
-    S.on('system:reset', scheduleRender);
-    S.on('brain:imported', scheduleRender);
+    ['doc:removed', 'system:reset', 'brain:imported'].forEach(event => S.on(event, () => { pendingSource = null; scheduleRender(); }));
     S.on('ingest:progress', detail => {
       const status = document.getElementById('ingest-status');
       if (!status) return;
@@ -255,5 +279,5 @@
     scheduleRender();
   }
 
-  root.DocViewer = { init, render, toast, getSentenceElement: id => sentenceElements.get(id) || null };
+  root.DocViewer = { init, render, toast, goToSentence, getSentenceElement: id => sentenceElements.get(id) || null };
 })(typeof window !== 'undefined' ? window : globalThis);

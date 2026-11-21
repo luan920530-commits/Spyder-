@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { IDBFactory } = require('fake-indexeddb');
+const { IDBFactory, IDBObjectStore } = require('fake-indexeddb');
 
 function storage() {
   const map = new Map();
@@ -10,6 +10,17 @@ function storage() {
     removeItem: k => map.delete(k),
     clear: () => map.clear()
   }, { ownKeys: () => [...map.keys()], getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }) });
+}
+async function persistedValue(key) {
+  return new Promise((resolve, reject) => {
+    const request = global.indexedDB.open('NeuralSpiderDB', 3);
+    request.onsuccess = () => {
+      const db = request.result, get = db.transaction('kv', 'readonly').objectStore('kv').get(key);
+      get.onsuccess = () => { resolve(get.result?.v); db.close(); };
+      get.onerror = () => reject(get.error);
+    };
+    request.onerror = () => reject(request.error);
+  });
 }
 async function createLegacy(indexedDB) {
   await new Promise((resolve, reject) => {
@@ -89,6 +100,115 @@ test('migración v2, persistencia, feedback, respaldo e importación validada', 
   assert.equal(S.state.cards.length, 1);
   assert.equal(S.state.feedback.length, 1);
   await S.resetAll({ keepSettings: false });
+});
+
+test('una red grande conserva todas las cosechas y reconstruye los índices tras importar o borrar', async () => {
+  const S = global.NeuralStore;
+  await S.resetAll({ keepSettings: false });
+  for (let i = 0; i < 4101; i++) S.addPattern({ cluster: 'AGT-01', label: 'Concepto común',
+    text: `Pasaje sintético número ${i}`, pageNum: 1, sentenceId: `fuente-${i}` });
+  assert.equal(S.state.nodes.length, 4101);
+  assert.equal(S.state.links.length, 4101);
+  assert.equal(S.state.patterns.length, 4101);
+  const firstId = S.state.nodes[0].id;
+  await S.savePersistent();
+  const persisted = await persistedValue('patterns');
+  assert.equal(persisted.length, 4101, 'no se descartan silenciosamente las primeras cosechas');
+  assert.equal(persisted[0].sentenceId, 'fuente-0');
+  const backup = await S.exportBrain();
+  assert.equal(backup.data.nodes.length, 4101);
+  assert.equal(backup.data.links.length, 4101);
+  assert.equal(backup.data.patterns.length, 4101);
+  await S.resetAll({ keepSettings: false });
+  await S.importBrain(backup);
+  assert.equal(S.state.patterns.length, 4101);
+  assert.equal(S.state.nodes[0].sentenceIds[0], 'fuente-0');
+  const same = S.addPattern({ cluster: 'AGT-02', label: 'Concepto común', text: 'Pasaje sintético número 0',
+    pageNum: 1, sentenceId: 'fuente-0' });
+  assert.equal(same.id, firstId, 'la misma etiqueta y ancla conservan el nodo');
+  assert.equal(S.state.patterns.length, 4101, 'el mismo texto no se registra dos veces');
+  assert.ok(S.state.links.some(link => link.source === firstId && link.target === 'AGT-02' && link.kind === 'synaptic'));
+  assert.equal(S.addLink(firstId, 'AGT-02', 'synaptic'), null, 'una relación existente no se duplica');
+  S.removeNode(firstId);
+  const replacement = S.addPattern({ cluster: 'AGT-01', label: 'Concepto común', text: 'Pasaje sintético número 0',
+    pageNum: 1, sentenceId: 'fuente-0' });
+  assert.notEqual(replacement.id, firstId, 'el índice no revive nodos eliminados');
+  assert.equal(S.state.nodes.length, 4101);
+  await S.resetAll({ keepSettings: false });
+});
+
+test('una cosecha concurrente no altera la instantánea de una transacción en curso', async () => {
+  const S = global.NeuralStore, DB = require('../js/db');
+  await S.resetAll({ keepSettings: false });
+  const pattern = i => ({ cluster: 'AGT-01', label: `Concepto ${i}`, text: `Pasaje ${i}`, sentenceId: `s-${i}` });
+  S.addPattern(pattern(1)); await S.savePersistent();
+  S.addPattern(pattern(2));
+  const original = DB.importAll;
+  let release, started;
+  const gate = new Promise(resolve => { release = resolve; });
+  const startedSaving = new Promise(resolve => { started = resolve; });
+  DB.importAll = async (...args) => { started(); await gate; return original(...args); };
+  try {
+    const firstSave = S.savePersistent();
+    await startedSaving;
+    S.addPattern(pattern(3));
+    release();
+    assert.equal(await firstSave, true);
+    assert.equal((await persistedValue('patterns')).length, 2);
+    assert.equal((await persistedValue('nodes')).length, 2);
+    assert.equal((await persistedValue('links')).length, 2);
+    assert.equal(S.state.patterns.length, 3, 'la nueva cosecha sigue en memoria');
+    DB.importAll = original;
+    assert.equal(await S.flush(), true);
+    assert.equal((await persistedValue('patterns')).length, 3);
+    assert.equal((await persistedValue('nodes')).length, 3);
+  } finally {
+    release(); DB.importAll = original;
+    await S.resetAll({ keepSettings: false });
+  }
+});
+
+test('un fallo de guardado no mezcla generaciones y permite respaldar y reintentar el estado actual', async () => {
+  const S = global.NeuralStore;
+  await S.resetAll({ keepSettings: false });
+  const pattern = i => ({ cluster: 'AGT-01', label: `Concepto ${i}`, text: `Pasaje ${i}`, sentenceId: `s-${i}` });
+  S.addPattern(pattern(1));
+  assert.equal(await S.savePersistent(), true);
+  const lastSave = S.state.persistence.lastSave;
+  S.addPattern(pattern(2));
+  // Simular cuota al escribir la bóveda, después de preparar otras claves:
+  // la transacción debe revertir las escrituras que ya estaban encoladas.
+  S.state.vault.push({ id: 'valid', phrase: 'Copia local' });
+  const originalPut = IDBObjectStore.prototype.put;
+  let failuresLeft = 2;
+  IDBObjectStore.prototype.put = function (value, ...args) {
+    if (value.k === 'vault' && failuresLeft) { failuresLeft--; throw new Error('cuota simulada'); }
+    return originalPut.call(this, value, ...args);
+  };
+  const failures = [], off = S.on('persistence:error', error => failures.push(error));
+  const oldWarn = console.warn; console.warn = () => {};
+  try {
+    assert.equal(await S.savePersistent(), false);
+    assert.equal(S.state.persistence.lastSave, lastSave);
+    assert.equal((await persistedValue('patterns')).length, 1);
+    assert.equal((await persistedValue('nodes')).length, 1);
+    assert.equal((await global.NCDB.get('patterns')).length, 1, 'leer de nuevo no mezcla el estado mutable con lo guardado');
+    assert.equal((await global.NCDB.get('nodes')).length, 1);
+    const backup = await S.exportBrain();
+    assert.equal(backup.data.patterns.length, 2, 'el respaldo toma el estado actual aunque falle la cuota');
+    assert.equal(backup.data.nodes.length, 2);
+    assert.equal(backup.data.links.length, 2);
+    assert.ok(failures.length >= 2, 'el fallo se notifica también al exportar');
+    S.addPattern(pattern(3));
+    assert.equal(backup.data.patterns.length, 2, 'el respaldo no comparte colecciones mutables');
+    assert.equal(await S.flush(), true, 'las colecciones fallidas se reintentan');
+    assert.equal((await persistedValue('patterns')).length, 3);
+    assert.equal((await persistedValue('nodes')).length, 3);
+  } finally {
+    IDBObjectStore.prototype.put = originalPut;
+    console.warn = oldWarn; off();
+    await S.resetAll({ keepSettings: false });
+  }
 });
 
 test('el feedback modifica el orden de pasajes de la misma consulta', async () => {

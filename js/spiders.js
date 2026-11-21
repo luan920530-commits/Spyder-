@@ -36,7 +36,7 @@
   let activeCount = 1;
   let lastFrameTime = 0;
   let fpsCounter = 60;
-  let animationTime = 0, scanOwner = null;
+  let animationTime = 0;
   let lastScrollX = 0, lastScrollY = 0, lastDocScroll = 0, lastLayout = null;
   let harvestWindow = { at: 0, count: 0 };
   let lastProgressEmit = 0;
@@ -161,6 +161,8 @@
     }
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   }
+  // La navegación automática del visor no debe borrar una lectura en curso.
+  // Esto NO bloquea el trabajo: los demás agentes leen copias independientes.
   function documentBusy(except) {
     return spiders.some(other => other !== except && other.targetSentence &&
       (other.phase === 'IR_A_PALABRA' || other.phase === 'EXTRAER_DATOS'));
@@ -181,11 +183,11 @@
         const el = chunkElements(s)[0];
         return !el || isWordVisible(firstWord(el));
       });
-      if (visible.length) pool = visible;
-      else if (!documentBusy(sp)) pool = local;
-      else return null; // No desplazar el texto que otra araña está escaneando.
+      pool = visible.length ? visible : local;
     } else {
-      if (!mayNavigate || documentBusy(sp)) return null;
+      if (!mayNavigate) return null;
+      // Con AUTO activo también se pueden leer otras páginas en un carril
+      // independiente, sin cambiar la página que está viendo el usuario.
       pool = available;
     }
     let best = null, bestScore = -Infinity;
@@ -196,8 +198,12 @@
       if (score > bestScore) { bestScore = score; best = sentence; }
     }
     if (!best) return null;
-    if ((!doc || best.docId !== doc.id) && mayNavigate) S.setActiveDoc(best.docId, best.pageNum);
-    else if (best.pageNum !== page && mayNavigate) S.setActivePage(best.pageNum);
+    // Solo se mueve el visor cuando no interrumpe a otros lectores. Si está
+    // ocupado, assignTarget crea un carril con el texto real de la otra página.
+    if (mayNavigate && !documentBusy(sp)) {
+      if (!doc || best.docId !== doc.id) S.setActiveDoc(best.docId, best.pageNum);
+      else if (best.pageNum !== page) S.setActivePage(best.pageNum);
+    }
     S.state.claimedTargets.add(best.id);
     sp.thought = `${sp.id} [${sp.role}]: analizando «${U.truncate(best.text, 34)}»`;
     return best;
@@ -230,10 +236,10 @@
         const mayNavigate = (!auto || auto.checked) && Date.now() >= (S.state.autoNavigationPausedUntil || 0);
         const local = item => item.sentence.docId === S.state.activeDocId && item.sentence.pageNum === S.state.activePage;
         let item = current.targets[0];
-        if (!local(item) && (!mayNavigate || documentBusy(sp))) item = current.targets.find(local);
+        if (!local(item) && !mayNavigate) item = current.targets.find(local);
         if (!item) break;
         const sentence = item.sentence;
-        if (!local(item)) {
+        if (!local(item) && !documentBusy(sp)) {
           if (sentence.docId !== S.state.activeDocId) S.setActiveDoc(sentence.docId, sentence.pageNum);
           else S.setActivePage(sentence.pageNum);
         }
@@ -294,10 +300,80 @@
       idleNext: 'network', idleVisits: 0, idleLastNode: null, harvestedCount: 0
     });
   }
+  // Cada lector simultáneo tiene su propia copia visual efímera del pasaje.
+  // No se crean documentos ni citas nuevos: los datos siguen en targetSentence.
+  // Los carriles viven dentro del visor, pero no comparten su scroll vertical.
+  function makeScanTrack(sp, sentence) {
+    const zone = document.getElementById('doc-dropzone');
+    if (!zone) return null;
+    let tracks = document.getElementById('scan-tracks');
+    if (!tracks) {
+      tracks = document.createElement('div'); tracks.id = 'scan-tracks'; tracks.className = 'scan-tracks';
+      tracks.setAttribute('role', 'region'); tracks.setAttribute('aria-label', 'Lecturas simultáneas');
+      zone.prepend(tracks);
+    }
+    const row = document.createElement('div'), label = document.createElement('span'), text = document.createElement('span');
+    row.className = 'scan-track'; row.dataset.spider = sp.id; row.dataset.sentenceId = sentence.id;
+    row.title = `${sp.id} · ${sentence.docName || 'Documento'} · pág. ${sentence.sourcePage || sentence.pageNum}`;
+    row.setAttribute('role', 'group');
+    row.setAttribute('aria-label', `${row.title}. Fragmento: ${sentence.text}`);
+    label.className = 'scan-track-label'; label.textContent = `${sp.id.slice(-2)} · P${sentence.sourcePage || sentence.pageNum}`;
+    text.className = 'scan-track-text sentence-block';
+    // El recorrido visual tiene la misma cota de 18 palabras que el visor.
+    const terms = String(sentence.text || '').trim().split(/\s+/).filter(Boolean).slice(0, 18);
+    terms.forEach((term, index) => {
+      if (index) text.appendChild(document.createTextNode(' '));
+      const word = document.createElement('span'); word.className = 'word-span'; word.textContent = term; text.appendChild(word);
+    });
+    row.append(label, text); tracks.appendChild(row);
+    return { row, text };
+  }
+  function scanWordVisible(sp, word) {
+    if (!sp.scanTrack) return isWordVisible(word);
+    const r = rectOf(word), box = sp.scanTrack.text.getBoundingClientRect();
+    if (!r || !box) return false;
+    if (!r.width && !r.height) return true; // jsdom
+    // Una palabra más ancha que el carril solo puede verse parcialmente.
+    const horizontal = r.width > box.width - 4
+      ? r.right > box.left && r.left < box.right
+      : r.left >= box.left && r.right <= box.right;
+    return horizontal && isWordVisible(word);
+  }
+  function scanWordPosition(sp, word, reveal) {
+    if (!sp.scanTrack) return wordPosition(word, reveal);
+    let r = rectOf(word);
+    const box = sp.scanTrack.text.getBoundingClientRect();
+    if (!r || !box) return null;
+    if (reveal && r.width && box.width) {
+      let delta = 0;
+      // No alternar entre ambos extremos si la palabra no cabe: mantener
+      // visible su comienzo y dirigir la araña a la parte que sí se ve.
+      if (r.width > box.width - 4) delta = r.left - box.left;
+      else if (r.left < box.left + 2) delta = r.left - box.left - 2;
+      else if (r.right > box.right - 2) delta = r.right - box.right + 2;
+      if (delta) {
+        const before = sp.scanTrack.text.scrollLeft;
+        sp.scanTrack.text.scrollLeft += delta;
+        const scrolled = sp.scanTrack.text.scrollLeft - before;
+        // El texto se mueve bajo el lector. Mantener la araña sobre su última
+        // palabra evita giros artificiales hacia atrás al revelar una palabra
+        // más larga y conserva la dirección de la lectura en carriles estrechos.
+        if (sp.phase === 'EXTRAER_DATOS' && scrolled)
+          sp.x = Math.max(box.left, Math.min(box.right, sp.x - scrolled));
+        r = rectOf(word);
+      }
+    }
+    const left = Math.max(r.left, box.left), right = Math.min(r.right, box.right);
+    const x = right > left ? (left + right) / 2 : Math.max(box.left, Math.min(box.right, r.left + r.width / 2));
+    return { x, y: r.top + r.height / 2 };
+  }
   function assignTarget(sp, sentence, now, queryId) {
     // Solo interrumpir el reposo de la araña que recibe el trabajo.
     clearSpiderIdle(sp);
     sp.wait = null; sp.targetSentence = sentence; sp.queryId = queryId || null; sp.phase = 'IR_A_PALABRA'; sp.lastProgressAt = now;
+    const S = store();
+    sp.scanTrack = (activeCount > 1 || sentence.docId !== S?.state.activeDocId || sentence.pageNum !== S?.state.activePage)
+      ? makeScanTrack(sp, sentence) : null;
     sp.route = null; sp.approach = 'pending';
   }
   function clearScan(sp) {
@@ -307,7 +383,31 @@
     });
     (sp.scanWords || []).forEach(word => word.classList.remove('word-scanned', 'word-scanning'));
     sp.scanWords = []; sp.scanElements = []; sp.scanElement = null; sp.scanIndex = -1; sp.scanHoldUntil = 0;
-    if (scanOwner === sp) scanOwner = null;
+    sp.scanTrack?.row.remove(); sp.scanTrack = null;
+  }
+  function moveReadingToTrack(sp) {
+    if (sp.scanTrack || !sp.targetSentence || !['IR_A_PALABRA', 'EXTRAER_DATOS'].includes(sp.phase)) return;
+    const track = makeScanTrack(sp, sp.targetSentence);
+    if (!track) return;
+    if (sp.phase === 'EXTRAER_DATOS') {
+      // Al aumentar el enjambre, trasladar una lectura ya iniciada sin
+      // repetirla ni borrar su reserva o el avance que llevaba en el visor.
+      const index = sp.scanIndex, hold = sp.scanHoldUntil;
+      clearScan(sp); sp.scanTrack = track;
+      sp.scanElements = [track.text]; sp.scanElement = track.text;
+      sp.scanWords = Array.from(track.text.querySelectorAll('.word-span')).slice(0, 18);
+      if (!sp.scanWords.length) sp.scanWords = [track.text];
+      track.text.classList.add('sentence-scanning');
+      track.text.style.setProperty('--spider-scan-color', sp.color);
+      sp.scanIndex = Math.min(index, sp.scanWords.length - 1); sp.scanHoldUntil = hold;
+      if (sp.scanIndex >= 0) {
+        sp.scanWords.slice(0, sp.scanIndex + 1).forEach(word => word.classList.add('word-scanned'));
+        const word = sp.scanWords[sp.scanIndex]; word.classList.add('word-scanning');
+        const pos = scanWordPosition(sp, word, true);
+        if (pos) { sp.x = pos.x; sp.y = pos.y; }
+      }
+    } else sp.scanTrack = track;
+    sp.route = null; sp.speed = 0; sp.lastProgressAt = animationTime;
   }
   function releaseClaim(sp) {
     const S = store();
@@ -323,6 +423,7 @@
     const S = store(), max = 5;
     activeCount = Math.max(1, Math.min(max, count));
     while (spiders.length < activeCount) spiders.push(createSpider(spiders.length));
+    if (activeCount > 1) spiders.forEach(moveReadingToTrack);
     if (spiders.length > activeCount) {
       const removed = spiders.slice(activeCount);
       const removedIds = new Set(removed.map(sp => sp.id));
@@ -399,7 +500,7 @@
     // La lectura sigue el contenido, también cuando el usuario desplaza el
     // visor o se revela una palabra de la siguiente línea.
     spiders.forEach(sp => {
-      if (sp.phase === 'IDLE' || sp.approach || sp.wait || (sp.phase !== 'EXTRAER_DATOS' && !within(sp, lastLayout.doc))) return;
+      if (sp.phase === 'IDLE' || sp.approach || sp.wait || sp.scanTrack || (sp.phase !== 'EXTRAER_DATOS' && !within(sp, lastLayout.doc))) return;
       sp.y -= delta;
       if (sp.cargo) sp.cargo.y -= delta;
       if (sp.phase !== 'EXTRAER_DATOS') sp.route = null;
@@ -633,8 +734,7 @@
     ctx.restore();
   }
   function beginScan(sp, element, now) {
-    scanOwner = sp;
-    sp.scanElements = chunkElements(sp.targetSentence);
+    sp.scanElements = sp.scanTrack ? [sp.scanTrack.text] : chunkElements(sp.targetSentence);
     if (!sp.scanElements.length) sp.scanElements = [element];
     sp.scanElement = sp.scanElements[0];
     sp.scanWords = sp.scanElements.flatMap(item => Array.from(item.querySelectorAll('.word-span'))).slice(0, 18);
@@ -645,7 +745,8 @@
       item.style.setProperty('--spider-scan-color', sp.color);
     });
     sp.phase = 'EXTRAER_DATOS'; sp.lastProgressAt = now; sp.route = null;
-    store()?.emit('spider:scanStart', { spiderId: sp.id, sentenceId: sp.targetSentence.id });
+    store()?.emit('spider:scanStart', { spiderId: sp.id, sentenceId: sp.targetSentence.id,
+      surface: sp.scanTrack ? 'independiente' : 'visor' });
   }
   function markScanWord(sp, index) {
     const words = sp.scanWords;
@@ -669,7 +770,7 @@
       // Sin recorrido prolongado: se procesa el mismo pasaje real y se libera
       // el resaltado al terminar, igual que en el modo anterior.
       markScanWord(sp, words.length - 1);
-      const end = wordPosition(words[words.length - 1], true);
+      const end = scanWordPosition(sp, words[words.length - 1], true);
       if (end) { sp.x = end.x; sp.y = end.y; }
       sp.speed = 0; finishScan(sp, now); return;
     }
@@ -682,55 +783,26 @@
     if (now < sp.scanHoldUntil) return;
     if (sp.scanIndex >= words.length - 1) { finishScan(sp, now); return; }
 
-    const index = sp.scanIndex + 1, target = wordPosition(words[index], true);
+    const index = sp.scanIndex + 1, target = scanWordPosition(sp, words[index], true);
     if (!target) return;
     // Anticipar el siguiente centro evita frenazos entre palabras de la misma
     // línea; si cambia de línea, frena y gira antes de recorrerla sin saltos.
-    const after = index + 1 < words.length && isWordVisible(words[index + 1])
-      ? wordPosition(words[index + 1], false) : null;
+    const after = index + 1 < words.length && scanWordVisible(sp, words[index + 1])
+      ? scanWordPosition(sp, words[index + 1], false) : null;
     const route = after ? [target, after] : [target];
     const result = walk(sp, route, dt, 150, true);
     if (result.reached) {
       markScanWord(sp, index);
-      sp.scanHoldUntil = index === words.length - 1 ? now + 100 : now;
+      // En el carril el texto se desplaza horizontalmente bajo la araña;
+      // conservar cada palabra un instante evita que pase en un solo frame.
+      sp.scanHoldUntil = now + (sp.scanTrack ? 120 : index === words.length - 1 ? 100 : 0);
     }
   }
-  // La espera es solo visual: cada araña con reserva pasea por un carril
-  // diferente sin resaltar palabras, desplazar el visor ni simular una lectura.
-  function updateScanWait(sp, dt, frame) {
-    const width = Math.max(1, window.innerWidth), height = Math.max(1, window.innerHeight);
-    const mx = Math.min(20, width / 2), my = Math.min(20, height / 2);
-    let area = { left: mx, right: width - mx, top: my, bottom: height - my };
-    if (frame?.doc) {
-      const visible = { left: Math.max(area.left, frame.doc.left + mx), right: Math.min(area.right, frame.doc.right - mx),
-        top: Math.max(area.top, frame.doc.top + my), bottom: Math.min(area.bottom, frame.doc.bottom - my) };
-      if (visible.right - visible.left >= 150 && visible.bottom - visible.top >= 80) area = visible;
-    }
-    const index = spiders.indexOf(sp);
-    const slots = [[.16, .27], [.5, .25], [.84, .27], [.28, .72], [.72, .72]];
-    const slot = slots[index % slots.length], w = area.right - area.left, h = area.bottom - area.top;
-    const radius = Math.min(26, w * .075, h * .12);
-    const angle = sp.wait.turn * Math.PI / 2 + index * .8;
-    const target = { x: area.left + w * slot[0] + Math.cos(angle) * radius,
-      y: area.top + h * slot[1] + Math.sin(angle) * radius };
-    if (walk(sp, [target], dt, 85, false, false).done) sp.wait.turn++;
-  }
-
   function updateSpider(sp, now, dt, frame) {
     const S = store();
     if (!S) return;
-    const waiting = sp.phase === 'IR_A_PALABRA' && scanOwner && scanOwner !== sp;
-    if (waiting) {
-      // El propietario tiene su propio límite de inactividad. La reserva que
-      // espera no caduca antes de que el propietario pueda liberar el visor.
-      sp.lastProgressAt = Math.max(sp.lastProgressAt, scanOwner.lastProgressAt);
-    } else if (sp.wait) {
-      // Al liberarse el visor, reanuda la ruta real con tiempo para alcanzarla.
-      sp.wait = null; sp.route = null; sp.approach = 'pending'; sp.lastProgressAt = now;
-    }
-    // Una tarea inmóvil y bloqueada se libera; un recorrido largo que sí
-    // avanza no se cancela solo por durar más de 30 segundos.
-    if (sp.phase !== 'IDLE' && !waiting && now - sp.lastProgressAt > 30000) { cancelTarget(sp); return; }
+    // Una tarea inmóvil se libera sin bloquear a las demás.
+    if (sp.phase !== 'IDLE' && now - sp.lastProgressAt > 30000) { cancelTarget(sp); return; }
     if (sp.targetSentence && !S.getSentence(sp.targetSentence.id)) { cancelTarget(sp); return; }
     if (sp.phase === 'IDLE') {
       // Una consulta pendiente tiene prioridad; espera sin desplazar otra lectura.
@@ -745,16 +817,12 @@
       return;
     }
     if (sp.phase === 'IR_A_PALABRA') {
-      // Si el usuario cambia de página, no se usa la posición obsoleta de otro texto.
-      if (S.state.activeDocId !== sp.targetSentence.docId || S.state.activePage !== sp.targetSentence.pageNum) { cancelTarget(sp); return; }
-      if (waiting) {
-        if (!sp.wait) { sp.wait = { turn: 0 }; sp.route = null; sp.approach = false; }
-        if (!isReduced()) updateScanWait(sp, dt, frame);
-        return;
-      }
-      const element = chunkElements(sp.targetSentence)[0], word = firstWord(element);
-      if (!element || !word) return; // El visor puede estar esperando su siguiente render.
-      const pos = wordPosition(word, true);
+      // Un carril tiene geometría y scroll propios; no depende de la página
+      // mostrada. El cambio manual de página cancela las tareas en curso.
+      if (!sp.scanTrack && (S.state.activeDocId !== sp.targetSentence.docId || S.state.activePage !== sp.targetSentence.pageNum)) { cancelTarget(sp); return; }
+      const element = sp.scanTrack?.text || chunkElements(sp.targetSentence)[0], word = firstWord(element);
+      if (!element || !element.isConnected || !word) return;
+      const pos = scanWordPosition(sp, word, true);
       if (!pos) return;
       if (travel(sp, pos, true, dt)) beginScan(sp, element, now);
       return;
@@ -863,8 +931,8 @@
       ctx.strokeStyle = sp.color; ctx.shadowColor = sp.color; ctx.shadowBlur = 5; ctx.lineWidth = .7;
       for (let i = Math.max(0, sp.scanIndex + 1); i < Math.min(sp.scanWords.length, sp.scanIndex + 4); i++) {
         const word = sp.scanWords[i];
-        if (!isWordVisible(word)) continue;
-        const pos = wordPosition(word, false);
+        if (!scanWordVisible(sp, word)) continue;
+        const pos = scanWordPosition(sp, word, false);
         if (pos) { ctx.globalAlpha = .35; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(pos.x - sp.x, pos.y - sp.y); ctx.stroke(); }
       }
       ctx.globalAlpha = .85; ctx.save(); ctx.rotate(isReduced() ? 0 : animationTime / 500);
@@ -1047,7 +1115,7 @@
 
     S.on('system:reset', () => {
       guidance = null;
-      spiders.forEach(cancelTarget); spiders = []; shockwaves = []; idleWebs = []; idleTime = 0; scanOwner = null;
+      spiders.forEach(cancelTarget); spiders = []; shockwaves = []; idleWebs = []; idleTime = 0;
       resetMicroBrains(); setSpiderCount(1); setPaused(false); emitProgress(animationTime, true);
     });
     emitProgress(animationTime, true);

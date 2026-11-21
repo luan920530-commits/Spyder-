@@ -82,13 +82,15 @@
   }
 
   function get(k) {
-    if (memory.has(k)) return Promise.resolve(memory.get(k));
     return open().then(database => {
       if (!database) {
+        // Leer primero la copia durable: las colecciones en memoria pueden
+        // haberse mutado después de un guardado fallido por cuota.
         try {
           const raw = localStorage.getItem(LS_PREFIX + k);
-          return raw ? JSON.parse(raw) : null;
-        } catch (_) { return null; }
+          if (raw !== null) return JSON.parse(raw);
+        } catch (_) {}
+        return memory.has(k) ? memory.get(k) : null;
       }
       return new Promise(resolve => {
         try {
@@ -96,8 +98,7 @@
           const req = tx.objectStore(STORE).get(k);
           req.onsuccess = () => {
             const row = req.result;
-            if (row && row.v !== undefined) { memory.set(k, row.v); resolve(row.v); }
-            else resolve(null);
+            resolve(row && row.v !== undefined ? row.v : null);
           };
           req.onerror = () => resolve(null);
         } catch (_) { resolve(null); }

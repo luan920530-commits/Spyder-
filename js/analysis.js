@@ -280,7 +280,7 @@
 
     if (top) {
       const num = top.numbers[0];
-      if (num) push(`¿Cómo se obtuvo exactamente ${num.raw}${num.unit === 'pct' ? '%' : ''} y bajo qué condiciones sería distinto?`, 'Mide la comprensión del respaldo empírico');
+      if (num) push(`¿Qué representa ${num.raw}${num.unit === 'pct' ? '%' : ''} y bajo qué condiciones sería distinto?`, 'Revisa el contexto de la cifra');
       push(`¿Qué supuesto implícito debe cumplirse para que «${U.truncate(top.text, 90)}» sea cierto?`, 'Obliga a explicitar premisas');
     }
     if ((keyTerms || []).length >= 2) {
@@ -290,8 +290,8 @@
       push(`Si eliminas «${U.words3(c.text)}», ¿qué parte del argumento se cae? (fuente [${c.index || i + 1}])`, 'Evalúa la estructura argumental');
     });
     const hasNumbers = (claims || []).some(c => c.numbers.length);
-    if (!hasNumbers) push('El material no aporta métricas: ¿qué evidencia cuantitativa necesitarías para validar la tesis?', 'Detecta vacíos de evidencia');
-    push('¿Qué contraejemplo haría falsa la tesis principal del documento?', 'Fomenta pensamiento crítico');
+    if (!hasNumbers) push('No se detectaron cifras automáticamente: ¿harían falta datos cuantitativos para validar la tesis?', 'Considera posibles vacíos de evidencia');
+    push('¿Qué contraejemplo haría falsa la tesis principal del material consultado?', 'Fomenta pensamiento crítico');
     return out.slice(0, 6);
   }
 
@@ -303,11 +303,13 @@
 
   function critique(chunks, claims, contradictions) {
     const bullets = [];
-    const density = evidenceDensity((chunks || []).map(c => c.sentence || c));
+    // Solo contar el texto mostrado, no el ancla completa ni palabras clave
+    // que pudieron quedar fuera del contexto por filtros o exclusiones.
+    const density = evidenceDensity(chunks || []);
     if (density.ratio < 0.25) {
-      bullets.push({ kind: 'warn', text: `Baja densidad cuantitativa: solo ${density.withNumbers}/${density.total} fragmentos aportan cifras verificables.` });
+      bullets.push({ kind: 'warn', text: `Baja presencia de cifras: ${density.withNumbers}/${density.total} fragmentos contienen dígitos.` });
     } else {
-      bullets.push({ kind: 'ok', text: `Respaldo empírico presente en ${density.withNumbers}/${density.total} fragmentos.` });
+      bullets.push({ kind: 'ok', text: `Se detectan dígitos en ${density.withNumbers}/${density.total} fragmentos; verifica qué representan.` });
     }
     if ((contradictions || []).length) {
       bullets.push({ kind: 'alert', text: `Se detectaron ${contradictions.length} posibles contradicciones (cifras o tendencias opuestas) entre fuentes.` });
@@ -316,9 +318,15 @@
     unsupported.slice(0, 3).forEach(c => {
       bullets.push({ kind: 'warn', text: `Afirmación absoluta sin dato adjunto: «${U.truncate(c.text, 110)}»` });
     });
-    const pages = new Set((chunks || []).map(c => c.pageNum));
-    if (pages.size === 1 && (chunks || []).length > 2) {
-      bullets.push({ kind: 'warn', text: 'Toda la evidencia proviene de una sola página: riesgo de sesgo de fuente.' });
+    // El número de página por sí solo no identifica una fuente: dos
+    // documentos pueden tener página 1 y una ficha local puede no tener página.
+    const locations = (chunks || []).map(c => {
+      const doc = c.docId || c.sentence?.docId || c.docName || c.sentence?.docName;
+      const page = c.sourcePage ?? c.sentence?.sourcePage ?? c.pageNum ?? c.sentence?.pageNum;
+      return doc && page != null ? JSON.stringify([doc, page]) : null;
+    });
+    if (locations.length > 2 && locations.every(Boolean) && new Set(locations).size === 1) {
+      bullets.push({ kind: 'warn', text: 'Toda la evidencia proviene de una sola página del mismo documento: riesgo de sesgo de fuente.' });
     }
     return bullets;
   }

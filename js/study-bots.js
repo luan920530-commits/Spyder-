@@ -26,9 +26,9 @@
   }
   function jump(sentence) {
     if (!sentence) return;
+    if (root.DocViewer?.goToSentence(sentence.id, sentence.docId)) return;
     store().holdAutoNavigation();
     store().setActiveDoc(sentence.docId, sentence.pageNum);
-    setTimeout(() => root.NeuralGraph?.scrollToSentence(sentence.id), 100);
   }
   function renderGuide(stage) {
     const S = store(), sentences = S.state.allSentences.slice(0, 80);

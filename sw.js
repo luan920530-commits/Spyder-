@@ -1,6 +1,6 @@
 /* Shell y dependencias empaquetadas: instalación atómica, sin CDN. */
 importScripts('./js/qwen-config.js');
-const CACHE_NAME = 'neural-spider-os-v11-21';
+const CACHE_NAME = 'neural-spider-os-v11-22';
 const MODEL_CACHE = 'neural-spider-model-v1';
 const QWEN = self.NCQwenConfig;
 // Recursos de pdfjs-dist 4.2.67 incluidos en el shell: la lectura de CMaps y
@@ -42,10 +42,10 @@ const ASSETS = [
   './vendor/fonts/chakra-petch-latin-500-normal.woff2', './vendor/fonts/chakra-petch-latin-700-normal.woff2',
   './vendor/d3/d3.min.js', './vendor/jszip/jszip.min.js', './vendor/mammoth/mammoth.browser.min.js',
   './vendor/pdfjs/pdf.min.mjs', './vendor/pdfjs/pdf.worker.min.mjs', ...PDF_CMAPS, ...PDF_FONTS,
-  './js/util.js', './js/retrieval.js', './js/analysis.js', './js/srs.js', './js/db.js',
+  './js/util.js', './js/retrieval.js', './js/knowledge-base.js', './js/analysis.js', './js/srs.js', './js/db.js',
   './js/embeddings.js', './js/chunks.js', './js/store.js', './js/local-model.js', './js/semantic-clusters.js', './js/onnx-worker.js', './js/parsers.js', './js/memory.js', './js/providers.js',
   './js/qwen-config.js', './js/qwen-prompt.js', './js/qwen-model.js', './js/qwen-download-worker.js', './js/qwen-inference-worker.js', './vendor/sha256/sha256.min.js',
-  './js/character.js', './js/rag.js', './js/kimi-aux-model.js', './js/viewer.js', './js/spider-visual.js', './js/neural-graph.js', './js/spiders.js',
+  './js/character.js', './js/rag.js', './js/kimi-aux-model.js', './js/viewer.js', './js/spider-visual.js', './js/graph-projection.js', './js/neural-graph.js', './js/spiders.js',
   './js/spider-paths.js', './js/spider-motion.js', './js/eval.js', './js/brain-rag.js', './js/study-bots.js', './js/app.js'
 ];
 self.addEventListener('install', event => {

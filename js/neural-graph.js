@@ -28,9 +28,13 @@
   let queenAngle = 0, queenHeadAngle = 0;
   let highlighted = new Set();
   let activeCluster = null;
-  let graphNodes = [];
-  let graphLinks = [], graphNodeById = new Map(), graphNeighbors = new Map();
+  let graphNodes = [], allGraphNodes = [];
+  let graphLinks = [], allGraphLinks = [], graphNodeById = new Map(), graphNeighbors = new Map();
+  let graphPage = 0, graphQuery = '', projection = null;
   let semanticMode = false, displayedTopics = [];
+  // Los temas se derivan del corpus; paginar o buscar no debe reconstruir
+  // miles de nodos temáticos mientras no cambien los datos ni el tamaño.
+  let semanticCache = null, semanticDirty = true;
   const TOPIC_POSITIONS = [ { px: .36, py: .30 }, { px: .67, py: .31 },
     { px: .66, py: .66 }, { px: .37, py: .66 } ];
   let visible = true;
@@ -78,9 +82,24 @@
     if (rafSphere || !sphereCtx || document.hidden || !visible) return;
     lastSphereTime = 0;
     if (motionStopped()) { drawSphere(0); return; }
-    let lastDraw = 0;
+    let lastDraw = 0, previousFrame = 0, slowFrames = 0, fastSince = 0, limited = false;
     const loop = time => {
-      if (time - lastDraw >= 33) { drawSphere(time); lastDraw = time; }
+      const elapsed = previousFrame ? time - previousFrame : 0;
+      previousFrame = time;
+      if (!limited && elapsed) {
+        slowFrames = elapsed > 85 ? slowFrames + 1 : Math.max(0, slowFrames - 1);
+        if (elapsed > 250 || slowFrames >= 6) { limited = true; fastSince = 0; }
+      } else if (limited) {
+        // Volver gradualmente a la frecuencia normal si el navegador se
+        // mantiene fluido; evitar oscilaciones en dispositivos sobrecargados.
+        if (elapsed > 0 && elapsed < 34) {
+          if (!fastSince) fastSince = time;
+          else if (time - fastSince >= 5000) { limited = false; slowFrames = 0; }
+        } else fastSince = 0;
+      }
+      // Solo se reduce la frecuencia de la decoración, no el ciclo de lectura,
+      // las tareas de las arañas ni el trazado de sus ocho patas.
+      if (time - lastDraw >= (limited ? 150 : 33)) { drawSphere(time); lastDraw = time; }
       rafSphere = requestAnimationFrame(loop);
     };
     rafSphere = requestAnimationFrame(loop);
@@ -567,18 +586,19 @@
     };
     const semantic = root.NCSemantic;
     semanticMode = !!semantic?.info().active;
-    displayedTopics = semanticMode ? semantic.topics() : [];
     if (!semanticMode) {
-      graphNodes = S.state.nodes.map(copy);
-      const byId = new Map(graphNodes.map(n => [n.id, n]));
-      graphLinks = [];
-      (S.state.links || []).forEach(l => {
-        const s = typeof l.source === 'object' ? l.source.id : l.source;
-        const t = typeof l.target === 'object' ? l.target.id : l.target;
-        if (!byId.has(s) || !byId.has(t)) return;
-        graphLinks.push({ key: l.key || s + '>' + t, source: byId.get(s), target: byId.get(t), kind: l.kind || 'hierarchy' });
-      });
+      // No copiamos el corpus completo para D3: la proyección trabaja sobre
+      // datos originales de solo lectura y únicamente se copian los visibles.
+      semanticCache = null; semanticDirty = true; displayedTopics = [];
+      allGraphNodes = S.state.nodes;
+      allGraphLinks = S.state.links || [];
+    } else if (!semanticDirty && semanticCache && semanticCache.sourceNodes === S.state.nodes &&
+               semanticCache.count === S.state.nodes.length && semanticCache.width === width && semanticCache.height === height) {
+      displayedTopics = semanticCache.topics;
+      allGraphNodes = semanticCache.nodes;
+      allGraphLinks = semanticCache.links;
     } else {
+      displayedTopics = semantic.topics();
       // Un nodo histórico podía fusionar una etiqueta de varios documentos.
       // Se separa visualmente por tema sin destruir las citas ni el respaldo.
       const groups = [];
@@ -601,23 +621,43 @@
       const hubs = displayedTopics.map(topic => {
         const position = topic.number ? TOPIC_POSITIONS[(topic.number - 1) % TOPIC_POSITIONS.length] :
           topic.id === 'SEM-PENDING' ? { px: .53, py: .78 } : { px: .53, py: .50 };
-        return copy({ ...topic, isHub: true, isSemantic: true, weight: 1,
+        return { ...topic, isHub: true, isSemantic: true, weight: 1,
           preference: weights.get(topic.id) || 0, px: position.px, py: position.py,
-          x: width * position.px, y: height * position.py, fx: width * position.px, fy: height * position.py });
+          x: width * position.px, y: height * position.py, fx: width * position.px, fy: height * position.py };
       });
       const hubsById = new Map(hubs.map(hub => [hub.id, hub]));
       const nodes = groups.map(({ node, topicId, ids, split }) => {
         const hub = hubsById.get(topicId);
-        return copy({ ...node, id: split ? `${node.id}::${topicId}` : node.id, originId: node.id,
+        return { ...node, id: split ? `${node.id}::${topicId}` : node.id, originId: node.id,
           topicId, topicLabel: hub?.label || 'Sin vector todavía', sentenceIds: ids,
           text: split && ids.length ? (S.getSentence(ids[0])?.text || node.text) : node.text,
-          color: hub?.color || '#778699' });
+          color: hub?.color || '#778699' };
       });
-      graphNodes = hubs.concat(nodes);
-      graphLinks = nodes.map(node => ({ key: `topic:${node.topicId}>${node.id}`,
+      allGraphNodes = hubs.concat(nodes);
+      allGraphLinks = nodes.map(node => ({ key: `topic:${node.topicId}>${node.id}`,
         source: hubsById.get(node.topicId), target: node, kind: 'semantic' })).filter(link => link.source);
+      semanticCache = { nodes: allGraphNodes, links: allGraphLinks, topics: displayedTopics,
+        sourceNodes: S.state.nodes, count: S.state.nodes.length, width, height };
+      semanticDirty = false;
     }
+    updateGroupingControls();
+    // Solo esta muestra llega al DOM y a la simulación. El grafo completo y
+    // todas sus citas/relaciones permanecen intactos en el store.
+    projection = root.NCGraphProjection.project(allGraphNodes, allGraphLinks, {
+      limit: width < 420 ? 24 : 40, edgeLimit: 90, page: graphPage, query: graphQuery,
+      cluster: activeCluster, semantic: semanticMode
+    });
+    graphPage = projection.page;
+    graphNodes = projection.nodes.map(copy);
     graphNodeById = new Map(graphNodes.map(node => [node.id, node]));
+    // D3 modifica extremos y posiciones; estos objetos son copias de la página,
+    // no los enlaces ni nodos persistidos o los de otras páginas.
+    const endpoint = value => typeof value === 'object' && value ? value.id : value;
+    graphLinks = projection.links.map(link => {
+      const source = endpoint(link.source), target = endpoint(link.target);
+      return { ...link, key: link.key || `${source}>${target}`, source: graphNodeById.get(source), target: graphNodeById.get(target), kind: link.kind || 'hierarchy' };
+    }).filter(link => link.source && link.target);
+    updateGraphBrowser();
     graphNeighbors = new Map();
     // Solo unas pocas conexiones por nodo se usan para el efecto visual;
     // los enlaces y sus posiciones siguen perteneciendo a la simulación D3.
@@ -630,7 +670,17 @@
       const a = link.source?.id, b = link.target?.id;
       if (a && b && a !== b) { rememberNeighbor(a, b); rememberNeighbor(b, a); }
     });
-    updateGroupingControls();
+  }
+
+  function updateGraphBrowser() {
+    const status = document.getElementById('graph-page');
+    if (status && projection) {
+      status.textContent = `${projection.start}–${projection.end} / ${projection.filtered}`;
+      status.title = `${projection.total} conceptos en total · página ${projection.page + 1} de ${projection.pages} · ${projection.links.length} de ${projection.matchingLinks} conexiones visibles. El inspector permite recorrer todas las relaciones guardadas.`;
+    }
+    const prev = document.getElementById('graph-prev'), next = document.getElementById('graph-next');
+    if (prev) prev.disabled = !projection || projection.page <= 0;
+    if (next) next.disabled = !projection || projection.page >= projection.pages - 1;
   }
 
   function updateGroupingControls() {
@@ -686,12 +736,18 @@
       const fallback = document.getElementById('graph-fallback');
       if (fallback) {
         fallback.classList.remove('hidden');
-        const S = store();
-        const nodes = (graphNodes.length ? graphNodes : S?.state.nodes || []).filter(n => !n.isHub).slice(0, 12);
-        fallback.innerHTML = nodes.length
-          ? `<div class="fallback-title">Grafo en modo texto (D3 no disponible)</div>` +
-            nodes.map(n => `<div class="fallback-node"><span>[${U.escapeHtml(semanticMode ? n.topicLabel : n.cluster)}]</span> ${U.escapeHtml(n.label)} <em>×${U.escapeHtml(n.weight || 1)}</em></div>`).join('')
-          : `<div class="fallback-title">D3 no disponible: usa el ticker y el inspector.</div>`;
+        const nodes = graphNodes.filter(n => !n.isHub);
+        fallback.replaceChildren();
+        const title = document.createElement('div'); title.className = 'fallback-title';
+        title.textContent = nodes.length ? 'Grafo en modo texto (D3 no disponible)' : 'D3 no disponible: usa el ticker y el inspector.';
+        fallback.appendChild(title);
+        nodes.forEach(node => {
+          const button = document.createElement('button'); button.type = 'button'; button.className = 'fallback-node';
+          button.textContent = `[${semanticMode ? node.topicLabel : node.cluster}] ${node.label} ×${node.weight || 1}`;
+          button.classList.toggle('is-dimmed', dimmed(node));
+          button.addEventListener('click', event => { event.stopPropagation(); openInspector(node); });
+          fallback.appendChild(button);
+        });
       }
       if (stage) stage.classList.add('no-d3');
       return false;
@@ -894,33 +950,122 @@
     document.getElementById('node-tooltip')?.classList.add('hidden');
   }
 
+  let inspectorReturnFocus = null;
+  function focusWithoutScroll(element) {
+    if (!element?.focus) return;
+    try { element.focus({ preventScroll: true }); } catch (_) { element.focus(); }
+  }
+  function closeInspector() {
+    const insp = document.getElementById('node-inspector');
+    const focusedInside = insp?.contains(document.activeElement);
+    insp?.classList.add('hidden');
+    if (focusedInside) focusWithoutScroll(inspectorReturnFocus?.isConnected ? inspectorReturnFocus : document.getElementById('arena-stage'));
+    inspectorReturnFocus = null;
+  }
   function openInspector(node) {
     if (!node || node.isHub) return;
     const insp = document.getElementById('node-inspector');
     if (!insp) return;
+    if (insp.classList.contains('hidden')) {
+      const active = document.activeElement;
+      inspectorReturnFocus = active && active !== document.body && active !== document.documentElement
+        ? active : document.getElementById('arena-stage');
+    }
     document.getElementById('insp-cluster').textContent = semanticMode ? `${node.topicLabel} · ${node.cluster || 'KIMI'}` : node.cluster || 'KIMI';
     document.getElementById('insp-weight').textContent = `×${node.weight || 1}`;
     document.getElementById('insp-label').textContent = node.label;
     document.getElementById('insp-text').textContent = node.text || '';
 
     const citEl = document.getElementById('insp-citations');
+    const citPages = document.getElementById('insp-citation-pages');
+    const citPrev = document.getElementById('insp-citation-prev'), citNext = document.getElementById('insp-citation-next');
+    const citStatus = document.getElementById('insp-citation-status'), citPage = document.getElementById('insp-citation-page');
+    const citPageCount = document.getElementById('insp-citation-page-count');
     if (citEl) {
-      citEl.innerHTML = '';
-      (node.sentenceIds || []).forEach(sid => {
-        const sentence = store()?.getSentence(sid);
-        if (!sentence) return;
-        const chip = document.createElement('button');
-        chip.className = 'citation-chip';
-        chip.textContent = `${sentence.docName || 'Documento'} · Pág ${sentence.sourcePage || sentence.pageNum}`;
-        chip.title = 'Ir a la fuente';
-        chip.addEventListener('click', () => {
-          store()?.holdAutoNavigation();
-          store()?.setActiveDoc(sentence.docId, sentence.pageNum);
-          setTimeout(() => scrollToSentence(sid), 90);
+      // Un concepto muy frecuente puede tener miles de citas. Mantener todas
+      // accesibles sin construir miles de botones al abrir el inspector.
+      const ids = (node.sentenceIds || []).filter(sid => !!store()?.getSentence(sid));
+      let page = 0;
+      const drawCitations = () => {
+        const pages = Math.max(1, Math.ceil(ids.length / 12));
+        page = Math.max(0, Math.min(page, pages - 1));
+        citEl.replaceChildren();
+        ids.slice(page * 12, page * 12 + 12).forEach(sid => {
+          const sentence = store()?.getSentence(sid);
+          if (!sentence) return;
+          const chip = document.createElement('button'); chip.type = 'button';
+          chip.className = 'citation-chip';
+          chip.textContent = `${sentence.docName || 'Documento'} · Pág ${sentence.sourcePage || sentence.pageNum}`;
+          chip.title = 'Ir a la fuente';
+          chip.addEventListener('click', () => { root.DocViewer?.goToSentence(sid); });
+          citEl.appendChild(chip);
         });
-        citEl.appendChild(chip);
-      });
-      if (!citEl.children.length) citEl.innerHTML = '<span class="muted">Sin página asociada</span>';
+        if (!ids.length) {
+          const empty = document.createElement('span'); empty.className = 'muted'; empty.textContent = 'Sin página asociada';
+          citEl.appendChild(empty);
+        }
+        if (citPages && citPrev && citNext && citStatus) {
+          citPages.classList.toggle('hidden', ids.length <= 12);
+          citStatus.textContent = `Citas ${ids.length ? page * 12 + 1 : 0}–${Math.min(ids.length, (page + 1) * 12)} / ${ids.length}`;
+          citPrev.disabled = page === 0; citNext.disabled = page >= pages - 1;
+          if (citPage) { citPage.max = String(pages); citPage.value = String(page + 1); }
+          if (citPageCount) citPageCount.textContent = `/ ${pages}`;
+        }
+      };
+      if (citPrev && citNext) { citPrev.onclick = () => { page--; drawCitations(); }; citNext.onclick = () => { page++; drawCitations(); }; }
+      if (citPage) {
+        const jump = () => { const n = Number(citPage.value); if (Number.isFinite(n)) page = Math.floor(n) - 1; drawCitations(); };
+        citPage.onchange = jump;
+        citPage.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); jump(); } };
+      }
+      drawCitations();
+    }
+
+    // La proyección puede omitir enlaces o poner el vecino en otra página. El
+    // inspector permite recorrer las relaciones originales sin límite de datos.
+    const details = document.getElementById('insp-connections');
+    const list = document.getElementById('insp-connection-list');
+    const prev = document.getElementById('insp-connection-prev'), next = document.getElementById('insp-connection-next');
+    const status = document.getElementById('insp-connection-status'), pageInput = document.getElementById('insp-connection-page');
+    const pageCount = document.getElementById('insp-connection-page-count');
+    if (details && list && prev && next && status) {
+      const original = node.originId || node.id;
+      const endpoint = value => typeof value === 'object' && value ? value.id : value;
+      const edges = (store()?.state.links || []).filter(link => endpoint(link.source) === original || endpoint(link.target) === original);
+      let page = 0;
+      details.querySelector('summary').textContent = `Conexiones guardadas (${edges.length})`;
+      const draw = () => {
+        const pages = Math.max(1, Math.ceil(edges.length / 12));
+        page = Math.max(0, Math.min(page, pages - 1));
+        list.replaceChildren();
+        edges.slice(page * 12, page * 12 + 12).forEach(link => {
+          const from = endpoint(link.source), to = endpoint(link.target), neighborId = from === original ? to : from;
+          const neighbor = allGraphNodes.find(n => n.id === neighborId || n.originId === neighborId) ||
+            (store()?.state.nodes || []).find(n => n.id === neighborId);
+          const button = document.createElement('button');
+          button.type = 'button'; button.className = 'citation-chip';
+          button.textContent = `${link.kind || 'relación'} · ${neighbor?.label || neighborId}`;
+          button.title = 'Explorar conexión';
+          button.addEventListener('click', () => {
+            if (!neighbor) return;
+            if (neighbor.isHub) setClusterFilter(neighbor.id);
+            else openInspector(neighbor);
+          });
+          list.appendChild(button);
+        });
+        if (!edges.length) list.textContent = 'Sin relaciones guardadas.';
+        status.textContent = `${edges.length ? page * 12 + 1 : 0}–${Math.min(edges.length, (page + 1) * 12)} / ${edges.length}`;
+        prev.disabled = page === 0; next.disabled = page >= pages - 1;
+        if (pageInput) { pageInput.max = String(pages); pageInput.value = String(page + 1); }
+        if (pageCount) pageCount.textContent = `/ ${pages}`;
+      };
+      prev.onclick = () => { page--; draw(); }; next.onclick = () => { page++; draw(); };
+      if (pageInput) {
+        const jump = () => { const n = Number(pageInput.value); if (Number.isFinite(n)) page = Math.floor(n) - 1; draw(); };
+        pageInput.onchange = jump;
+        pageInput.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); jump(); } };
+      }
+      draw();
     }
 
     const askBtn = document.getElementById('btn-insp-ask');
@@ -932,10 +1077,12 @@
     }
 
     insp.classList.remove('hidden');
+    focusWithoutScroll(insp);
   }
 
   function scrollToSentence(sentenceId) {
-    const el = Array.from(document.querySelectorAll('.sentence-block')).find(x => x.dataset.sid === sentenceId);
+    const el = root.DocViewer?.getSentenceElement(sentenceId) ||
+      Array.from(document.querySelectorAll('.sentence-block')).find(x => x.dataset.sid === sentenceId);
     if (!el) return;
     el.classList.add('sentence-active');
     el.scrollIntoView({ behavior: isReducedMotion() ? 'auto' : 'smooth', block: 'center' });
@@ -995,31 +1142,35 @@
     graphNodes.filter(n => n.isSemantic).forEach(n => { n.x = n.fx = w * n.px; n.y = n.fy = h * n.py; });
     probe.inside = false; document.getElementById('swarm-tip')?.classList.add('hidden');
     resetVisualEffects(); redrawIfStill();
-    if (!simulation) return;
+    // La capacidad de la página cambia con el ancho real de la red.
+    buildGraphData();
+    if (!simulation) { render(false); return; }
     simulation.force('center', root.d3.forceCenter(w / 2, h / 2).strength(0.08));
-    if (motionStopped()) render(false);
-    else simulation.alpha(0.8).restart();
+    render(false);
+    if (!motionStopped()) simulation.alpha(0.8).restart();
   }
 
   function setClusterFilter(cluster) {
     activeCluster = activeCluster === cluster ? null : cluster;
-    document.querySelectorAll('.cluster-pill').forEach(p => {
-      const selected = p.dataset.cluster === activeCluster;
-      p.classList.toggle('active', selected); p.setAttribute('aria-pressed', String(selected));
-    });
-    render(false);
+    graphPage = 0;
+    buildGraphData(); render(false);
   }
 
   let highlightTimer = null;
   function highlightPath(nodeIds) {
     highlighted = new Set(nodeIds || []);
+    const index = projection?.eligible.findIndex(node => highlighted.has(node.id) || highlighted.has(node.originId));
+    if (index >= 0) {
+      const page = Math.floor(index / projection.limit);
+      if (page !== graphPage) { graphPage = page; buildGraphData(); }
+    }
     render(false);
     clearTimeout(highlightTimer);
     highlightTimer = setTimeout(() => { highlighted.clear(); render(false); }, 4500);
   }
   function highlightSources(sentenceIds) {
     const ids = new Set(sentenceIds || []);
-    highlightPath(graphNodes.filter(node => !node.isHub && (node.sentenceIds || []).some(id => ids.has(id))).map(node => node.id));
+    highlightPath(allGraphNodes.filter(node => !node.isHub && (node.sentenceIds || []).some(id => ids.has(id))).map(node => node.id));
   }
 
   function getHubScreenPos(clusterId) {
@@ -1051,40 +1202,62 @@
     updateTelemetry();
     S.state.patterns.slice(-40).forEach(appendTickerRow);
 
-    document.getElementById('btn-close-inspector')?.addEventListener('click', () => {
-      document.getElementById('node-inspector')?.classList.add('hidden');
+    document.getElementById('btn-close-inspector')?.addEventListener('click', closeInspector);
+    document.getElementById('node-inspector')?.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeInspector(); }
     });
     document.getElementById('btn-center-net')?.addEventListener('click', recenter);
+    const search = document.getElementById('graph-search');
+    search?.addEventListener('input', debounce(() => {
+      graphQuery = search.value; graphPage = 0; buildGraphData(); render(false);
+    }, 120));
+    document.getElementById('graph-prev')?.addEventListener('click', () => {
+      graphPage--; buildGraphData(); render(false);
+    });
+    document.getElementById('graph-next')?.addEventListener('click', () => {
+      graphPage++; buildGraphData(); render(false);
+    });
 
     document.getElementById('cluster-filters')?.addEventListener('click', event => {
       const pill = event.target.closest('.cluster-pill');
       if (pill) setClusterFilter(pill.dataset.cluster);
     });
 
+    // Agrupar cosechas rápidas en corpus grandes evita reconstruir miles de
+    // copias por cada entrega; el store y el ticker se actualizan al instante.
+    let graphRefreshTimer = null;
+    const scheduleGraphRefresh = () => {
+      semanticDirty = true;
+      if (S.state.nodes.length <= 64) { buildGraphData(); render(false); return; }
+      if (!graphRefreshTimer) graphRefreshTimer = setTimeout(() => {
+        graphRefreshTimer = null; buildGraphData(); render(false);
+      }, 120);
+    };
     S.on('node:added', ({ pattern }) => {
-      buildGraphData(); render(false);
+      scheduleGraphRefresh();
       appendTickerRow(pattern);
       updateTelemetry();
     });
-    S.on('semantic:updated', () => {
-      buildGraphData(); render(false);
-    });
+    S.on('semantic:updated', scheduleGraphRefresh);
 
-    S.on('node:removed', () => { buildGraphData(); render(true); updateTelemetry(); });
-    S.on('doc:removed', () => { buildGraphData(); render(true); updateTelemetry(); document.getElementById('ticker-list')?.replaceChildren(); S.state.patterns.slice(-40).forEach(appendTickerRow); });
+    S.on('node:removed', () => { semanticDirty = true; buildGraphData(); render(true); updateTelemetry(); closeInspector(); });
+    S.on('doc:removed', () => { semanticDirty = true; buildGraphData(); render(true); updateTelemetry(); closeInspector(); document.getElementById('ticker-list')?.replaceChildren(); S.state.patterns.slice(-40).forEach(appendTickerRow); });
     S.on('brain:imported', () => {
-      ensureHubs(); buildGraphData(); render(true); updateTelemetry();
+      semanticDirty = true;
+      ensureHubs(); buildGraphData(); render(true); updateTelemetry(); closeInspector();
       document.getElementById('ticker-list')?.replaceChildren(); S.state.patterns.slice(-40).forEach(appendTickerRow);
       updateMotionMode();
     });
 
     S.on('system:reset', () => {
-      graphNodes = [];
-      graphLinks = [];
+      clearTimeout(graphRefreshTimer); graphRefreshTimer = null;
+      semanticCache = null; semanticDirty = true;
+      graphNodes = []; allGraphNodes = [];
+      graphLinks = []; allGraphLinks = []; graphPage = 0; graphQuery = ''; activeCluster = null;
+      const search = document.getElementById('graph-search'); if (search) search.value = '';
       if (simulation) simulation.stop();
       simulation = null;
       document.getElementById('ticker-list')?.replaceChildren();
-      document.getElementById('node-inspector')?.classList.add('hidden');
       document.getElementById('swarm-tip')?.classList.add('hidden');
       const feedback = document.getElementById('swarm-feedback');
       if (feedback) feedback.textContent = '';
@@ -1093,6 +1266,7 @@
       buildGraphData();
       render(true);
       updateTelemetry();
+      closeInspector();
       updateMotionMode();
     });
 
@@ -1106,6 +1280,11 @@
         deliveryPackets.push({ progress: 0, color });
       }
       redrawIfStill();
+    });
+    S.on('spider:queryStart', () => {
+      const feedback = document.getElementById('swarm-feedback');
+      if (feedback) feedback.textContent = '';
+      clearTimeout(feedbackTimer);
     });
     S.on('spiders:queryGuidance', detail => {
       const feedback = document.getElementById('swarm-feedback');

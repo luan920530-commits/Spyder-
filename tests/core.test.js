@@ -96,6 +96,23 @@ test('contradicciones numéricas detectadas y etiquetadas como posibles', () => 
   assert.ok(result.some(c => c.type === 'numeric' && c.a.value === 12 && c.b.value === 40));
 });
 
+test('la crítica distingue documento y página y solo cuenta el texto visible', () => {
+  const chunk = (docId, pageNum, text = 'Texto sin cifras.') => ({ docId, pageNum, text, sentence: { docId, pageNum, text: 'Ancla excluida 1234.' } });
+  const same = [chunk('a', 1), chunk('a', 1), chunk('a', 1)];
+  const report = A.critique(same, [], []);
+  assert.ok(report.some(item => /0\/3 fragmentos contienen dígitos/.test(item.text)));
+  assert.ok(report.some(item => /una sola página del mismo documento/.test(item.text)));
+  const distinctDocs = [chunk('a', 1), chunk('b', 1), chunk('c', 1)];
+  assert.ok(!A.critique(distinctDocs, [], []).some(item => /una sola página/.test(item.text)));
+  const local = [chunk('kb:a', null), chunk('kb:b', null), chunk('kb:c', null)];
+  assert.ok(!A.critique(local, [], []).some(item => /una sola página/.test(item.text)));
+  assert.ok(!A.critique([{ text: 'La Ley 42 establece una regla.' }], [], []).some(item => /respaldo empírico|cifras verificables/i.test(item.text)));
+  const legal = [{ id: 'ley', text: 'La Ley 42 establece una regla.', index: 1 }];
+  const questions = A.socraticQuestions(legal, A.extractClaims(legal), []);
+  assert.ok(questions.some(item => /representa 42/.test(item.q)));
+  assert.ok(!questions.some(item => /respaldo empírico/.test(item.why)));
+});
+
 test('tarjetas SRS conservan programación, lapsos y exportación CSV', () => {
   let card = SRS.newCard({ front: 'Pregunta', back: 'Respuesta con "comillas"', due: 1000 });
   card = SRS.review(card, 'good', 1000);

@@ -15,6 +15,7 @@
   <script defer src="vendor/mammoth/mammoth.browser.min.js"></script>
   <script defer src="js/util.js"></script>
   <script defer src="js/retrieval.js"></script>
+  <script defer src="js/knowledge-base.js"></script>
   <script defer src="js/analysis.js"></script>
   <script defer src="js/srs.js"></script>
   <script defer src="js/db.js"></script>
@@ -34,6 +35,7 @@
   <script defer src="js/kimi-aux-model.js"></script>
   <script defer src="js/viewer.js"></script>
   <script defer src="js/spider-visual.js"></script>
+  <script defer src="js/graph-projection.js"></script>
   <script defer src="js/neural-graph.js"></script>
   <script defer src="js/spider-paths.js"></script>
   <script defer src="js/spider-motion.js"></script>
@@ -84,6 +86,7 @@
         </div>
         <div class="doc-status"><span id="doc-section">Sin documento</span><span id="ingest-status" role="status">Esperando material</span></div>
         <div id="doc-dropzone" class="doc-dropzone">
+          <div id="scan-tracks" class="scan-tracks" role="region" aria-label="Lecturas simultáneas" aria-live="off"></div>
           <div id="ingest-message" class="ingest-message hidden" role="status"></div>
           <div id="doc-empty-state" class="empty-state">
             <div class="empty-emblem" aria-hidden="true"><span>+</span></div>
@@ -136,11 +139,17 @@
           <div><i class="timeline-cyan"></i></div><div><i class="timeline-violet"></i></div><div><i class="timeline-amber"></i></div><div><i class="timeline-green"></i></div><div><i class="timeline-white"></i></div>
         </div>
         <div class="timeline-key" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
-        <div id="node-inspector" class="node-inspector hidden">
+        <div id="node-inspector" class="node-inspector hidden" role="region" aria-labelledby="insp-label" tabindex="-1">
           <div class="inspector-head"><span id="insp-cluster" class="badge">AGT-01</span><span id="insp-weight" class="insp-weight">×1</span><button id="btn-close-inspector" class="btn-mini" aria-label="Cerrar inspector">✕</button></div>
           <h4 id="insp-label"></h4><p id="insp-text" class="insp-text"></p><div id="insp-citations" class="insp-citations"></div>
+          <div id="insp-citation-pages" class="insp-citation-pages hidden"><button type="button" class="btn-mini" id="insp-citation-prev" aria-label="Citas anteriores">‹</button><span id="insp-citation-status" role="status" aria-live="polite"></span><button type="button" class="btn-mini" id="insp-citation-next" aria-label="Citas siguientes">›</button><label for="insp-citation-page">Pág.</label><input id="insp-citation-page" type="number" min="1" value="1" inputmode="numeric" aria-label="Página de citas"><span id="insp-citation-page-count"></span></div>
+          <details id="insp-connections" class="insp-connections"><summary>Conexiones</summary><div id="insp-connection-list"></div><div class="insp-connection-pages"><button type="button" class="btn-mini" id="insp-connection-prev" aria-label="Conexiones anteriores">‹</button><span id="insp-connection-status" role="status" aria-live="polite"></span><button type="button" class="btn-mini" id="insp-connection-next" aria-label="Conexiones siguientes">›</button><label for="insp-connection-page">Pág.</label><input id="insp-connection-page" type="number" min="1" value="1" inputmode="numeric" aria-label="Página de conexiones"><span id="insp-connection-page-count"></span></div></details>
           <button class="btn-mini" id="btn-insp-ask">Preguntar por este concepto</button>
         </div>
+      </div>
+      <div class="graph-browser" role="group" aria-label="Explorar conceptos de la red">
+        <label class="sr-only" for="graph-search">Buscar conceptos en la red</label><input id="graph-search" type="search" placeholder="Buscar concepto…" autocomplete="off">
+        <button type="button" class="btn-mini" id="graph-prev" aria-label="Página anterior de conceptos">‹</button><span id="graph-page" role="status" aria-live="polite">0 de 0</span><button type="button" class="btn-mini" id="graph-next" aria-label="Página siguiente de conceptos">›</button>
       </div>
     </section>
 
@@ -185,6 +194,10 @@
         </div>
         <div id="tab-chat" class="tab-pane active" role="tabpanel">
           <div class="mode-bar"><label for="mode-select">MODO</label><select id="mode-select"></select><button class="btn-mini" id="btn-clear-chat" title="Borrar conversación">BORRAR</button></div>
+          <div id="knowledge-controls" class="knowledge-controls">
+            <div class="knowledge-scope"><label for="search-scope">BUSCAR EN</label><select id="search-scope" aria-describedby="knowledge-caption"><option value="both">Documentos + base local</option><option value="documents">Solo mis documentos</option><option value="knowledge">Solo base local</option></select></div>
+            <details id="knowledge-info" class="knowledge-info"><summary>Base local · temas y límites</summary><p id="knowledge-caption">Fichas resumidas, separadas de tus documentos. Funcionan sin conexión; abrir las fuentes originales requiere internet. La información jurídica no se actualiza sola ni sustituye asesoría profesional: comprueba su vigencia y aplicación.</p><p id="knowledge-meta"></p><div id="knowledge-catalog"></div></details>
+          </div>
           <section id="character-setup" class="character-setup hidden" aria-labelledby="character-title">
             <div class="character-heading"><span id="character-title"><span aria-hidden="true">✧</span> PERSONAJE LOCAL</span><span id="character-engine-badge" class="character-badge">SIN LLM</span></div>
             <p class="character-intro">Elige o sube el PDF de un libro y escribe el personaje tal como aparece en él.</p>
@@ -199,11 +212,11 @@
           <div id="chat-messages" class="chat-messages" aria-live="polite" aria-relevant="additions"></div>
           <div id="study-quick-actions" class="chat-quick-actions"><button class="btn-chip" data-prompt="Resume y analiza el documento completo">RESUMIR</button><button class="btn-chip" data-prompt="Detecta contradicciones en el documento">CONTRASTAR</button><button class="btn-chip" data-prompt="Aprende que ">ENSEÑAR</button></div>
           <div id="character-quick-actions" class="chat-quick-actions hidden"><button class="btn-chip" data-prompt="Háblame de ti">HÁBLAME DE TI</button><button class="btn-chip" data-prompt="¿Qué pasó después?">¿Y DESPUÉS?</button><button class="btn-chip" data-prompt="Necesito hablar">NECESITO HABLAR</button></div>
-          <form id="chat-form" class="chat-form"><label class="sr-only" for="chat-input">Pregunta</label><input type="text" id="chat-input" placeholder="Pregunta sobre tus documentos…" autocomplete="off"><button type="button" id="btn-stop-generation" class="btn-mini hidden">DETENER</button><button type="submit" id="btn-send" class="btn-hud btn-cyan">ENVIAR</button></form>
+          <form id="chat-form" class="chat-form"><label class="sr-only" for="chat-input">Pregunta</label><input type="text" id="chat-input" placeholder="Pregunta a tus documentos o a la base local…" autocomplete="off"><button type="button" id="btn-stop-generation" class="btn-mini hidden">DETENER</button><button type="submit" id="btn-send" class="btn-hud btn-cyan">ENVIAR</button></form>
         </div>
         <div id="tab-writer" class="tab-pane" role="tabpanel">
           <div class="writer-bar"><label class="sr-only" for="writer-prompt">Tema de redacción</label><input type="text" id="writer-prompt" placeholder="Tema o instrucción de redacción…"><button class="btn-hud btn-cyan" id="btn-run-writer">REDACTAR</button></div>
-          <div id="writer-output" class="writer-output"><p class="muted">Crea un borrador extractivo a partir de tus documentos. Comprueba las fuentes antes de usarlo.</p></div>
+          <div id="writer-output" class="writer-output"><p class="muted">Crea un borrador extractivo con el ámbito de fuentes seleccionado en CHAT. Comprueba las fuentes antes de usarlo.</p></div>
         </div>
         <div id="tab-bots" class="tab-pane" role="tabpanel">
           <nav class="bots-nav" aria-label="Funciones de estudio"><button class="bot-btn active" data-bot="guide">GUÍA</button><button class="bot-btn" data-bot="flashcards">TARJETAS</button><button class="bot-btn" data-bot="quiz">QUIZ</button><button class="bot-btn" data-bot="vault">BÓVEDA</button><button class="bot-btn" data-bot="metrics">MÉTRICAS</button><button class="bot-btn" data-bot="backup">RESPALDO</button></nav>
