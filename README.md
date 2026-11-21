@@ -1,1 +1,99 @@
-# Spyder-
+# NEURAL COMMAND // AI SPIDER OS
+
+Espacio de estudio en el navegador con búsqueda, análisis y memoria **locales**. El texto de los documentos no se envía a un servidor ni a una API externa. No utiliza Ollama ni claves. Tanto el encoder semántico como el generador de personajes opcionales se ejecutan en el propio dispositivo.
+
+## Iniciar
+
+```bash
+python3 -m http.server 8080
+```
+
+Abre `http://localhost:8080`, carga un archivo, pega apuntes o pulsa **Demo**. Usa **Asistente** y **Estudio** en la barra superior para abrir el chat y las herramientas sin salir del panel. La aplicación no necesita npm para ejecutarse. Una vez completada la instalación del service worker, la interfaz y sus librerías básicas funcionan sin conexión. El funcionamiento sin conexión y el modelo opcional requieren HTTPS o localhost, almacenamiento disponible y un navegador compatible.
+
+### Consultar la base local
+
+1. En **Asistente → Chat**, elige **Documentos + base local**, **Solo mis documentos** o **Solo base local** en **Buscar en**. La misma selección se usa en Redacción; el modo personaje sigue usando únicamente el libro elegido.
+2. Abre **Base local · temas y límites** para explorar las **97 fichas** en nueve categorías. Incluyen **50 síntesis propias**: 32 basadas en Aprende.org / Capacítate para el Empleo, 17 en PruébaT y una en un artículo de Fundación Carlos Slim sobre Capacítate. Cubren lógica y desarrollo web, datos e IA, SST y algunos conceptos de ciencias y matemáticas.
+3. Pregunta, por ejemplo, «¿Qué dice Aprende.org sobre las variables?», «PruébaT diferencia entre for y while», «Aprende IA generativa» o «Aprende.org SST alturas». El chat utiliza el texto de las fichas como evidencia y puede mostrar ejemplos propios; las citas abren la ficha, con el material concreto y su fecha. También puedes preguntar «¿Qué es el SG-SST?» o «jornada laboral 42 horas Colombia». La búsqueda es por términos y puede no encontrar una respuesta.
+
+Las nuevas síntesis se basan en 29 fuentes accesibles: infografías, actividades, ejercicios, un artículo y, en algunos casos, las **presentaciones públicas** de cursos. La referencia indica cuál se usó: no se afirma haber transcrito vídeos ni incorporado cursos completos. Los ejemplos están redactados para esta aplicación. No se descargan los materiales externos durante la consulta; abrir su fuente original requiere internet y puede requerir registro. Para estudiar un material adicional que tengas derecho a usar, puedes cargar su PDF con texto u otro archivo compatible como documento privado.
+
+Las fichas se distribuyen con la aplicación y se indexan por separado: no se agregan a tus documentos, al visor, a las cosechas ni a la bóveda. La revisión indicada es **2026-11-16**, no una garantía de vigencia. La información jurídica y de SST **no se actualiza automáticamente ni sustituye asesoría profesional**; comprueba la norma, sus modificaciones, el régimen y los hechos aplicables. La formación general de SST no es legislación colombiana ni demuestra cumplimiento. Después de instalar el shell, las fichas y sus citas locales pueden consultarse sin conexión; el navegador puede borrar la caché si necesita espacio.
+
+### Conversar con un personaje
+
+1. Abre **Asistente** y elige **Conversación · personaje** en el selector de modo.
+2. Sube el PDF de una novela o elige un libro ya cargado; también admite EPUB, TXT, Markdown y DOCX. Escribe el nombre del personaje tal como aparece en el texto extraído.
+3. Saluda, pregunta por un tema de la obra o usa **Háblame de ti** y **¿Y después?**. Si hay un pasaje relacionado, su cita abre la página del libro; la continuación recorre el texto desde la última cita del mismo personaje y libro.
+
+Por defecto funciona con **reglas y fragmentos literales**; opcionalmente puedes activar el generador local Qwen descrito abajo. Busca menciones del nombre y palabras cercanas solo en el libro elegido; puede no comprender una pregunta, confundir el contexto o revelar spoilers. Un pasaje puede ser narración o palabras de otra persona, no necesariamente diálogo del personaje. Ninguna ruta entrena el modelo con tu libro ni promete imitar fielmente su personalidad. Un PDF sin texto extraíble no se puede usar sin OCR.
+
+Las respuestas de acompañamiento y crisis son frases básicas activadas por reglas muy limitadas: pueden pasar por alto situaciones importantes y no sustituyen ayuda profesional o de emergencia. El libro, el nombre y el historial se guardan en este navegador cuando hay almacenamiento disponible y pueden incluirse en respaldos JSON. **BORRAR** elimina todo el historial del chat, no los libros; quitar un libro tampoco elimina las citas que ya quedaron en el historial. Para retirar ambos, borra el chat y el libro o usa el reset completo. Los archivos de respaldo/exportación que hayas guardado aparte no se borran automáticamente.
+
+### Generador de personajes opcional: Qwen3
+
+1. En **MODELO**, elige **DESCARGAR Y ACTIVAR QWEN**. Spyder descarga el archivo [Qwen3-0.6B-Q4_K_M.gguf de Unsloth](https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/blob/main/Qwen3-0.6B-Q4_K_M.gguf) de una revisión fija de Hugging Face: **396.705.472 bytes (397 MB, ~378 MiB)**, más aproximadamente 2,5 MB del motor local. También puedes importar ese GGUF exacto desde tu dispositivo mediante el selector del panel.
+2. La descarga puede tardar y requiere espacio libre, memoria adicional y un navegador moderno con WebAssembly, Cache Storage y service worker en HTTPS o localhost. El modelo se verifica por tamaño y SHA-256 antes de guardarse y otra vez al cargarlo. Si falta espacio, se interrumpe o falla la comprobación, Spyder avisa y no activa una copia parcial. Se puede cancelar y volver a intentar; la descarga del GGUF no es reanudable.
+3. Cuando indique **Qwen activo**, abre **Conversación · personaje**, selecciona un libro, escribe el nombre y pregunta. La primera carga y cada respuesta pueden tardar bastante: el motor usa CPU monohilo, no GPU. Usa **DETENER** para cancelar una respuesta. Al desactivar o si hay un fallo, vuelven las reglas; se informa en la respuesta. **ELIMINAR QWEN** elimina su caché, no los libros ni MiniLM. Cierra las otras pestañas antes de eliminar o reinstalar, porque cada una mantiene su propio estado.
+
+Qwen es un LLM pequeño: puede inventar datos, no seguir el personaje, responder en otro idioma o confundir el pasaje, y su calidad en español no está garantizada. El fragmento enlazado es contexto consultado, **no una comprobación ni necesariamente palabras del personaje**; si no se encuentra un fragmento del tema, se avisa y puede responder sin fuente. Las respuestas generadas se etiquetan como tales. Las reglas limitadas de crisis se ejecutan antes del generador y no constituyen asistencia de emergencia.
+
+Los fragmentos del libro, preguntas e historial usados en el prompt se procesan en este dispositivo, no se envían a Hugging Face. Al descargar, el navegador sí contacta a Hugging Face y a su infraestructura de archivos/redirecciones; el proveedor puede recibir metadatos de conexión. Después de instalar y verificar el modelo y el shell, pueden usarse sin conexión. El navegador podría borrar la caché por presión de almacenamiento. Libro e historial pueden persistir en IndexedDB y en el respaldo JSON; los pesos no se incluyen en ese respaldo. Código y licencias en [`vendor/NOTICE.md`](vendor/NOTICE.md) y [`models/qwen3/LICENSE`](models/qwen3/LICENSE).
+
+### Encoder semántico opcional
+
+1. Pulsa **MODELO** y después **DESCARGAR Y ACTIVAR**. Se descargan aproximadamente **42 MiB (44 MB)** desde la misma instalación de la aplicación, no desde un CDN ni una API de IA. El shell no descarga esos archivos automáticamente.
+2. La ventana muestra el avance y cuántos pasajes se han indexado. Durante la indexación el chat sigue usando la búsqueda interna y los vectores que ya estén listos. Mantén activada la **búsqueda híbrida vectorial** en Ajustes para utilizar el modelo.
+3. Cuando el modelo está descargado y el service worker controla la página, también se puede usar sin conexión. Sus vectores se mantienen en memoria y se reconstruyen al abrir la aplicación; un corpus grande puede tardar y consumir CPU/memoria. El navegador puede borrar su caché si necesita espacio.
+4. **DESACTIVAR** detiene la inferencia; **ELIMINAR DESCARGA** borra sus archivos del almacenamiento de este navegador sin borrar tus documentos. Cierra otras pestañas de la aplicación antes de borrarlos: pueden conservar el modelo en memoria o volver a descargarlo. El respaldo JSON de tu conocimiento es independiente y no incluye los pesos del modelo.
+
+El modelo `all-MiniLM-L6-v2` es un encoder de embeddings de 384 dimensiones, entrenado principalmente en inglés. Ayuda a encontrar y ordenar pasajes relacionados, pero **no genera texto** y su rendimiento en español puede variar. La búsqueda normal y las funciones de estudio siguen disponibles sin él. Consulta [`models/minilm/README.md`](models/minilm/README.md) y [`vendor/NOTICE.md`](vendor/NOTICE.md) para procedencia y licencias.
+
+### Fragmentos, temas y arañas
+
+- El índice utiliza ventanas solapadas centradas en cada oración: normalmente dos o tres oraciones, sin cruzar sección ni página interna o física de PDF. El título de sección se incluye en el texto que recibe MiniLM. El visor conserva las oraciones originales y las citas conservan su ancla y página PDF. Una oración aislada sigue siendo un fragmento válido.
+- Con MiniLM activo y **búsqueda híbrida vectorial** habilitada, la red agrupa por similitud de sus vectores en hasta cuatro temas, más un grupo sin afinidad cuando hace falta. Los botones **T1…** filtran la red y el texto en la cabecera indica cuántos vectores están listos. Los nombres usan palabras frecuentes y son orientativos; los grupos dependen del corpus y pueden cambiar al reconstruirse. Los puntos de conceptos aparecen a medida que las arañas cosechan. Los roles de los agentes DEF/CAUSAL/QUANT/SYNTH son independientes de los temas. Sin vectores, la red indica que muestra la vista por agente, no temas semánticos.
+- Al hacer una pregunta de estudio o redacción con resultados, el enjambre intenta enviar hasta tres arañas libres a los pasajes recuperados con señal MiniLM suficiente. Si el encoder no aporta señal o falla, se indica **Guía local** y se usan los resultados de la búsqueda interna. La cola es temporal, no inventa fuentes y respeta pausa, visibilidad, reservas y navegación AUTO; una nueva pregunta reemplaza la cola anterior sin interrumpir tareas ya en curso. Los comandos directos, el muestreo global y el modo personaje no realizan esta guía MiniLM.
+- En los modos de estudio, **SÍ/NO** guarda la valoración de las fuentes documentales citadas, o las consultadas si no hay citas válidas. Ajusta de forma acotada el orden de candidatos de consultas similares y, mientras MiniLM está activo, el de otros pasajes de los mismos temas. No crea resultados nuevos. Las valoraciones se guardan con IDs de fuente, no con nombres de temas; al quitar un documento se eliminan sus referencias. Las fichas públicas no se entrenan como patrones personales y el modo personaje no registra estas valoraciones.
+
+Los filtros siguen aplicándose al contexto y las citas; una ventana con vecinas excluidas se recorta y su vector original no se usa como evidencia. La primera consulta con una exclusión puede reconstruir un índice temporal y consumir tiempo y memoria en corpus grandes; se reutiliza solo la proyección más reciente. MiniLM trunca las entradas a 256 tokens y ni la similitud ni los nombres de los grupos garantizan relevancia.
+
+## Qué incluye
+
+- **Arañas:** de una a cinco arañas articuladas pueden leer **a la vez pasajes distintos**: cada una reserva su fuente y avanza en un carril independiente con su propio desplazamiento horizontal. Cuando hay una sola puede leer directamente en el visor; si se añaden más, su lectura pasa al carril conservando el avance. Recorren visualmente hasta 18 palabras y transportan una cápsula al nodo; la extracción usa el pasaje real, no la copia visual. El trabajo es concurrente e intercalado en el navegador, no implica cinco hilos de CPU. Pausa, cambio manual de página, eliminación o reset gestionan las tareas y reservas; las arañas libres siguen paseando, tejiendo o masajeando nodos sin crear datos ficticios. Se conservan las ocho patas articuladas.
+- **Red interactiva:** la reina NC-00 permanece anclada, mira el puntero y teje con sus ocho patas. La reina, la telaraña y las partículas son decoración, no datos cosechados. Haz clic o pulsa Enter sobre la red para enviar hasta tres arañas libres a pasajes reales. El buscador, los filtros y las flechas permiten recorrer redes grandes: se muestran hasta 40 conceptos por página (24 en una red estrecha) y 90 enlaces, sin borrar los demás. El inspector pagina citas y relaciones en grupos de 12, con salto directo; permite abrir vecinos fuera de la página y espera al visor antes de revelar una cita. Al abrirlo recibe el foco y **Escape** lo cierra y devuelve el foco. Si D3 no está disponible, la lista textual también permite inspeccionar los conceptos. Ante bloqueos prolongados se reduce temporalmente la frecuencia de la decoración; las tareas siguen avanzando. Pausa o activa **Reducir animaciones** en Ajustes para congelar o simplificar el movimiento.
+- **Recuperación híbrida:** ventanas solapadas, índice invertido BM25, normalización y raíces en español, bigramas, corrección básica de erratas, diversificación MMR y una proyección vectorial local combinada mediante RRF y coseno. Con el modelo opcional se añade un ranking de embeddings ONNX. Filtros: `=doc:nombre`, `=pag:2`, `"frase exacta"` y `-excluir`.
+- **Respuestas con fuentes:** modos automático, resumen, examen, socrático, crítico, redacción y conversación por personaje. Las citas documentales abren el documento y las citas de la base muestran su ficha y referencia por separado. Las valoraciones de estudio ajustan de forma acotada las fuentes documentales valoradas y, con MiniLM, sus temas. El modo crítico señala *posibles* discrepancias, no pruebas definitivas.
+- **Estudio:** guía editable, tarjetas con repetición espaciada (Leitner/SM-2 simplificado), exportación CSV para Anki, quiz con puntuación y temporizador opcional, bóveda de conocimiento y evaluación del corpus.
+- **Persistencia:** documentos indexados, grafo, memoria, conversación, valoraciones y progreso en IndexedDB, con respaldo JSON e importación validada. El guardado reúne las colecciones en una transacción; si falla, se avisa y el respaldo JSON puede incluir el estado actual en memoria. Sin IndexedDB se intenta usar localStorage, sujeto a su cuota y sin garantía de reversión. Los datos pertenecen al navegador y al origen desde el que se abrió la aplicación; exporta un respaldo antes de limpiar sus datos.
+- **Formatos:** texto, Markdown, código, CSV, SRT/VTT, HTML, PDF con texto, DOCX, PPTX, XLSX y EPUB. PDF.js, Mammoth, JSZip y D3 están empaquetados localmente.
+
+## Límites importantes
+
+- El compositor predeterminado es **extractivo y basado en reglas**; solo el modo personaje puede usar el generador Qwen opcional. La proyección vectorial incluida por defecto tampoco es un modelo neuronal. El encoder ONNX opcional mejora la búsqueda en algunos casos, pero no garantiza relevancia ni corrige por sí solo la redacción; se avisa cuando se utiliza una fuente seleccionada solo por similitud semántica. Los resúmenes generales usan una muestra de pasajes, no una lectura exhaustiva de documentos grandes.
+- La comprobación de citas verifica el número de fuente y un solapamiento léxico básico; **no verifica la verdad de una afirmación**. Revisa siempre la fuente y las posibles contradicciones.
+- La evaluación generada desde el propio corpus es una línea base potencialmente optimista. El conjunto de prueba incluido es pequeño y no garantiza resultados en otros temas. La demo es material sintético, no una medición científica.
+- Los nuevos guardados ya no descartan las cosechas que superan 4.000, pero no recuperan las que versiones anteriores hayan descartado. Los historiales de chat, valoraciones, memoria consolidada y cada tipo de evaluación conservan normalmente hasta 200, 400, 300 y 50 entradas, respectivamente. El almacenamiento y el tamaño del respaldo siguen sujetos a los recursos y la cuota del navegador.
+- No se incluye OCR, transcripción de audio ni traducción automática. Si un PDF no devuelve texto, también puede deberse a páginas vacías o a fuentes/codificaciones no compatibles, no necesariamente a un escaneo. Los PDF protegidos por contraseña deben abrirse y guardarse sin contraseña antes de importarlos. Se procesan como máximo 500 páginas PDF y se avisa si la lectura es parcial o si alguna página no devuelve texto; las citas y el filtro `=pag:` usan el número de página PDF original. El lector, sus CMaps y sus fuentes son locales y quedan disponibles offline tras instalar el shell. El respaldo nativo anterior no se usa porque no conservaba páginas ni podía garantizar la codificación. El soporte XLSX extrae valores almacenados, no calcula fórmulas. Los archivos de imagen/vídeo pueden visualizarse durante la sesión, pero sus originales no se incluyen en el respaldo JSON y deben volver a seleccionarse tras recargar.
+- La importación de URL, el reconocimiento de voz del navegador y el antiguo endpoint PHP se retiraron para mantener la ruta independiente y evitar envíos de datos. No se incluye un modelo generativo WebLLM ni un servidor de modelos.
+
+## Pruebas y rendimiento
+
+Para ejecutar las pruebas de desarrollo se necesita Node.js 20+ y una instalación inicial de las dependencias de prueba:
+
+```bash
+npm ci
+npm test
+npm run bench -- 20000
+npm run bench:graph -- 20000
+```
+
+El primer benchmark mide búsqueda determinista sobre oraciones sintéticas repetitivas, **sin** construcción de ventanas ni inferencia ONNX. El segundo mide la proyección y ocho pasos de fuerzas D3, sin DOM ni pintura. Como ejemplo, en este entorno Node 22 con 20.000 conceptos y 20.000 enlaces, la proyección tuvo p50 **1,83 ms** y p95 **2,47 ms** (90 muestras); preparar fuerzas y ejecutar ocho pasos tomó una mediana de **4,54 ms** con 44 nodos visibles frente a **2.207,87 ms** en una sola ejecución con todos los nodos. Son pruebas sintéticas, no tiempos de ingesta completa ni garantías para otro dispositivo.
+
+En Chromium de prueba con renderizado por software, ocho cambios de página de un grafo con 20.000 conceptos y temas simulados bajaron de una mediana de **77,7 ms a 13,8 ms** al reutilizar los datos derivados; no incluyen inferencia MiniLM ni tiempo de pintura. Con reloj real y todo el dibujo activo se observaron cinco lecturas simultáneas y cinco entregas únicas en **77 segundos** (569 fotogramas); en otra ejecución solo tres se entregaron en 60 segundos. La animación puede ser lenta en este entorno y los resultados no representan dispositivos físicos. El set dorado contiene 72 preguntas con respuesta y 8 preguntas trampa sobre 24 pasajes. **Estudio → Métricas** evalúa el corpus cargado e incluye la inferencia del modelo cuando está activo y ha terminado de indexar.
+
+Se evaluó la posibilidad de Rust/WebAssembly, pero **no se incorporó ni se hizo una comparación directa con Rust**: las mediciones justificaron primero acotar D3 y reducir trabajo de dibujo; una migración de código no eliminaría por sí sola el coste de DOM y pintura. Antes de decidirla habría que comparar implementación y transferencia de datos de extremo a extremo con corpus y dispositivos reales.
+
+- [`docs/IMPLEMENTACION_V11.md`](docs/IMPLEMENTACION_V11.md): implementación, resultados y trabajo no incluido.
+- [`docs/AUDITORIA_Y_PLAN.md`](docs/AUDITORIA_Y_PLAN.md): auditoría histórica y plan original.
+- [`tests/bench-bm25.js`](tests/bench-bm25.js): comparación histórica con el motor anterior.

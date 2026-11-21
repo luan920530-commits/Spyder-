@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#04070c">
+  <meta name="description" content="Espacio de estudio privado con motor de recuperación independiente y local.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://huggingface.co https://*.hf.co https://cdn-lfs.huggingface.co; img-src 'self' blob: data:; media-src 'self' blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <title>NEURAL COMMAND // AI SPIDER OS</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="stylesheet" href="css/hud.css">
+  <script defer src="vendor/d3/d3.min.js"></script>
+  <script defer src="vendor/jszip/jszip.min.js"></script>
+  <script defer src="vendor/mammoth/mammoth.browser.min.js"></script>
+  <script defer src="js/util.js"></script>
+  <script defer src="js/retrieval.js"></script>
+  <script defer src="js/education-knowledge.js"></script>
+  <script defer src="js/knowledge-base.js"></script>
+  <script defer src="js/analysis.js"></script>
+  <script defer src="js/srs.js"></script>
+  <script defer src="js/db.js"></script>
+  <script defer src="js/embeddings.js"></script>
+  <script defer src="js/chunks.js"></script>
+  <script defer src="js/store.js"></script>
+  <script defer src="js/local-model.js"></script>
+  <script defer src="js/semantic-clusters.js"></script>
+  <script defer src="js/qwen-config.js"></script>
+  <script defer src="js/qwen-prompt.js"></script>
+  <script defer src="js/qwen-model.js"></script>
+  <script defer src="js/parsers.js"></script>
+  <script defer src="js/memory.js"></script>
+  <script defer src="js/providers.js"></script>
+  <script defer src="js/character.js"></script>
+  <script defer src="js/rag.js"></script>
+  <script defer src="js/kimi-aux-model.js"></script>
+  <script defer src="js/viewer.js"></script>
+  <script defer src="js/spider-visual.js"></script>
+  <script defer src="js/graph-projection.js"></script>
+  <script defer src="js/neural-graph.js"></script>
+  <script defer src="js/spider-paths.js"></script>
+  <script defer src="js/spider-motion.js"></script>
+  <script defer src="js/spiders.js"></script>
+  <script defer src="js/eval.js"></script>
+  <script defer src="js/brain-rag.js"></script>
+  <script defer src="js/study-bots.js"></script>
+  <script defer src="js/app.js"></script>
+</head>
+<body>
+  <header id="hud-topbar">
+    <div class="hud-brand" aria-label="Spyder Neural Command">
+      <span class="brand-diamond" aria-hidden="true">◆</span><span class="brand-name">SPYDER</span>
+      <span class="brand-slash">/</span><span class="brand-title">NEURAL COMMAND</span>
+    </div>
+    <nav class="workspace-nav" aria-label="Secciones principales">
+      <button class="workspace-step active" data-workspace="extract" aria-pressed="true"><span>1</span> · EXTRAER</button>
+      <button class="workspace-step" data-workspace="network" aria-pressed="false"><span>2</span> · ANALIZAR</button>
+      <button class="workspace-step" data-workspace="chat" aria-pressed="false"><span>3</span> · ASISTENTE</button>
+      <button class="workspace-step" data-workspace="study" aria-pressed="false"><span>4</span> · ESTUDIO</button>
+    </nav>
+    <div class="top-status">
+      <div class="status-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="system-time"><span id="system-clock">--:--:--</span><span class="clock-divider"> / </span><span id="hud-mode-badge" title="Procesamiento en tu dispositivo">LOCAL</span></div>
+      <button class="model-trigger" id="btn-model" title="Modelos locales opcionales" aria-haspopup="dialog" aria-controls="model-modal" aria-expanded="false"><span aria-hidden="true">◇</span> MODELO</button>
+      <button class="icon-button settings-button" id="btn-settings" aria-label="Abrir ajustes" title="Ajustes">⚙</button>
+    </div>
+  </header>
+
+  <main id="hud-workspace">
+    <aside id="left-column" class="workspace-column" aria-label="Documentos y actividad">
+      <section id="panel-doc" class="hud-panel scan-panel" aria-label="Visor documental">
+        <div class="panel-heading">
+          <span class="heading-title"><span class="heading-dot cyan-bg"></span> DOCUMENTO</span>
+          <span id="doc-stat-pages">0 PÁGINAS</span><span id="stat-sentences">0</span><span>PASAJES</span>
+        </div>
+        <div class="doc-actions">
+          <label class="btn-hud btn-cyan file-label" title="Seleccionar archivos locales" tabindex="0" role="button" aria-label="Seleccionar archivos locales">+ ARCHIVO<input type="file" id="file-input" multiple hidden></label>
+          <button class="btn-hud btn-ghost" id="btn-paste-modal">PEGAR</button>
+          <button class="btn-hud btn-ghost" id="btn-load-demo">DEMO</button>
+        </div>
+        <div id="doc-tabs" class="doc-tabs" aria-label="Documentos"></div>
+        <div id="doc-pagination" class="doc-pagination">
+          <button class="btn-mini" id="btn-prev-page" aria-label="Página anterior" disabled>‹</button>
+          <span id="page-indicator">Pág 0 / 0</span>
+          <button class="btn-mini" id="btn-next-page" aria-label="Página siguiente" disabled>›</button>
+          <label class="auto-page-toggle"><input type="checkbox" id="chk-auto-page" checked> AUTO</label>
+        </div>
+        <div class="doc-status"><span id="doc-section">Sin documento</span><span id="ingest-status" role="status">Esperando material</span></div>
+        <div id="doc-dropzone" class="doc-dropzone">
+          <div id="scan-tracks" class="scan-tracks" role="region" aria-label="Lecturas simultáneas" aria-live="off"></div>
+          <div id="ingest-message" class="ingest-message hidden" role="status"></div>
+          <div id="doc-empty-state" class="empty-state">
+            <div class="empty-emblem" aria-hidden="true"><span>+</span></div>
+            <p>Tu conocimiento comienza aquí</p>
+            <small>Arrastra un archivo, pega tus apuntes o carga la demo.</small>
+            <span class="file-types">PDF · DOCX · EPUB · TXT</span>
+          </div>
+          <div id="media-viewer" class="media-viewer hidden"></div>
+          <article id="doc-content" class="doc-content"></article>
+        </div>
+        <div class="harvest-status"><span id="harvest-label">0/0 PASAJES</span><div class="harvest-track"><div id="harvest-bar"></div></div><span id="harvest-rate">0/s</span></div>
+      </section>
+      <section id="pattern-ticker" class="hud-panel pattern-ticker scan-panel" aria-label="Registro de actividad">
+        <div class="panel-heading"><span class="heading-title"><span class="heading-dot emerald-bg"></span> ACTIVIDAD · REGISTRO</span><span id="ticker-hashes">0 PATRONES</span></div>
+        <div id="ticker-list" class="ticker-list"><p class="ticker-empty">— Esperando actividad del enjambre</p></div>
+      </section>
+    </aside>
+
+    <section id="panel-arena" class="hud-panel arena-panel" aria-label="Red de conocimiento">
+      <div id="arena-stage" class="arena-stage" role="group" tabindex="0" aria-label="Red de conocimiento interactiva" aria-describedby="swarm-help">
+        <canvas id="core-3d-canvas" aria-hidden="true"></canvas>
+        <svg id="neural-svg" role="group" aria-label="Grafo de conceptos cosechados"></svg>
+        <div class="swarm-hud" aria-hidden="true"><strong>◇ ENJAMBRE · REINA NC-00</strong><span>ARAÑAS <b id="swarm-count">1</b> · LEYENDO <b id="swarm-reading">0</b></span><span>COSECHADOS <b id="swarm-harvested">0</b> · PATRONES <b id="swarm-patterns">0</b></span></div>
+        <div id="swarm-help" class="swarm-hint">MUEVE · EXPLORA LA RED<br>CLIC O ENTER · ENVIAR ARAÑAS AL TEXTO</div>
+        <div id="swarm-tip" class="swarm-tip hidden" aria-hidden="true"></div>
+        <p id="swarm-feedback" class="swarm-feedback" role="status" aria-live="polite"></p>
+        <div id="graph-fallback" class="graph-fallback hidden"></div>
+        <div class="arena-corner top-left"></div><div class="arena-corner top-right"></div><div class="arena-corner bottom-left"></div><div class="arena-corner bottom-right"></div>
+        <div class="arena-tools" aria-label="Filtrar conceptos">
+          <div id="cluster-filters" class="cluster-filters">
+            <button class="cluster-pill c-def" data-cluster="AGT-01" aria-pressed="false" title="Filtrar definiciones" aria-label="Filtrar definiciones">DEF</button>
+            <button class="cluster-pill c-causal" data-cluster="AGT-02" aria-pressed="false" title="Filtrar relaciones causales" aria-label="Filtrar relaciones causales">CAUSAL</button>
+            <button class="cluster-pill c-quant" data-cluster="AGT-03" aria-pressed="false" title="Filtrar métricas" aria-label="Filtrar métricas">QUANT</button>
+            <button class="cluster-pill c-synth" data-cluster="AGT-04" aria-pressed="false" title="Filtrar síntesis" aria-label="Filtrar síntesis">SYNTH</button>
+          </div>
+          <button class="btn-mini" id="btn-center-net" aria-label="Centrar red" title="Centrar red">◎</button>
+        </div>
+        <div id="graph-grouping" class="graph-grouping" role="status">POR AGENTE · ACTIVA MINILM PARA AGRUPAR POR TEMA</div>
+        <div class="orbit-label label-def"><span class="orbit-name">AGT-01 · DEFINICIONES</span><span class="orbit-state" data-orbit="AGT-01">EN ESPERA</span></div>
+        <div class="orbit-icon icon-def" aria-hidden="true">✳</div>
+        <div class="orbit-icon icon-causal" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M20 4 37 34H3Z"/><path d="M9 28h22"/></svg></div>
+        <div class="orbit-label label-causal"><span class="orbit-name">AGT-02 · CAUSAL</span><span class="orbit-state" data-orbit="AGT-02">EN ESPERA</span></div>
+        <div class="network-tag"><span>♛ REINA · DOCUMENTO</span><small>NC-00 · COORDINADORA VISUAL</small></div>
+        <div class="core-label"><span>NEURAL CORE</span><small>índice local · conocimiento</small></div>
+        <div class="orbit-label label-synth"><span class="orbit-name">AGT-04 · SÍNTESIS</span><span class="orbit-state" data-orbit="AGT-04">EN ESPERA</span></div>
+        <div class="orbit-icon icon-synth" aria-hidden="true">✣</div>
+        <div class="orbit-icon icon-quant" aria-hidden="true">▦</div>
+        <div class="orbit-label label-quant"><span class="orbit-name">AGT-03 · MÉTRICAS</span><span class="orbit-state" data-orbit="AGT-03">EN ESPERA</span></div>
+        <div class="graph-timeline" aria-hidden="true">
+          <div><i class="timeline-cyan"></i></div><div><i class="timeline-violet"></i></div><div><i class="timeline-amber"></i></div><div><i class="timeline-green"></i></div><div><i class="timeline-white"></i></div>
+        </div>
+        <div class="timeline-key" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        <div id="node-inspector" class="node-inspector hidden" role="region" aria-labelledby="insp-label" tabindex="-1">
+          <div class="inspector-head"><span id="insp-cluster" class="badge">AGT-01</span><span id="insp-weight" class="insp-weight">×1</span><button id="btn-close-inspector" class="btn-mini" aria-label="Cerrar inspector">✕</button></div>
+          <h4 id="insp-label"></h4><p id="insp-text" class="insp-text"></p><div id="insp-citations" class="insp-citations"></div>
+          <div id="insp-citation-pages" class="insp-citation-pages hidden"><button type="button" class="btn-mini" id="insp-citation-prev" aria-label="Citas anteriores">‹</button><span id="insp-citation-status" role="status" aria-live="polite"></span><button type="button" class="btn-mini" id="insp-citation-next" aria-label="Citas siguientes">›</button><label for="insp-citation-page">Pág.</label><input id="insp-citation-page" type="number" min="1" value="1" inputmode="numeric" aria-label="Página de citas"><span id="insp-citation-page-count"></span></div>
+          <details id="insp-connections" class="insp-connections"><summary>Conexiones</summary><div id="insp-connection-list"></div><div class="insp-connection-pages"><button type="button" class="btn-mini" id="insp-connection-prev" aria-label="Conexiones anteriores">‹</button><span id="insp-connection-status" role="status" aria-live="polite"></span><button type="button" class="btn-mini" id="insp-connection-next" aria-label="Conexiones siguientes">›</button><label for="insp-connection-page">Pág.</label><input id="insp-connection-page" type="number" min="1" value="1" inputmode="numeric" aria-label="Página de conexiones"><span id="insp-connection-page-count"></span></div></details>
+          <button class="btn-mini" id="btn-insp-ask">Preguntar por este concepto</button>
+        </div>
+      </div>
+      <div class="graph-browser" role="group" aria-label="Explorar conceptos de la red">
+        <label class="sr-only" for="graph-search">Buscar conceptos en la red</label><input id="graph-search" type="search" placeholder="Buscar concepto…" autocomplete="off">
+        <button type="button" class="btn-mini" id="graph-prev" aria-label="Página anterior de conceptos">‹</button><span id="graph-page" role="status" aria-live="polite">0 de 0</span><button type="button" class="btn-mini" id="graph-next" aria-label="Página siguiente de conceptos">›</button>
+      </div>
+    </section>
+
+    <aside id="right-column" class="workspace-column" aria-label="Agentes, métricas y herramientas">
+      <section id="agents-panel" class="hud-panel scan-panel">
+        <div class="panel-heading"><span class="heading-title"><span class="heading-dot cyan-bg"></span> AGENTES</span><span>4 UNIDADES</span></div>
+        <div class="agent-list">
+          <article class="agent-card agent-def" data-agent="AGT-01">
+            <div class="agent-avatar" aria-hidden="true">✳</div><div class="agent-content"><div class="agent-heading"><span><strong>AGT-01</strong> · DEFINICIONES</span><i class="agent-indicator"></i></div><div class="agent-status">EN ESPERA</div><div class="agent-meter"><div class="agent-progress"><i></i></div><span class="agent-bars" aria-hidden="true"></span></div><div class="agent-count">0 PATRONES</div></div>
+          </article>
+          <article class="agent-card agent-causal" data-agent="AGT-02">
+            <div class="agent-avatar" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M20 5 36 33H4Z"/></svg></div><div class="agent-content"><div class="agent-heading"><span><strong>AGT-02</strong> · CAUSAL</span><i class="agent-indicator"></i></div><div class="agent-status">EN ESPERA</div><div class="agent-meter"><div class="agent-progress"><i></i></div><span class="agent-bars" aria-hidden="true"></span></div><div class="agent-count">0 PATRONES</div></div>
+          </article>
+          <article class="agent-card agent-quant" data-agent="AGT-03">
+            <div class="agent-avatar" aria-hidden="true">▦</div><div class="agent-content"><div class="agent-heading"><span><strong>AGT-03</strong> · CUANTITATIVO</span><i class="agent-indicator"></i></div><div class="agent-status">EN ESPERA</div><div class="agent-meter"><div class="agent-progress"><i></i></div><span class="agent-bars" aria-hidden="true"></span></div><div class="agent-count">0 PATRONES</div></div>
+          </article>
+          <article class="agent-card agent-synth" data-agent="AGT-04">
+            <div class="agent-avatar" aria-hidden="true">✣</div><div class="agent-content"><div class="agent-heading"><span><strong>AGT-04</strong> · SÍNTESIS</span><i class="agent-indicator"></i></div><div class="agent-status">EN ESPERA</div><div class="agent-meter"><div class="agent-progress"><i></i></div><span class="agent-bars" aria-hidden="true"></span></div><div class="agent-count">0 PATRONES</div></div>
+          </article>
+        </div>
+      </section>
+      <section id="metrics-panel" class="hud-panel scan-panel">
+        <div class="panel-heading"><span class="heading-title"><span class="heading-dot violet-bg"></span> MÉTRICAS · SISTEMA</span><span>EN DIRECTO</span></div>
+        <div class="metric-grid">
+          <div class="metric-card"><span>ARAÑAS ACTIVAS</span><strong id="stat-spiders">1/5</strong></div>
+          <div class="metric-card"><span>PASAJES COSECHADOS</span><strong id="stat-harvested">0</strong></div>
+          <div class="metric-card"><span>NODOS EN RED</span><strong id="stat-nodes">0</strong></div>
+          <div class="metric-card"><span>PATRONES ÚNICOS</span><strong id="stat-patterns">0</strong></div>
+        </div>
+        <div class="metric-visuals">
+          <div class="harvest-chart-wrap"><span>COSECHA · HISTORIAL LOCAL</span><svg id="harvest-chart" viewBox="0 0 200 90" preserveAspectRatio="none" role="img" aria-label="Historial reciente de pasajes cosechados"><path class="chart-grid" d="M0 20H200 M0 45H200 M0 70H200"/><path id="chart-area" class="chart-area"/><polyline id="chart-line" class="chart-line"/></svg><span class="chart-caption">PASAJES / TIEMPO</span></div>
+          <div class="matrix-wrap"><span>PROGRESO</span><div id="progress-matrix" class="progress-matrix" aria-hidden="true"></div><button class="run-button" id="btn-toggle-spiders" aria-label="Pausar enjambre" title="Pausar enjambre">Ⅱ</button></div>
+        </div>
+        <div class="system-actions"><button class="btn-mini" id="btn-mitosis" title="Cambiar cantidad de arañas">+ ARAÑA</button><button class="btn-mini" id="btn-reset-all" title="Borrar datos locales">↺ RESET</button><span class="fps-label"><span id="stat-fps">—</span> FPS</span></div>
+      </section>
+      <section id="panel-brain" class="hud-panel hidden" aria-label="Asistente y estudio">
+        <div class="panel-heading brain-heading"><span class="heading-title"><span class="heading-dot cyan-bg"></span> ESPACIO DE ESTUDIO</span><button class="btn-mini" id="btn-close-brain" aria-label="Volver al panel de agentes">✕</button></div>
+        <div class="brain-tabs tab-switcher" role="tablist" aria-label="Herramientas">
+          <button class="tab-btn active" role="tab" aria-selected="true" data-tab="chat">CHAT</button>
+          <button class="tab-btn" role="tab" aria-selected="false" data-tab="writer">REDACCIÓN</button>
+          <button class="tab-btn" role="tab" aria-selected="false" data-tab="bots">ESTUDIO</button>
+        </div>
+        <div id="tab-chat" class="tab-pane active" role="tabpanel">
+          <div class="mode-bar"><label for="mode-select">MODO</label><select id="mode-select"></select><button class="btn-mini" id="btn-clear-chat" title="Borrar conversación">BORRAR</button></div>
+          <div id="knowledge-controls" class="knowledge-controls">
+            <div class="knowledge-scope"><label for="search-scope">BUSCAR EN</label><select id="search-scope" aria-describedby="knowledge-caption"><option value="both">Documentos + base local</option><option value="documents">Solo mis documentos</option><option value="knowledge">Solo base local</option></select></div>
+            <details id="knowledge-info" class="knowledge-info"><summary>Base local · temas y límites</summary><p id="knowledge-caption">Fichas propias, separadas de tus documentos. Incluyen síntesis de materiales de Aprende.org / Capacítate para el Empleo, PruébaT y un artículo de Fundación Carlos Slim, no los cursos completos. Funcionan sin conexión; abrir las fuentes originales requiere internet. La información jurídica y de SST no se actualiza sola ni sustituye asesoría profesional: comprueba su vigencia y aplicación.</p><p id="knowledge-meta"></p><div id="knowledge-catalog"></div></details>
+          </div>
+          <section id="character-setup" class="character-setup hidden" aria-labelledby="character-title">
+            <div class="character-heading"><span id="character-title"><span aria-hidden="true">✧</span> PERSONAJE LOCAL</span><span id="character-engine-badge" class="character-badge">SIN LLM</span></div>
+            <p class="character-intro">Elige o sube el PDF de un libro y escribe el personaje tal como aparece en él.</p>
+            <label for="character-book">LIBRO</label>
+            <div class="character-source-row"><select id="character-book" aria-describedby="character-status"><option value="">Selecciona un libro…</option></select><label class="btn-mini character-upload" for="character-file">+ SUBIR LIBRO<input id="character-file" class="sr-only" type="file" accept=".pdf,.epub,.txt,.md,.docx"></label></div>
+            <label for="character-name">PERSONAJE</label>
+            <input id="character-name" type="text" maxlength="80" autocomplete="off" placeholder="Ej. Alicia" aria-describedby="character-status character-limits">
+            <p id="character-status" class="character-status" role="status"></p>
+            <button type="button" id="btn-character-qwen" class="btn-mini character-model-button">ACTIVAR QWEN PARA CONVERSAR</button>
+            <details id="character-limits" class="character-limits"><summary>Motor, límites y privacidad</summary><p>Sin Qwen usa reglas y fragmentos literales. Con Qwen genera una interpretación ficticia: puede inventar, equivocarse o incluir spoilers. Los fragmentos consultados pueden ser narración o de otra persona y no verifican lo generado.</p><p>El libro y las preguntas no se envían a Hugging Face. El historial y el libro se guardan en este navegador si el almacenamiento está disponible y se incluyen en respaldos JSON. BORRAR elimina todo el chat, no el libro; quitar el libro no borra las citas guardadas en el chat.</p><p>El acompañamiento es básico y no reemplaza ayuda profesional ni servicios de emergencia. La detección de crisis es limitada.</p></details>
+          </section>
+          <div id="chat-messages" class="chat-messages" aria-live="polite" aria-relevant="additions"></div>
+          <div id="study-quick-actions" class="chat-quick-actions"><button class="btn-chip" data-prompt="Resume y analiza el documento completo">RESUMIR</button><button class="btn-chip" data-prompt="Detecta contradicciones en el documento">CONTRASTAR</button><button class="btn-chip" data-prompt="Aprende que ">ENSEÑAR</button></div>
+          <div id="character-quick-actions" class="chat-quick-actions hidden"><button class="btn-chip" data-prompt="Háblame de ti">HÁBLAME DE TI</button><button class="btn-chip" data-prompt="¿Qué pasó después?">¿Y DESPUÉS?</button><button class="btn-chip" data-prompt="Necesito hablar">NECESITO HABLAR</button></div>
+          <form id="chat-form" class="chat-form"><label class="sr-only" for="chat-input">Pregunta</label><input type="text" id="chat-input" placeholder="Pregunta a tus documentos o a la base local…" autocomplete="off"><button type="button" id="btn-stop-generation" class="btn-mini hidden">DETENER</button><button type="submit" id="btn-send" class="btn-hud btn-cyan">ENVIAR</button></form>
+        </div>
+        <div id="tab-writer" class="tab-pane" role="tabpanel">
+          <div class="writer-bar"><label class="sr-only" for="writer-prompt">Tema de redacción</label><input type="text" id="writer-prompt" placeholder="Tema o instrucción de redacción…"><button class="btn-hud btn-cyan" id="btn-run-writer">REDACTAR</button></div>
+          <div id="writer-output" class="writer-output"><p class="muted">Crea un borrador extractivo con el ámbito de fuentes seleccionado en CHAT. Comprueba las fuentes antes de usarlo.</p></div>
+        </div>
+        <div id="tab-bots" class="tab-pane" role="tabpanel">
+          <nav class="bots-nav" aria-label="Funciones de estudio"><button class="bot-btn active" data-bot="guide">GUÍA</button><button class="bot-btn" data-bot="flashcards">TARJETAS</button><button class="bot-btn" data-bot="quiz">QUIZ</button><button class="bot-btn" data-bot="vault">BÓVEDA</button><button class="bot-btn" data-bot="metrics">MÉTRICAS</button><button class="bot-btn" data-bot="backup">RESPALDO</button></nav>
+          <div id="bot-stage" class="bot-stage"></div>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <canvas id="spider-canvas" aria-hidden="true"></canvas>
+  <div id="node-tooltip" class="node-tooltip hidden" role="tooltip"></div>
+  <div id="hud-toast" class="hud-toast hidden" role="status"><span id="hud-toast-msg"></span></div>
+  <div id="paste-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="paste-title-label">
+    <div class="modal-card"><div class="modal-head"><span id="paste-title-label">PEGAR TEXTO</span><button id="btn-close-paste" class="btn-mini" aria-label="Cerrar">✕</button></div>
+      <label for="paste-title">Título</label><input type="text" id="paste-title" placeholder="Apuntes de clase">
+      <label for="paste-body">Contenido</label><textarea id="paste-body" rows="8" placeholder="Pega tus apuntes o texto académico…"></textarea>
+      <div class="modal-foot"><button id="btn-confirm-paste" class="btn-hud btn-cyan">INDEXAR TEXTO</button></div>
+    </div>
+  </div>
+  <div id="model-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="model-heading">
+    <div class="modal-card model-card">
+      <div class="modal-head"><span id="model-heading">MODELOS LOCALES</span><button id="btn-close-model" class="btn-mini" aria-label="Cerrar modelos locales">✕</button></div>
+      <div class="model-detail"><span class="model-detail-icon" aria-hidden="true">✧</span><div><strong>Qwen3-0.6B · GGUF Q4_K_M</strong><small>Generación de texto · conversación por personaje</small></div></div>
+      <p class="muted small">Descarga opcional de <strong>397 MB</strong> desde Hugging Face, más 2,4 MB de motor desde esta instalación. Solo se solicita el archivo público: no se envían tus libros ni preguntas. Se verifica su SHA-256 y se guarda en este navegador.</p>
+      <p class="muted small">Tras descargarlo funciona sin conexión. Usa CPU de un hilo; puede tardar y necesita bastante más memoria que los 397 MB del archivo. Es una interpretación ficticia y puede inventar o equivocarse.</p>
+      <div class="model-progress"><div class="model-progress-head"><span id="qwen-status" role="status">Qwen opcional desactivado.</span><span id="qwen-percent"></span></div><progress id="qwen-progress" max="100" value="0" aria-label="Progreso de Qwen"></progress></div>
+      <div class="model-actions"><button id="btn-install-qwen" class="btn-hud btn-cyan">DESCARGAR Y ACTIVAR QWEN</button><button id="btn-disable-qwen" class="btn-hud btn-ghost hidden">DESACTIVAR QWEN</button><button id="btn-delete-qwen" class="btn-hud btn-ghost hidden">ELIMINAR QWEN</button><label id="qwen-import-label" class="btn-hud btn-ghost model-import">IMPORTAR GGUF<input id="qwen-file" type="file" class="sr-only" accept=".gguf,application/octet-stream"></label></div>
+      <div class="model-detail model-section"><span class="model-detail-icon" aria-hidden="true">◇</span><div><strong>all-MiniLM-L6-v2 · ONNX</strong><small>384 dimensiones · búsqueda semántica, no conversación</small></div></div>
+      <p class="muted small">Descarga opcional de aproximadamente 42 MiB (44 MB) desde esta instalación. El modelo se guarda en este navegador y ayuda a buscar pasajes relacionados. No envía tus documentos a ningún servicio.</p>
+      <p class="muted small">Es un modelo de búsqueda, <strong>no genera texto</strong>. Fue entrenado principalmente en inglés; su rendimiento en español puede variar. El motor extractivo funciona sin él.</p>
+      <p class="muted small">Requiere HTTPS o localhost y almacenamiento local. Reindexa tus pasajes al abrir; para usarlo, mantén activada la búsqueda híbrida en Ajustes.</p>
+      <div class="model-progress"><div class="model-progress-head"><span id="model-status" role="status">Modelo opcional desactivado.</span><span id="model-percent"></span></div><progress id="model-progress" max="100" value="0" aria-label="Progreso del modelo"></progress></div>
+      <div class="model-actions"><button id="btn-install-model" class="btn-hud btn-cyan">DESCARGAR Y ACTIVAR</button><button id="btn-retry-index" class="btn-hud btn-cyan hidden">REINTENTAR ÍNDICE</button><button id="btn-disable-model" class="btn-hud btn-ghost hidden">DESACTIVAR</button><button id="btn-delete-model" class="btn-hud btn-ghost hidden">ELIMINAR DESCARGA</button></div>
+      <div class="model-backup"><strong>Tu conocimiento aprendido</strong><p class="muted small">Guarda tus documentos indexados, grafo y progreso en un respaldo JSON. No incluye los modelos ONNX ni GGUF.</p><button id="btn-download-brain" class="btn-mini">↓ DESCARGAR MI CEREBRO .JSON</button></div>
+    </div>
+  </div>
+  <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-heading">
+    <div class="modal-card"><div class="modal-head"><span id="settings-heading">AJUSTES LOCALES</span><button id="btn-close-settings" class="btn-mini" aria-label="Cerrar ajustes">✕</button></div>
+      <p class="muted">Sin servidores de IA ni claves. MiniLM y Qwen son opcionales y se ejecutan localmente; se activan desde MODELO.</p>
+      <label class="check-row"><input id="cfg-dense" type="checkbox"> Búsqueda híbrida vectorial</label><label class="check-row"><input id="cfg-fuzzy" type="checkbox"> Coincidencia difusa</label><label class="check-row"><input id="cfg-reduced" type="checkbox"> Reducir animaciones</label>
+      <label for="cfg-topk">Máximo de fuentes</label><select id="cfg-topk"><option>3</option><option>4</option><option>5</option><option>6</option><option>8</option><option>10</option></select>
+      <label for="cfg-window">Contexto vecino</label><select id="cfg-window"><option value="0">Solo el pasaje</option><option value="1">Una oración a cada lado</option><option value="2">Dos oraciones a cada lado</option></select>
+      <p id="storage-status" class="muted small" role="status"></p>
+    </div>
+  </div>
+</body>
+</html>

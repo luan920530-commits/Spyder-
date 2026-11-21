@@ -1,0 +1,495 @@
+{
+  "description": "24 pasajes redactados para pruebas, 72 preguntas manuales y 8 preguntas sin respuesta. No demuestra calidad en otros corpus.",
+  "sentences": [
+    {
+      "id": "s01",
+      "docId": "bio",
+      "docName": "bio.txt",
+      "pageNum": 1,
+      "text": "La sinapsis permite transmitir señales entre neuronas mediante neurotransmisores."
+    },
+    {
+      "id": "s02",
+      "docId": "bio",
+      "docName": "bio.txt",
+      "pageNum": 2,
+      "text": "Una neurona recibe señales por las dendritas y envía impulsos eléctricos a través del axón."
+    },
+    {
+      "id": "s03",
+      "docId": "bio",
+      "docName": "bio.txt",
+      "pageNum": 3,
+      "text": "La mitocondria produce energía celular en forma de ATP durante la respiración celular."
+    },
+    {
+      "id": "s04",
+      "docId": "bio",
+      "docName": "bio.txt",
+      "pageNum": 4,
+      "text": "La fotosíntesis convierte la luz solar en energía química y libera oxígeno."
+    },
+    {
+      "id": "s05",
+      "docId": "bio",
+      "docName": "bio.txt",
+      "pageNum": 5,
+      "text": "El ADN almacena la información genética en una doble hélice formada por nucleótidos."
+    },
+    {
+      "id": "s06",
+      "docId": "ia",
+      "docName": "ia.txt",
+      "pageNum": 6,
+      "text": "El descenso de gradiente actualiza los pesos para minimizar la función de pérdida del modelo."
+    },
+    {
+      "id": "s07",
+      "docId": "ia",
+      "docName": "ia.txt",
+      "pageNum": 7,
+      "text": "La retropropagación calcula derivadas desde la salida hasta las capas anteriores de la red neuronal."
+    },
+    {
+      "id": "s08",
+      "docId": "ia",
+      "docName": "ia.txt",
+      "pageNum": 8,
+      "text": "El sobreajuste ocurre cuando un modelo memoriza el entrenamiento y generaliza mal a datos nuevos."
+    },
+    {
+      "id": "s09",
+      "docId": "sistemas",
+      "docName": "sistemas.txt",
+      "pageNum": 9,
+      "text": "Raft es un protocolo de consenso que elige un líder para replicar el registro entre nodos."
+    },
+    {
+      "id": "s10",
+      "docId": "sistemas",
+      "docName": "sistemas.txt",
+      "pageNum": 10,
+      "text": "La latencia de consulta del sistema de referencia es de 12 milisegundos en promedio."
+    },
+    {
+      "id": "s11",
+      "docId": "sistemas",
+      "docName": "sistemas.txt",
+      "pageNum": 11,
+      "text": "Un índice invertido relaciona cada término con los documentos o pasajes que lo contienen."
+    },
+    {
+      "id": "s12",
+      "docId": "sistemas",
+      "docName": "sistemas.txt",
+      "pageNum": 12,
+      "text": "El algoritmo de búsqueda en anchura explora los vértices de un grafo por niveles usando una cola."
+    },
+    {
+      "id": "s13",
+      "docId": "fisica",
+      "docName": "fisica.txt",
+      "pageNum": 13,
+      "text": "La gravedad atrae los cuerpos con una fuerza proporcional a sus masas e inversamente proporcional al cuadrado de la distancia."
+    },
+    {
+      "id": "s14",
+      "docId": "fisica",
+      "docName": "fisica.txt",
+      "pageNum": 14,
+      "text": "La entropía mide la dispersión de la energía y aumenta en un sistema aislado durante procesos irreversibles."
+    },
+    {
+      "id": "s15",
+      "docId": "fisica",
+      "docName": "fisica.txt",
+      "pageNum": 15,
+      "text": "La ley de Ohm establece que el voltaje es igual al producto de la corriente por la resistencia eléctrica."
+    },
+    {
+      "id": "s16",
+      "docId": "quimica",
+      "docName": "quimica.txt",
+      "pageNum": 16,
+      "text": "Una solución con pH inferior a siete es ácida, mientras que una con pH superior a siete es básica."
+    },
+    {
+      "id": "s17",
+      "docId": "quimica",
+      "docName": "quimica.txt",
+      "pageNum": 17,
+      "text": "El agua hierve a 100 grados Celsius a presión atmosférica normal al nivel del mar."
+    },
+    {
+      "id": "s18",
+      "docId": "salud",
+      "docName": "salud.txt",
+      "pageNum": 18,
+      "text": "Las vacunas entrenan al sistema inmunitario para reconocer un patógeno y reducir el riesgo de enfermedad."
+    },
+    {
+      "id": "s19",
+      "docId": "salud",
+      "docName": "salud.txt",
+      "pageNum": 19,
+      "text": "La hipertensión arterial sostenida aumenta el riesgo de infarto y accidente cerebrovascular."
+    },
+    {
+      "id": "s20",
+      "docId": "clima",
+      "docName": "clima.txt",
+      "pageNum": 20,
+      "text": "El efecto invernadero retiene parte del calor en la atmósfera mediante gases como el dióxido de carbono."
+    },
+    {
+      "id": "s21",
+      "docId": "economia",
+      "docName": "economia.txt",
+      "pageNum": 21,
+      "text": "El producto interno bruto mide el valor de los bienes y servicios finales producidos en un territorio."
+    },
+    {
+      "id": "s22",
+      "docId": "economia",
+      "docName": "economia.txt",
+      "pageNum": 22,
+      "text": "La inflación es el aumento sostenido del nivel general de precios durante un periodo."
+    },
+    {
+      "id": "s23",
+      "docId": "estudio",
+      "docName": "estudio.txt",
+      "pageNum": 23,
+      "text": "La repetición espaciada programa repasos en intervalos crecientes para reforzar recuerdos."
+    },
+    {
+      "id": "s24",
+      "docId": "estudio",
+      "docName": "estudio.txt",
+      "pageNum": 24,
+      "text": "Las citas académicas permiten identificar las fuentes que respaldan una afirmación."
+    }
+  ],
+  "questions": [
+    {
+      "query": "¿Cómo se comunican las neuronas en una sinapsis?",
+      "expected": "s01"
+    },
+    {
+      "query": "¿Qué transmite señales entre neuronas?",
+      "expected": "s01"
+    },
+    {
+      "query": "sinapsis neurotransmisores",
+      "expected": "s01"
+    },
+    {
+      "query": "¿Qué reciben las dendritas de la neurona?",
+      "expected": "s02"
+    },
+    {
+      "query": "¿Por dónde envía una neurona impulsos eléctricos?",
+      "expected": "s02"
+    },
+    {
+      "query": "neurona dendritas axón",
+      "expected": "s02"
+    },
+    {
+      "query": "¿Dónde se produce ATP en la célula?",
+      "expected": "s03"
+    },
+    {
+      "query": "¿Cuál es la función de la mitocondria?",
+      "expected": "s03"
+    },
+    {
+      "query": "mitocondria respiración celular",
+      "expected": "s03"
+    },
+    {
+      "query": "¿Qué convierte la luz solar en energía química?",
+      "expected": "s04"
+    },
+    {
+      "query": "¿Qué libera la fotosíntesis?",
+      "expected": "s04"
+    },
+    {
+      "query": "fotosintesis oxigeno luz",
+      "expected": "s04"
+    },
+    {
+      "query": "¿Dónde se almacena la información genética?",
+      "expected": "s05"
+    },
+    {
+      "query": "¿Qué estructura tiene el ADN?",
+      "expected": "s05"
+    },
+    {
+      "query": "nucleótidos doble hélice",
+      "expected": "s05"
+    },
+    {
+      "query": "¿Cómo se minimiza la función de pérdida?",
+      "expected": "s06"
+    },
+    {
+      "query": "¿Qué actualiza el descenso de gradiente?",
+      "expected": "s06"
+    },
+    {
+      "query": "pesos gradiente entrenamiento",
+      "expected": "s06"
+    },
+    {
+      "query": "¿Qué calcula la retropropagación?",
+      "expected": "s07"
+    },
+    {
+      "query": "¿Cómo se calculan las derivadas de las capas neuronales?",
+      "expected": "s07"
+    },
+    {
+      "query": "retropropagacion capas anteriores",
+      "expected": "s07"
+    },
+    {
+      "query": "¿Qué es el sobreajuste de un modelo?",
+      "expected": "s08"
+    },
+    {
+      "query": "¿Por qué un modelo generaliza mal a datos nuevos?",
+      "expected": "s08"
+    },
+    {
+      "query": "memorizar entrenamiento sobreajuste",
+      "expected": "s08"
+    },
+    {
+      "query": "¿Qué protocolo elige un líder para replicar un registro?",
+      "expected": "s09"
+    },
+    {
+      "query": "¿Cómo funciona el consenso Raft?",
+      "expected": "s09"
+    },
+    {
+      "query": "Raft registro lider",
+      "expected": "s09"
+    },
+    {
+      "query": "¿Cuál es la latencia media de consulta?",
+      "expected": "s10"
+    },
+    {
+      "query": "¿Cuánto tarda la consulta en milisegundos?",
+      "expected": "s10"
+    },
+    {
+      "query": "latencia consulta 12 milisegundos",
+      "expected": "s10"
+    },
+    {
+      "query": "¿Para qué sirve un índice invertido?",
+      "expected": "s11"
+    },
+    {
+      "query": "¿Qué relaciona cada término con sus documentos?",
+      "expected": "s11"
+    },
+    {
+      "query": "indice invertido pasajes términos",
+      "expected": "s11"
+    },
+    {
+      "query": "¿Qué algoritmo explora un grafo por niveles?",
+      "expected": "s12"
+    },
+    {
+      "query": "¿Qué estructura usa la búsqueda en anchura?",
+      "expected": "s12"
+    },
+    {
+      "query": "vertices grafo anchura cola",
+      "expected": "s12"
+    },
+    {
+      "query": "¿Cómo depende la gravedad de las masas y la distancia?",
+      "expected": "s13"
+    },
+    {
+      "query": "¿Qué fuerza atrae los cuerpos según sus masas?",
+      "expected": "s13"
+    },
+    {
+      "query": "gravedad fuerza distancia cuadrado",
+      "expected": "s13"
+    },
+    {
+      "query": "¿Qué mide la entropía?",
+      "expected": "s14"
+    },
+    {
+      "query": "¿Cómo cambia la entropía en un sistema aislado?",
+      "expected": "s14"
+    },
+    {
+      "query": "entropia energia procesos irreversibles",
+      "expected": "s14"
+    },
+    {
+      "query": "¿Qué relaciona la ley de Ohm?",
+      "expected": "s15"
+    },
+    {
+      "query": "¿Cómo se calcula el voltaje a partir de corriente y resistencia?",
+      "expected": "s15"
+    },
+    {
+      "query": "ley ohm voltaje resistencia",
+      "expected": "s15"
+    },
+    {
+      "query": "¿Cuándo es ácida una solución según su pH?",
+      "expected": "s16"
+    },
+    {
+      "query": "¿Qué indica un pH superior a siete?",
+      "expected": "s16"
+    },
+    {
+      "query": "solucion ph acida basica",
+      "expected": "s16"
+    },
+    {
+      "query": "¿A qué temperatura hierve el agua al nivel del mar?",
+      "expected": "s17"
+    },
+    {
+      "query": "¿Cuál es el punto de ebullición del agua?",
+      "expected": "s17"
+    },
+    {
+      "query": "agua hierve 100 grados",
+      "expected": "s17"
+    },
+    {
+      "query": "¿Cómo ayudan las vacunas al sistema inmunitario?",
+      "expected": "s18"
+    },
+    {
+      "query": "¿Qué reduce el riesgo de enfermedad al reconocer un patógeno?",
+      "expected": "s18"
+    },
+    {
+      "query": "vacunas patogeno inmunitario",
+      "expected": "s18"
+    },
+    {
+      "query": "¿Qué riesgos causa la hipertensión arterial?",
+      "expected": "s19"
+    },
+    {
+      "query": "¿Qué aumenta el riesgo de infarto y accidente cerebrovascular?",
+      "expected": "s19"
+    },
+    {
+      "query": "hipertension infarto",
+      "expected": "s19"
+    },
+    {
+      "query": "¿Cómo retiene calor el efecto invernadero?",
+      "expected": "s20"
+    },
+    {
+      "query": "¿Qué papel tiene el dióxido de carbono en la atmósfera?",
+      "expected": "s20"
+    },
+    {
+      "query": "gases efecto invernadero calor",
+      "expected": "s20"
+    },
+    {
+      "query": "¿Qué mide el producto interno bruto?",
+      "expected": "s21"
+    },
+    {
+      "query": "¿Qué indicador mide bienes y servicios finales de un territorio?",
+      "expected": "s21"
+    },
+    {
+      "query": "producto interno bruto bienes servicios",
+      "expected": "s21"
+    },
+    {
+      "query": "¿Qué es la inflación?",
+      "expected": "s22"
+    },
+    {
+      "query": "¿Qué nombre recibe el aumento sostenido de precios?",
+      "expected": "s22"
+    },
+    {
+      "query": "inflacion nivel precios",
+      "expected": "s22"
+    },
+    {
+      "query": "¿Cómo funciona la repetición espaciada?",
+      "expected": "s23"
+    },
+    {
+      "query": "¿Para qué se programan repasos en intervalos crecientes?",
+      "expected": "s23"
+    },
+    {
+      "query": "repeticion espaciada recuerdos",
+      "expected": "s23"
+    },
+    {
+      "query": "¿Para qué sirven las citas académicas?",
+      "expected": "s24"
+    },
+    {
+      "query": "¿Cómo se identifican las fuentes de una afirmación?",
+      "expected": "s24"
+    },
+    {
+      "query": "citas fuentes afirmacion",
+      "expected": "s24"
+    },
+    {
+      "query": "¿Cuál es la capital de Burkina Faso?",
+      "expected": null
+    },
+    {
+      "query": "¿Quién pintó la Mona Lisa?",
+      "expected": null
+    },
+    {
+      "query": "¿Cuándo se fundó Roma?",
+      "expected": null
+    },
+    {
+      "query": "¿Qué dinosaurio ganó el torneo?",
+      "expected": null
+    },
+    {
+      "query": "¿Cuántos satélites tiene Saturno?",
+      "expected": null
+    },
+    {
+      "query": "¿Quién escribió Don Quijote?",
+      "expected": null
+    },
+    {
+      "query": "¿Cuál es la receta del sushi?",
+      "expected": null
+    },
+    {
+      "query": "¿Qué año nació Beethoven?",
+      "expected": null
+    }
+  ]
+}
