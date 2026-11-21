@@ -337,7 +337,7 @@
     S().on('settings:changed', ({ key }) => { if (key === 'searchScope') sync(); });
     S().on('system:reset', sync); S().on('brain:imported', sync);
     const info = knowledge.info();
-    meta.textContent = `${info.count} fichas · revisión ${info.reviewed} · referencias y ejemplos, no un modelo generativo.`;
+    meta.textContent = `${info.count} fichas · ${info.educationCount} basadas en materiales de Fundación Carlos Slim · revisión ${info.reviewed}. Son resúmenes, no un modelo generativo.`;
     for (const category of info.categories) {
       const entries = knowledge.list().filter(entry => entry.category === category);
       const group = element('details', 'knowledge-category');

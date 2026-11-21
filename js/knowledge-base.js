@@ -6,10 +6,11 @@
 (function (root, factory) {
   const U = (typeof require === 'function' && typeof module !== 'undefined') ? require('./util.js') : root.NCUtil;
   const R = (typeof require === 'function' && typeof module !== 'undefined') ? require('./retrieval.js') : root.NCRetrieval;
-  const api = factory(U, R);
+  const E = (typeof require === 'function' && typeof module !== 'undefined') ? require('./education-knowledge.js') : root.NCEducationKnowledge;
+  const api = factory(U, R, E);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.NCKnowledge = api;
-})(typeof window !== 'undefined' ? window : globalThis, function (U, R) {
+})(typeof window !== 'undefined' ? window : globalThis, function (U, R, E) {
   'use strict';
   const REVIEWED = '2026-11-16';
   const refs = {
@@ -102,30 +103,66 @@
       reviewed: REVIEWED, legal, keywords, sourceText: displayText,
       // Las palabras clave mejoran la búsqueda, pero no se muestran como evidencia.
       text: `${displayText} ${keywords}`, parts: [{ id, text: displayText }] });
-  });
+  }).concat((E?.list() || []).map(item => {
+    const displayText = `${item.title}. ${item.summary}`;
+    return Object.freeze({ ...item, docId: item.id, docName: `Base local · ${item.sourceName}`,
+      pageNum: null, origin: 'knowledge', sourceText: displayText,
+      text: `${displayText} ${item.keywords}`, parts: [{ id: item.id, text: displayText }] });
+  }));
   const byId = new Map(entries.map(entry => [entry.id, entry]));
   const index = R.rebuildFrom(entries);
-  const ignored = new Set(U.tokens('explica explicar explícame define definición describir dime buscar consulta pregunta información ayuda ejemplo ejemplos cómo cuántas cuántos funciona quiero saber qué significa hacer usar código programa realizar aprender guía resumen resume analiza completo documento texto material'));
+  // Las consultas que nombran un proveedor no deben atribuirle fichas de otro.
+  const educationIndexes = {
+    aprende: R.rebuildFrom(entries.filter(entry => entry.collection === 'Aprende.org / Capacítate para el Empleo')),
+    pruebat: R.rebuildFrom(entries.filter(entry => entry.collection === 'PruébaT')),
+    fundacion: R.rebuildFrom(entries.filter(entry => entry.collection))
+  };
+  const ignored = new Set(U.tokens('explica explicar explícame define definición describir dime dice dicen menciona señala ofrece enseña enseñan trata aborda buscar consulta pregunta información ayuda ejemplo ejemplos cómo cuántas cuántos funciona funcionan quiero saber qué significa hacer usar usa utilizan código realizar aprender guía resumen resume analiza completo documento texto material materiales curso cursos clase clases capacitación capacitaciones'));
+  function isBareAprendeQuery(query) {
+    return /^aprende\s+(?=(?:cursos?|clases?|recursos?|catalogo|directorio|plataforma|capacitaciones?|formacion|sst|sg[\s-]*sst|epp|programacion|algoritmos?|variables?|pseudocodigo|javascript|python|datos|ia|inteligencia|machine|seguridad|ergonomia|alturas)\b)/.test(U.normalize(query || ''));
+  }
 
   /** Búsqueda por términos: no inventa evidencia para palabras desconocidas. */
   function search(query, options = {}) {
-    const original = R.parseQuery(query);
-    // U.tokens omite palabras de dos letras. JS es una abreviatura frecuente.
-    const cleaned = U.normalize(original.cleaned).replace(/\bjs\b/g, 'javascript');
+    const original = R.parseQuery(query), normalized = U.normalize(original.cleaned);
+    const bareAprende = isBareAprendeQuery(normalized);
+    const asksAprende = bareAprende || /\baprende\s*\.\s*org\b|\bcapacitate\s+para\s+el\s+empleo\b/.test(normalized);
+    const asksPruebat = /\bpruebat\b/.test(normalized);
+    const asksFoundation = /\b(?:fundacion\s+)?carlos\s+slim\b/.test(normalized);
+    const searchIndex = asksAprende && asksPruebat ? educationIndexes.fundacion :
+      asksAprende ? educationIndexes.aprende : asksPruebat ? educationIndexes.pruebat : asksFoundation ? educationIndexes.fundacion : index;
+    // El nombre del proveedor restringe la colección, no el contenido de la
+    // ficha. Conservar los filtros explícitos y ampliar siglas cortas de código.
+    const cleaned = (bareAprende ? normalized.replace(/^aprende\b/, ' ') : normalized)
+      .replace(/\baprende\s*\.\s*org\b|\bcapacitate\s+para\s+el\s+empleo\b|\bpruebat\b|\b(?:fundacion\s+)?carlos\s+slim\b/g, ' ')
+      .replace(/\bcodigo\s+fuente\b/g, 'codigofuente')
+      .replace(/\bprogramar\b/g, 'programacion')
+      .replace(/\bjs\b/g, 'javascript')
+      .replace(/\bia\b/g, 'inteligencia artificial')
+      .replace(/\b(?:do[\s-]+while|hacer[\s-]+mientras)\b/g, 'buclehacer')
+      .replace(/\bfor\b/g, 'buclepara')
+      .replace(/\bwhile\b/g, 'buclemientras');
     const queryTokens = U.tokens(cleaned);
-    const parsed = { ...original, terms: queryTokens, uniqueTerms: [...new Set(queryTokens)] };
-    const terms = parsed.uniqueTerms.filter(term => !ignored.has(term));
-    const contextIndex = R.projectExclusions(index, parsed.filters);
+    const parsed = { ...original, cleaned, terms: queryTokens, uniqueTerms: [...new Set(queryTokens)] };
+    const significant = parsed.uniqueTerms.filter(term => !ignored.has(term));
+    // «Programación» sola merece una definición; junto con un tema concreto
+    // no debe impedir hallar fichas que hablan de PHP, variables, etc.
+    const terms = significant.length > 1 ? significant.filter(term => term !== 'program') : significant;
+    const contextIndex = R.projectExclusions(searchIndex, parsed.filters);
     if (!terms.length) return { hits: [], parsed, contextIndex, total: 0, tookMs: 0 };
 
-    const known = terms.filter(term => index.df.has(term));
+    const known = terms.filter(term => searchIndex.df.has(term));
     // Si gran parte de la pregunta no aparece en la base, no basta un término
     // genérico como «seguridad» o «trabajo» para afirmar que hay respuesta.
     if (!known.length || known.length / terms.length < .65)
       return { hits: [], parsed, contextIndex, total: 0, tookMs: 0 };
-    const minDf = Math.min(...known.map(term => index.df.get(term)));
-    const anchors = known.filter(term => index.df.get(term) <= Math.max(2, minDf * 1.6));
+    const minDf = Math.min(...known.map(term => searchIndex.df.get(term)));
+    const anchors = known.filter(term => searchIndex.df.get(term) <= Math.max(2, minDf * 1.6));
     const numbers = U.words(cleaned).filter(word => /^\d{2,}$/.test(word));
+    const introductoryIds = { sst: 'sst-basica', 'sg-sst': 'sst-sistema', biologi: 'bio-general', quimic: 'quimica-general',
+      variabl: 'educacion-variable', algoritm: 'educacion-algoritmo',
+      program: asksAprende && !asksPruebat ? 'educacion-cap-programacion' : 'educacion-programar-codificar',
+      pseudocodig: asksAprende && !asksPruebat ? 'educacion-cap-pseudocodigo' : 'educacion-pseudocodigo', epp: 'educacion-epp' };
     const result = R.search(contextIndex, query, { parsed, k: entries.length, pool: entries.length, fuzzy: false, diversify: false });
     const scored = result.hits.map(hit => {
       const entry = byId.get(hit.sentence.id);
@@ -142,7 +179,8 @@
       const titleMatches = known.filter(term => title.has(term)).length;
       const exact = U.normalize(entry.title).includes(cleaned.trim()) ? 1 : 0;
       // Consultas breves por siglas o disciplina priorizan su ficha introductoria.
-      const introductory = terms.length === 1 && ({ sst: 'sst-basica', 'sg-sst': 'sst-sistema', biologi: 'bio-general', quimic: 'quimica-general' })[terms[0]] === entry.id.slice(3) ? 1 : 0;
+      const introductory = (terms.length === 1 && introductoryIds[terms[0]] === entry.id.slice(3)) ||
+        (terms.length === 2 && terms.includes('intelig') && terms.includes('artificial') && entry.id === 'kb:educacion-ia-general') ? 1 : 0;
       return { hit, relevance: matched.length / terms.length + titleMatches * .35 + exact * .5 + introductory + hit.lexScore / 100 };
     }).filter(Boolean).sort((a, b) => b.relevance - a.relevance || b.hit.lexScore - a.hit.lexScore);
     const limit = Number.isFinite(options.k) ? Math.max(0, Math.floor(options.k)) : 6;
@@ -150,7 +188,7 @@
     return { ...result, hits, total: scored.length, contextIndex };
   }
   function get(id) { return byId.get(id) || null; }
-  function info() { return { count: entries.length, reviewed: REVIEWED, categories: [...new Set(entries.map(entry => entry.category))] }; }
+  function info() { return { count: entries.length, educationCount: E?.info().count || 0, reviewed: REVIEWED, categories: [...new Set(entries.map(entry => entry.category))] }; }
   function list() { return entries.slice(); }
-  return { search, get, info, list };
+  return { search, get, info, list, isBareAprendeQuery };
 });

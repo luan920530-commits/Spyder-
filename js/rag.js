@@ -34,7 +34,10 @@
   function detectIntent(question) {
     const q = U.normalize(question || '');
     if (/^(hola|buenas|hey|que tal|saludos|buenos dias|buenas tardes|buenas noches)\b/.test(q) && q.split(/\s+/).length <= 14) return 'smalltalk';
-    if (/^(aprende|consolida|recuerda|guarda|memoriza)\b/.test(q)) return 'learn';
+    // El nombre del portal no es una orden de memorizar. «Aprende que …» y
+    // «Aprende: …» conservan su significado como comandos explícitos.
+    const portalQuery = /^aprende\s*\.\s*org\b/.test(q) || !!K?.isBareAprendeQuery?.(q);
+    if ((/^aprende\b/.test(q) && !portalQuery) || /^(consolida|recuerda|guarda|memoriza)\b/.test(q)) return 'learn';
     if (/^(calcula|cuanto es|cuanto vale|resultado de)\b/.test(q) || /^[\d\s().+\-*/%^]+$/.test(q)) return 'math';
     if (/(resum|sintetiza|sintesis|de que trata|idea principal|panorama)/.test(q)) return 'resumen';
     if (/(critic|debilidad|falla|sesgo|contradic|inconsisten|revisa|evalua)/.test(q)) return 'critico';
@@ -537,7 +540,15 @@
     const localEntries = chunks.filter(chunk => chunk.knowledgeId).map(chunk => K.get(chunk.knowledgeId)).filter(Boolean);
     if (localEntries.length) {
       let notice = 'Base local: fichas resumidas recuperadas por términos; pueden no responder completamente. Revisa la ficha y su fuente.';
-      if (localEntries.some(entry => entry.legal)) notice += ` Revisión ${K.info().reviewed}; no se actualiza automáticamente y no sustituye asesoría jurídica. Verifica la vigencia y el régimen aplicable.`;
+      const collections = [...new Set(localEntries.map(entry => entry.collection).filter(Boolean))];
+      if (collections.length) notice += ` Las fichas de ${collections.join(' y ')} son síntesis propias del material identificado, no cursos completos.`;
+      const sensitive = localEntries.filter(entry => entry.legal || entry.safety);
+      if (sensitive.length) {
+        const dates = [...new Set(sensitive.map(entry => entry.reviewed))].join(', ');
+        const advice = localEntries.some(entry => entry.legal) ? 'jurídica' : 'profesional';
+        notice += ` Revisión ${dates}; no se actualiza automáticamente y no sustituye asesoría ${advice}. Verifica la vigencia y el régimen aplicable.`;
+      }
+      if (localEntries.some(entry => entry.safety)) notice += ' La formación general de SST no es legislación colombiana, no prueba cumplimiento ni sustituye la formación práctica exigida.';
       text = `> ${notice}\n\n${text}`;
     }
     if (searchResult.neuralOnly && !searchResult.globalSample) {
@@ -591,7 +602,8 @@
         score: c.score || 0,
         ...(entry ? { origin: 'knowledge', knowledgeId: entry.id, title: entry.title,
           sourceName: entry.sourceName, sourceUrl: entry.sourceUrl, reviewed: entry.reviewed,
-          category: entry.category, legal: entry.legal } : { origin: 'document' })
+          category: entry.category, legal: entry.legal, safety: !!entry.safety,
+          collection: entry.collection || null, sourceKind: entry.sourceKind || null } : { origin: 'document' })
       };
     });
 

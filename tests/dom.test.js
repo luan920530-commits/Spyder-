@@ -5,7 +5,7 @@ const path = require('node:path');
 const { JSDOM, VirtualConsole } = require('jsdom');
 const { IDBFactory } = require('fake-indexeddb');
 const root = path.join(__dirname, '..');
-const scripts = ['util', 'retrieval', 'knowledge-base', 'analysis', 'srs', 'db', 'embeddings', 'chunks', 'store', 'local-model', 'semantic-clusters', 'qwen-config', 'qwen-prompt', 'qwen-model', 'parsers', 'memory', 'providers', 'character', 'rag', 'kimi-aux-model', 'viewer', 'spider-visual', 'graph-projection', 'neural-graph', 'spider-paths', 'spider-motion', 'spiders', 'eval', 'brain-rag', 'study-bots', 'app'];
+const scripts = ['util', 'retrieval', 'education-knowledge', 'knowledge-base', 'analysis', 'srs', 'db', 'embeddings', 'chunks', 'store', 'local-model', 'semantic-clusters', 'qwen-config', 'qwen-prompt', 'qwen-model', 'parsers', 'memory', 'providers', 'character', 'rag', 'kimi-aux-model', 'viewer', 'spider-visual', 'graph-projection', 'neural-graph', 'spider-paths', 'spider-motion', 'spiders', 'eval', 'brain-rag', 'study-bots', 'app'];
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(fn, timeout = 4000) {
   const end = Date.now() + timeout;
@@ -1460,4 +1460,93 @@ test('una cita de base importada nunca convierte URL arbitrarias ni HTML en una 
     assert.doesNotMatch(w.NCRag.toMarkdown(fake), /evil\.example|javascript:/);
     assert.deepEqual(errors, []);
   } finally { dom.window.close(); }
+});
+
+test('el chat usa síntesis educativas como evidencia local, con procedencia, ámbitos y persistencia', async () => {
+  const db = new IDBFactory(), first = await createApp(db), { w } = first;
+  try {
+    w.document.getElementById('btn-toggle-spiders').click();
+    const S = w.NeuralStore;
+    S.setSetting('searchScope', 'knowledge');
+    let fetches = 0, visual = 0, providerContext;
+    w.fetch = async () => { fetches++; throw new Error('La consulta educativa no debe acceder a la red'); };
+    S.on('spider:queryVisual', () => { visual++; });
+    const run = w.NCProviders.run;
+    w.NCProviders.run = async (ctx, options) => { providerContext = ctx; return run(ctx, options); };
+    const before = [S.state.docs.length, S.state.allSentences.length, S.state.patterns.length, S.state.vault.length, S.state.nodes.length];
+    const answer = await w.BrainRAG.send('¿Qué dice Aprende.org sobre las variables?');
+    w.NCProviders.run = run;
+    assert.equal(answer.sources[0].knowledgeId, 'kb:educacion-variable');
+    assert.match(answer.text, /Una variable permite asociar un nombre con un dato/);
+    assert.match(answer.text, /int cantidad = 4/);
+    assert.match(answer.text, /síntesis propias.*no cursos completos/i);
+    assert.ok(answer.sources.every(source => source.origin === 'knowledge' && source.collection === 'Aprende.org / Capacítate para el Empleo'));
+    assert.ok(providerContext.chunks.some(chunk => chunk.id === 'kb:educacion-variable' && chunk.text.includes('Una variable permite')),
+      'el compositor recibe los conceptos como evidencia, no solo una sugerencia de enlace');
+    assert.ok(providerContext.chunks.every(chunk => chunk.text === w.NCKnowledge.get(chunk.id).sourceText), 'no se agregan palabras clave a la evidencia');
+    assert.deepEqual([S.state.docs.length, S.state.allSentences.length, S.state.patterns.length, S.state.vault.length, S.state.nodes.length], before);
+    assert.equal(visual, 0, 'las fichas no se envían al lector de documentos');
+    assert.equal(fetches, 0);
+    const article = [...w.document.querySelectorAll('.msg-ai')].at(-1);
+    assert.match(article.textContent, /Una variable permite/);
+    article.querySelector('.cite-ref').click();
+    const details = article.querySelector('.sources-details'), source = details.querySelector('li');
+    assert.equal(details.open, true);
+    assert.match(source.textContent, /Capacítate para el Empleo.*2026-11-16|2026-11-16.*Capacítate para el Empleo/);
+    assert.equal(source.querySelector('a').href, 'https://capacitateparaelempleo.org/assets/j8yic4i.pdf');
+    const md = w.NCRag.toMarkdown(answer);
+    assert.match(md, /Una variable permite/); assert.match(md, /2026-11-16/);
+    assert.match(md, /https:\/\/capacitateparaelempleo\.org\/assets\/j8yic4i\.pdf/);
+
+    const safety = await w.NCRag.ask('Aprende.org SST alturas', { scope: 'knowledge' });
+    assert.notEqual(safety.intent, 'learn');
+    assert.equal(safety.sources[0].knowledgeId, 'kb:educacion-alturas');
+    assert.match(safety.text, /sistemas anticaídas/i);
+    assert.match(safety.text, /no es legislación colombiana.*no prueba cumplimiento/i);
+    assert.match(safety.text, /Revisión 2026-11-16/);
+    const barePortal = await w.NCRag.ask('Aprende SST alturas', { scope: 'knowledge' });
+    assert.notEqual(barePortal.intent, 'learn');
+    assert.equal(barePortal.sources[0].knowledgeId, 'kb:educacion-alturas');
+    const ai = await w.NCRag.ask('Aprende IA generativa', { scope: 'knowledge' });
+    assert.notEqual(ai.intent, 'learn');
+    assert.equal(ai.sources[0].knowledgeId, 'kb:educacion-ia-generativa');
+    assert.match(ai.text, /producir texto, imágenes, música o código/);
+    assert.equal(S.state.vault.length, before[3], 'nombrar el portal no memoriza texto accidentalmente');
+    assert.equal(w.NCRag.detectIntent('Aprende que el cielo es azul'), 'learn');
+    const pruebat = await w.NCRag.ask('PruébaT pseudocódigo', { scope: 'knowledge' });
+    assert.ok(pruebat.sources.length && pruebat.sources.every(item => item.collection === 'PruébaT'));
+    assert.match(pruebat.text, /pseudocódigo expresa los pasos/i);
+
+    S.addDocument({ id: 'doc-privado', name: 'privado.txt', pages: [{ pageNum: 1, sentences: [
+      { id: 'doc-privado-s1', text: 'Una variable privada almacena el número secreto 726.' }
+    ] }] });
+    const count = S.state.allSentences.length;
+    const docs = await w.NCRag.ask('variable', { scope: 'documents' });
+    assert.ok(docs.sources.length && docs.sources.every(item => item.origin === 'document'));
+    const both = await w.NCRag.ask('variable', { scope: 'both' });
+    assert.ok(both.sources.some(item => item.origin === 'document'));
+    assert.ok(both.sources.some(item => item.knowledgeId === 'kb:educacion-variable'));
+    assert.equal(S.state.allSentences.length, count, 'las síntesis no se insertan en el corpus privado');
+    const filtered = await w.NCRag.ask('variable =doc:privado', { scope: 'both' });
+    assert.ok(filtered.sources.length && filtered.sources.every(item => item.origin === 'document'));
+    const character = await w.NCRag.ask('variable', { mode: 'conversacion' });
+    assert.ok(character.sources.every(item => item.origin !== 'knowledge'));
+
+    const fake = { question: 'prueba', text: 'Ficha [1].', mode: 'examen', provider: 'internal',
+      sources: [{ origin: 'knowledge', knowledgeId: 'kb:educacion-variable', sourceUrl: 'javascript:alert(1)', text: '<script>mal</script>' }] };
+    const fakeArticle = w.BrainRAG.renderAnswer(fake);
+    assert.equal(fakeArticle.querySelector('.sources-details a').href, 'https://capacitateparaelempleo.org/assets/j8yic4i.pdf');
+    assert.equal(fakeArticle.querySelectorAll('script,img').length, 0);
+    assert.doesNotMatch(w.NCRag.toMarkdown(fake), /javascript:alert/);
+    await S.savePersistent();
+    assert.deepEqual(first.errors, []);
+  } finally { first.dom.window.close(); }
+  const second = await createApp(db);
+  try {
+    const restored = [...second.w.document.querySelectorAll('.msg-ai')].find(node => node.textContent.includes('Una variable permite asociar'));
+    assert.ok(restored, 'el historial vuelve a mostrar la síntesis educativa');
+    assert.equal(restored.querySelector('.sources-details a').href, 'https://capacitateparaelempleo.org/assets/j8yic4i.pdf');
+    assert.match(restored.textContent, /2026-11-16/);
+    assert.deepEqual(second.errors, []);
+  } finally { second.dom.window.close(); }
 });
