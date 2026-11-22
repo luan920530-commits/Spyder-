@@ -1,21 +1,19 @@
 /**
  * NEURAL COMMAND // AI SPIDER OS — v11
- * js/srs.js — Repetición espaciada local (Leitner + SM-2 simplificado), estados de
- * dominio y métricas de estudio. Módulo puro: ejecutable en Node con `require`.
+ * js/srs.js — Fechas FSRS locales y métricas del alumno. Las cajas históricas
+ * siguen siendo un indicador visual, no el algoritmo de programación.
  */
 (function (root, factory) {
-  const U = (typeof require === 'function' && typeof module !== 'undefined')
-    ? require('./util.js')
-    : (root.NCUtil || {});
-  const api = factory(U);
+  const api = factory(typeof module !== 'undefined' && module.exports ? require('../vendor/fsrs/ts-fsrs.umd.js') : root.FSRS);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.NCSRS = Object.assign(root.NCSRS || {}, api);
-})(typeof window !== 'undefined' ? window : globalThis, function (U) {
+})(typeof window !== 'undefined' ? window : globalThis, function (F) {
   'use strict';
 
   const DAY = 86400000;
   const MIN = 60000;
   const MAX_BOX = 5;
+  const scheduler = F.fsrs({ enable_fuzz: false });
   const GRADES = ['again', 'hard', 'good', 'easy'];
 
   const GRADE_LABEL = {
@@ -39,48 +37,46 @@
     }, fields || {});
   }
 
-  /**
-   * Programa la siguiente revisión.
-   * @param {object} card
-   * @param {'again'|'hard'|'good'|'easy'} grade
-   * @param {number} now
-   */
-  function review(card, grade, now) {
-    const t = now || Date.now();
-    const c = Object.assign({}, newCard({ due: t }), card || {});
-    const g = GRADES.includes(grade) ? grade : 'good';
-    c.reps = (c.reps || 0) + 1;
-    c.lastReview = t;
-    c.history = (c.history || []).slice(-30);
-    c.history.push({ grade: g, at: t, box: c.box });
-
-    if (g === 'again') {
-      c.box = 0;
-      c.lapses = (c.lapses || 0) + 1;
-      c.ease = Math.max(1.3, (c.ease || 2.5) - 0.2);
-      c.interval = 10 / (60 * 24);          // 10 minutos
-      c.due = t + 10 * MIN;
-    } else if (g === 'hard') {
-      c.box = Math.max(1, Math.min(MAX_BOX, c.box || 0));
-      c.ease = Math.max(1.3, (c.ease || 2.5) - 0.15);
-      c.interval = Math.max(1, (c.interval || 0) * 1.2);
-      c.due = t + c.interval * DAY;
-    } else if (g === 'good') {
-      c.box = Math.min(MAX_BOX, (c.box || 0) + 1);
-      c.interval = Math.max(1, (c.interval || 0) * (c.ease || 2.5));
-      c.due = t + c.interval * DAY;
-    } else {
-      c.box = Math.min(MAX_BOX, (c.box || 0) + 2);
-      c.ease = Math.min(3.2, (c.ease || 2.5) + 0.1);
-      c.interval = Math.max(2, (c.interval || 0) * (c.ease || 2.5) * 1.3);
-      c.due = t + c.interval * DAY;
+  const validTime = n => Number.isFinite(n) && Math.abs(n) <= 8.64e15;
+  const count = n => Number.isSafeInteger(n) && n >= 0 ? n : 0;
+  function schedulerCard(card, now) {
+    const base = F.createEmptyCard(new Date(now)), mem = card.fsrs;
+    if (!validTime(card.lastReview) || !validTime(card.due)) return base;
+    // Una importación o un cambio de reloj no deben producir tiempo transcurrido negativo.
+    base.last_review = new Date(Math.min(now, card.lastReview)); base.due = new Date(card.due);
+    if (mem?.version === 1 && [F.State.Learning, F.State.Review, F.State.Relearning].includes(mem.state) &&
+        mem.stability >= F.S_MIN && mem.stability <= 36500 && Number.isFinite(mem.stability) &&
+        mem.difficulty >= 1 && mem.difficulty <= 10 && Number.isFinite(mem.difficulty)) {
+      return { ...base, state: mem.state, stability: mem.stability, difficulty: mem.difficulty,
+        reps: count(mem.reps), lapses: count(mem.lapses), learning_steps: count(mem.learning_steps),
+        elapsed_days: count(mem.elapsed_days), scheduled_days: count(mem.scheduled_days) };
     }
-    c.interval = Number(c.interval.toFixed(4));
-    return c;
+    // Inicialización aproximada para tarjetas antiguas ya espaciadas por días.
+    // Solo al calificarlas: no recalcular vencimientos al abrir/importar el mazo.
+    if (card.reps > 0 && Number.isFinite(card.interval) && card.interval >= 1) {
+      const days = Math.min(36500, card.interval);
+      return { ...base, state: F.State.Review, stability: days, difficulty: 5,
+        scheduled_days: Math.round(days), reps: count(card.reps), lapses: count(card.lapses) };
+    }
+    return F.createEmptyCard(new Date(now));
+  }
+
+  function review(card, grade, now = Date.now()) {
+    const c = { ...newCard({ createdAt: now, due: now }), ...card }, g = GRADES.includes(grade) ? grade : 'good';
+    const next = scheduler.next(schedulerCard(c, now), new Date(now), GRADES.indexOf(g) + 1).card;
+    const { stability, difficulty, state, reps, lapses, learning_steps, scheduled_days, elapsed_days } = next;
+    const box = Math.min(MAX_BOX, count(c.box));
+    // Conservar las estadísticas y textos del alumno. FSRS distingue un fallo en
+    // aprendizaje inicial de una recaída; los lapsos históricos contaban ambos.
+    return { ...c, lastReview: now, due: +next.due, interval: (+next.due - now) / DAY,
+      fsrs: { version: 1, stability, difficulty, state, reps, lapses, learning_steps, scheduled_days, elapsed_days },
+      reps: count(c.reps) + 1, lapses: count(c.lapses) + Number(g === 'again'),
+      box: g === 'again' ? 0 : g === 'hard' ? Math.max(1, box) : Math.min(MAX_BOX, box + (g === 'easy' ? 2 : 1)),
+      history: [...(Array.isArray(c.history) ? c.history.slice(-30) : []), { grade: g, at: now, box }] };
   }
 
   function isDue(card, now) {
-    return (card.due || 0) <= (now || Date.now());
+    return (card.due || 0) <= (now ?? Date.now());
   }
 
   function dueCards(cards, now) {
@@ -88,12 +84,28 @@
   }
 
   function dueLabel(card, now) {
-    const t = now || Date.now();
+    const t = now ?? Date.now();
     const diff = (card.due || t) - t;
     if (diff <= 0) return 'ahora';
-    if (diff < 60 * MIN) return Math.round(diff / MIN) + ' min';
-    if (diff < 2 * DAY) return Math.round(diff / DAY) + ' d';
-    return Math.round(diff / DAY) + ' días';
+    if (diff < 60 * MIN) return Math.ceil(diff / MIN) + ' min';
+    if (diff < DAY) return Math.ceil(diff / (60 * MIN)) + ' h';
+    const days = Math.round(diff / DAY); return days === 1 ? '1 día' : days + ' días';
+  }
+
+  const SESSION_LIMITS = [3, 5, 10];
+  function sessionPlan(cards, limit = 5, now = Date.now()) {
+    const size = SESSION_LIMITS.includes(limit) ? limit : 5, seen = new Set(), due = [];
+    const midnight = new Date(now); midnight.setHours(0, 0, 0, 0);
+    let next = null, reviewedToday = 0, fresh = 0;
+    for (const c of cards) {
+      if (!c?.id || seen.has(c.id)) continue;
+      seen.add(c.id);
+      if (validTime(c.lastReview) && c.lastReview >= +midnight && c.lastReview <= now) reviewedToday++;
+      if (isDue(c, now)) { due.push(c); if (!c.reps) fresh++; }
+      else if (validTime(c.due) && (next === null || c.due < next)) next = c.due;
+    }
+    due.sort((a, b) => Number(!a.reps) - Number(!b.reps) || (a.due || 0) - (b.due || 0));
+    return { ids: due.slice(0, size).map(c => c.id), due: due.length, fresh, reviewedToday, next };
   }
 
   /** 0..1 — cuánto se domina una tarjeta según caja, aciertos y lapsos. */
@@ -106,7 +118,7 @@
 
   function deckStats(cards, now) {
     const list = cards || [];
-    const t = now || Date.now();
+    const t = now ?? Date.now();
     const due = dueCards(list, t).length;
     const mastery = list.length ? list.reduce((a, c) => a + cardMastery(c), 0) / list.length : 0;
     const byBox = [0, 1, 2, 3, 4, 5].map(b => list.filter(c => (c.box || 0) === b).length);
@@ -114,7 +126,7 @@
     return {
       total: list.length, due, mastery, byBox, learned,
       avgBox: list.length ? list.reduce((a, c) => a + (c.box || 0), 0) / list.length : 0,
-      nextDue: list.length ? Math.min(...list.map(c => c.due || t)) : null
+      nextDue: list.length ? list.reduce((next, c) => Math.min(next, c.due || t), Infinity) : null
     };
   }
 
@@ -150,13 +162,17 @@
   }
 
   /** Exporta a CSV compatible con la importación de Anki. */
-  function ankiCsv(cards) {
+  function ankiCsv(cards, resolveSource) {
     const esc = v => '"' + String(v == null ? '' : v).replace(/"/g, '""').replace(/\r?\n/g, ' ') + '"';
     const rows = [['Front', 'Back', 'Tags'].map(esc).join(',')];
     (cards || []).forEach(c => {
+      // Las tarjetas antiguas solo tienen la página interna; recuperar la física
+      // desde el ancla si el documento continúa disponible.
+      const source = resolveSource?.(c.sentenceId), doc = c.docName || source?.docName;
+      const page = c.sourcePage || source?.sourcePage || c.pageNum;
       rows.push([
         esc(c.front || ''),
-        esc((c.back || '') + (c.pageNum ? ` [Pág ${c.pageNum}]` : '')),
+        esc((c.back || '') + (page ? ` [Pág ${page}]` : '') + (doc ? ` · ${doc}` : '')),
         esc(`neural ${c.cluster || 'general'}`)
       ].join(','));
     });
@@ -183,7 +199,7 @@
   }
 
   return {
-    DAY, MAX_BOX, GRADES, GRADE_LABEL,
+    DAY, MAX_BOX, GRADES, GRADE_LABEL, SESSION_LIMITS, sessionPlan,
     newCard, review, isDue, dueCards, dueLabel,
     cardMastery, deckStats, clusterMastery,
     ankiCsv, quizAccuracy, perClusterFromQuiz

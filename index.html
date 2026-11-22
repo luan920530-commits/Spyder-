@@ -18,32 +18,48 @@
   <script defer src="js/education-knowledge.js"></script>
   <script defer src="js/knowledge-base.js"></script>
   <script defer src="js/analysis.js"></script>
+  <script defer src="js/study-skills.js"></script>
+  <script defer src="vendor/fsrs/ts-fsrs.umd.js"></script>
   <script defer src="js/srs.js"></script>
   <script defer src="js/db.js"></script>
   <script defer src="js/embeddings.js"></script>
   <script defer src="js/chunks.js"></script>
+  <script defer src="js/highlights.js"></script>
+  <script defer src="js/passage-links.js"></script>
+  <script defer src="js/smalltalk.js"></script>
+  <script defer src="js/companion.js"></script>
   <script defer src="js/store.js"></script>
   <script defer src="js/local-model.js"></script>
   <script defer src="js/semantic-clusters.js"></script>
   <script defer src="js/qwen-config.js"></script>
   <script defer src="js/qwen-prompt.js"></script>
   <script defer src="js/qwen-model.js"></script>
+  <script defer src="js/ocr.js"></script>
   <script defer src="js/parsers.js"></script>
   <script defer src="js/memory.js"></script>
   <script defer src="js/providers.js"></script>
   <script defer src="js/character.js"></script>
+  <script defer src="js/study-dialogue.js"></script>
   <script defer src="js/rag.js"></script>
   <script defer src="js/kimi-aux-model.js"></script>
+  <script defer src="js/question-ui.js"></script>
+  <script defer src="js/passage-panel.js"></script>
   <script defer src="js/viewer.js"></script>
   <script defer src="js/spider-visual.js"></script>
   <script defer src="js/graph-projection.js"></script>
+  <script defer src="js/orbit.js"></script>
   <script defer src="js/neural-graph.js"></script>
   <script defer src="js/spider-paths.js"></script>
   <script defer src="js/spider-motion.js"></script>
   <script defer src="js/spiders.js"></script>
   <script defer src="js/eval.js"></script>
+  <script defer src="js/dialogue-ui.js"></script>
   <script defer src="js/brain-rag.js"></script>
+  <script defer src="js/learner-review.js"></script>
   <script defer src="js/study-bots.js"></script>
+  <script defer src="js/course-example.js"></script>
+  <script defer src="js/course-review.js"></script>
+  <script defer src="js/companion-ui.js"></script>
   <script defer src="js/app.js"></script>
 </head>
 <body>
@@ -54,13 +70,14 @@
     </div>
     <nav class="workspace-nav" aria-label="Secciones principales">
       <button class="workspace-step active" data-workspace="extract" aria-pressed="true"><span>1</span> · EXTRAER</button>
-      <button class="workspace-step" data-workspace="network" aria-pressed="false"><span>2</span> · ANALIZAR</button>
+      <button class="workspace-step" data-workspace="network" aria-controls="panel-analysis panel-arena" aria-pressed="false"><span>2</span> · ANALIZAR</button>
       <button class="workspace-step" data-workspace="chat" aria-pressed="false"><span>3</span> · ASISTENTE</button>
       <button class="workspace-step" data-workspace="study" aria-pressed="false"><span>4</span> · ESTUDIO</button>
     </nav>
     <div class="top-status">
       <div class="status-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
       <div class="system-time"><span id="system-clock">--:--:--</span><span class="clock-divider"> / </span><span id="hud-mode-badge" title="Procesamiento en tu dispositivo">LOCAL</span></div>
+      <button class="model-trigger personal-launch" id="open-personal" type="button" aria-label="Hablar con Spyder personal" aria-haspopup="dialog" aria-controls="personal-dialog"><span aria-hidden="true">✦</span> HABLAR</button>
       <button class="model-trigger" id="btn-model" title="Modelos locales opcionales" aria-haspopup="dialog" aria-controls="model-modal" aria-expanded="false"><span aria-hidden="true">◇</span> MODELO</button>
       <button class="icon-button settings-button" id="btn-settings" aria-label="Abrir ajustes" title="Ajustes">⚙</button>
     </div>
@@ -78,6 +95,12 @@
           <button class="btn-hud btn-ghost" id="btn-paste-modal">PEGAR</button>
           <button class="btn-hud btn-ghost" id="btn-load-demo">DEMO</button>
         </div>
+        <details class="ocr-tools" id="ocr-tools"><summary>Leer un escaneo · OCR</summary>
+          <p>Español, en este dispositivo. En PDF lee hasta 12 páginas desde la indicada y usa OCR solo donde falta texto. Cada tramo se añade como un documento nuevo. El motor local (7 MB) solo se carga si hace falta.</p>
+          <label for="ocr-start">Desde página PDF</label><input id="ocr-start" type="number" min="1" step="1" value="1">
+          <label class="btn-mini ocr-picker">Elegir PDF o imagen<input class="sr-only" id="ocr-file" type="file" accept=".pdf,application/pdf,image/png,image/jpeg,image/webp"></label>
+          <button type="button" class="btn-mini hidden" id="ocr-cancel">Cancelar lectura</button><p id="ocr-status" role="status"></p>
+        </details>
         <div id="doc-tabs" class="doc-tabs" aria-label="Documentos"></div>
         <div id="doc-pagination" class="doc-pagination">
           <button class="btn-mini" id="btn-prev-page" aria-label="Página anterior" disabled>‹</button>
@@ -86,6 +109,7 @@
           <label class="auto-page-toggle"><input type="checkbox" id="chk-auto-page" checked> AUTO</label>
         </div>
         <div class="doc-status"><span id="doc-section">Sin documento</span><span id="ingest-status" role="status">Esperando material</span></div>
+        <div id="question-tools" hidden><button class="btn-mini" id="btn-question" type="button" aria-haspopup="dialog" title="Selecciona texto o elige un pasaje completo">Subrayar · Crear mi pregunta</button><button class="btn-mini" id="btn-my-review" type="button">Mi repaso ↗</button></div>
         <div id="doc-dropzone" class="doc-dropzone">
           <div id="scan-tracks" class="scan-tracks" role="region" aria-label="Lecturas simultáneas" aria-live="off"></div>
           <div id="ingest-message" class="ingest-message hidden" role="status"></div>
@@ -107,11 +131,23 @@
     </aside>
 
     <section id="panel-arena" class="hud-panel arena-panel" aria-label="Red de conocimiento">
+      <div class="orbit-bar">
+        <span class="orbit-heading">Red de conceptos</span>
+        <button type="button" id="btn-orbit" class="btn-mini" aria-pressed="false" aria-controls="arena-stage orbit-controls orbit-guide" title="Alternar entre el plano y la esfera giratoria">Órbita 3D</button>
+        <button type="button" id="btn-study-links" class="btn-mini" aria-controls="neural-svg link-guide" aria-pressed="false" disabled>Vínculos de estudio</button>
+        <p id="link-guide" hidden><span id="link-caption"></span> <button id="link-compare" type="button" class="btn-mini">Valorar vínculos</button></p>
+        <div id="orbit-controls" role="group" aria-label="Cámara de la esfera" hidden>
+          <button type="button" data-orbit-key="ArrowLeft" aria-label="Girar a la izquierda" title="Girar a la izquierda">←</button><button type="button" data-orbit-key="ArrowRight" aria-label="Girar a la derecha" title="Girar a la derecha">→</button>
+          <button type="button" data-orbit-key="ArrowUp" aria-label="Girar hacia arriba" title="Girar hacia arriba">↑</button><button type="button" data-orbit-key="ArrowDown" aria-label="Girar hacia abajo" title="Girar hacia abajo">↓</button>
+          <button type="button" data-orbit-key="-" aria-label="Alejar esfera" title="Alejar">−</button><span id="orbit-zoom">100 %</span><button type="button" data-orbit-key="+" aria-label="Acercar esfera" title="Acercar">+</button>
+        </div>
+        <p id="orbit-guide" hidden>Arrastra o usa las flechas para girar. Toca un concepto para ver sus citas; el fondo y los centros envían arañas. + / −: zoom · Inicio: centrar.</p>
+      </div>
       <div id="arena-stage" class="arena-stage" role="group" tabindex="0" aria-label="Red de conocimiento interactiva" aria-describedby="swarm-help">
         <canvas id="core-3d-canvas" aria-hidden="true"></canvas>
         <svg id="neural-svg" role="group" aria-label="Grafo de conceptos cosechados"></svg>
         <div class="swarm-hud" aria-hidden="true"><strong>◇ ENJAMBRE · REINA NC-00</strong><span>ARAÑAS <b id="swarm-count">1</b> · LEYENDO <b id="swarm-reading">0</b></span><span>COSECHADOS <b id="swarm-harvested">0</b> · PATRONES <b id="swarm-patterns">0</b></span></div>
-        <div id="swarm-help" class="swarm-hint">MUEVE · EXPLORA LA RED<br>CLIC O ENTER · ENVIAR ARAÑAS AL TEXTO</div>
+        <div id="swarm-help" class="swarm-hint">ACTIVA ÓRBITA 3D PARA GIRAR<br>CLIC O ENTER · ENVIAR ARAÑAS AL TEXTO</div>
         <div id="swarm-tip" class="swarm-tip hidden" aria-hidden="true"></div>
         <p id="swarm-feedback" class="swarm-feedback" role="status" aria-live="polite"></p>
         <div id="graph-fallback" class="graph-fallback hidden"></div>
@@ -123,7 +159,7 @@
             <button class="cluster-pill c-quant" data-cluster="AGT-03" aria-pressed="false" title="Filtrar métricas" aria-label="Filtrar métricas">QUANT</button>
             <button class="cluster-pill c-synth" data-cluster="AGT-04" aria-pressed="false" title="Filtrar síntesis" aria-label="Filtrar síntesis">SYNTH</button>
           </div>
-          <button class="btn-mini" id="btn-center-net" aria-label="Centrar red" title="Centrar red">◎</button>
+          <button class="btn-mini" id="btn-center-net" aria-label="Centrar red" title="Centrar red y restablecer la cámara">◎</button>
         </div>
         <div id="graph-grouping" class="graph-grouping" role="status">POR AGENTE · ACTIVA MINILM PARA AGRUPAR POR TEMA</div>
         <div class="orbit-label label-def"><span class="orbit-name">AGT-01 · DEFINICIONES</span><span class="orbit-state" data-orbit="AGT-01">EN ESPERA</span></div>
@@ -145,6 +181,7 @@
           <h4 id="insp-label"></h4><p id="insp-text" class="insp-text"></p><div id="insp-citations" class="insp-citations"></div>
           <div id="insp-citation-pages" class="insp-citation-pages hidden"><button type="button" class="btn-mini" id="insp-citation-prev" aria-label="Citas anteriores">‹</button><span id="insp-citation-status" role="status" aria-live="polite"></span><button type="button" class="btn-mini" id="insp-citation-next" aria-label="Citas siguientes">›</button><label for="insp-citation-page">Pág.</label><input id="insp-citation-page" type="number" min="1" value="1" inputmode="numeric" aria-label="Página de citas"><span id="insp-citation-page-count"></span></div>
           <details id="insp-connections" class="insp-connections"><summary>Conexiones</summary><div id="insp-connection-list"></div><div class="insp-connection-pages"><button type="button" class="btn-mini" id="insp-connection-prev" aria-label="Conexiones anteriores">‹</button><span id="insp-connection-status" role="status" aria-live="polite"></span><button type="button" class="btn-mini" id="insp-connection-next" aria-label="Conexiones siguientes">›</button><label for="insp-connection-page">Pág.</label><input id="insp-connection-page" type="number" min="1" value="1" inputmode="numeric" aria-label="Página de conexiones"><span id="insp-connection-page-count"></span></div></details>
+          <div id="insp-relations"></div>
           <button class="btn-mini" id="btn-insp-ask">Preguntar por este concepto</button>
         </div>
       </div>
@@ -186,8 +223,47 @@
         </div>
         <div class="system-actions"><button class="btn-mini" id="btn-mitosis" title="Cambiar cantidad de arañas">+ ARAÑA</button><button class="btn-mini" id="btn-reset-all" title="Borrar datos locales">↺ RESET</button><span class="fps-label"><span id="stat-fps">—</span> FPS</span></div>
       </section>
+      <section id="panel-analysis" class="hud-panel hidden" aria-label="Análisis del documento">
+        <div class="panel-heading brain-heading"><span class="heading-title"><span class="heading-dot cyan-bg"></span> ANÁLISIS DEL DOCUMENTO</span><button type="button" id="analysis-graph" class="btn-mini" aria-controls="arena-stage">Ver red</button></div>
+        <nav class="analysis-nav" aria-label="Herramientas de análisis">
+          <button type="button" class="btn-mini" id="open-practice" aria-controls="tutor-stage" aria-pressed="true">Tutor de estudio</button>
+          <button type="button" class="btn-mini" id="open-review" aria-controls="review-stage" aria-pressed="false">Revisión docente</button>
+        </nav>
+        <div id="tutor-stage" class="bot-stage"></div>
+        <div id="review-stage" class="bot-stage hidden">
+          <div class="study-heading"><div><h3>Revisión docente</h3><p class="muted small">Compara las propuestas del tutor y del quiz con una pregunta de un curso. Aquí se evalúa el ejercicio, no al estudiante.</p></div></div>
+          <h4 id="review-subject"></h4>
+          <details><summary>Procedencia y archivos del curso</summary>
+            <p id="review-origin"></p><p>Descarga el banco como plantilla o importa un banco de tu asignatura (1–24 casos). Incluye solo material que puedas usar. También puedes reabrir un informe exportado.</p>
+            <div class="study-toolbar"><button type="button" class="btn-mini" id="review-template">Descargar banco JSON</button>
+              <label class="btn-mini review-file">Importar banco o informe<input class="sr-only" type="file" id="review-file" accept=".json,application/json"></label>
+              <button type="button" class="btn-mini" id="review-example">Volver al ejemplo de Python</button></div>
+          </details>
+          <div id="review-replacement" class="citation-warning" hidden>
+            <p>El nuevo banco reemplazará los dictámenes y borradores de esta sesión. Puedes descargar el informe antes de continuar.</p>
+            <button type="button" class="btn-mini" id="review-keep">Conservar el actual</button>
+            <button type="button" class="btn-mini" id="review-replace">Reemplazar banco</button>
+          </div>
+          <label for="review-case">Caso del curso</label><select id="review-case"></select>
+          <section class="study-card review-case"><h4>Referencia del curso</h4><p id="review-reference" class="muted small"></p>
+            <strong>Pregunta</strong><p id="review-question"></p><strong>Explicación de referencia</strong><p id="review-explanation"></p>
+            <strong>Pasaje para el generador</strong><p id="review-passage"></p></section>
+          <section class="study-card review-case"><h4>Propuesta de Spyder</h4><strong>Recuerdo activo</strong><p id="review-gap"></p>
+            <strong>Quiz y distractores</strong><p id="review-options"></p><strong>Explicación propia</strong><p id="review-prompt"></p></section>
+          <fieldset id="review-ratings"><legend>Tu dictamen</legend>
+            <label for="review-cloze">¿El hueco evalúa un concepto útil?</label><select id="review-cloze"><option value="">Sin valorar</option><option value="si">Sí</option><option value="no">No</option><option value="ausente" hidden>No se generó hueco</option></select>
+            <label for="review-distractors">¿Son plausibles los distractores?</label><select id="review-distractors"><option value="">Sin valorar</option><option value="si">Sí</option><option value="no">No</option><option value="ausente" hidden>No se generó quiz</option></select>
+            <label for="review-guidance">¿La orientación ayuda a explicar la idea?</label><select id="review-guidance"><option value="">Sin valorar</option><option value="si">Sí</option><option value="no">Falta orientación</option></select>
+            <label for="review-note">¿Qué cambiarías? Indica la pista que falta, si procede.</label><textarea class="study-input" id="review-note" maxlength="1000" spellcheck="false"></textarea>
+            <button type="button" id="review-save" class="btn-hud btn-cyan">Registrar dictamen</button>
+          </fieldset>
+          <p id="review-status" role="status"></p><p id="review-summary"></p>
+          <button type="button" class="btn-mini" id="review-export">Descargar informe JSON</button>
+          <p class="muted small">Solo en esta sesión. Descarga los dictámenes registrados antes de recargar o restablecer. No se mezclan con el historial del alumno ni se verifica la identidad de quien revisa.</p>
+        </div>
+      </section>
       <section id="panel-brain" class="hud-panel hidden" aria-label="Asistente y estudio">
-        <div class="panel-heading brain-heading"><span class="heading-title"><span class="heading-dot cyan-bg"></span> ESPACIO DE ESTUDIO</span><button class="btn-mini" id="btn-close-brain" aria-label="Volver al panel de agentes">✕</button></div>
+        <div class="panel-heading brain-heading"><span class="heading-title"><span class="heading-dot cyan-bg"></span> ESPACIO DE ESTUDIO</span><button class="btn-mini personal-launch" type="button" id="chat-open-personal" aria-haspopup="dialog" aria-controls="personal-dialog">Spyder personal ↗</button><button class="btn-mini" id="btn-close-brain" aria-label="Volver al panel de agentes">✕</button></div>
         <div class="brain-tabs tab-switcher" role="tablist" aria-label="Herramientas">
           <button class="tab-btn active" role="tab" aria-selected="true" data-tab="chat">CHAT</button>
           <button class="tab-btn" role="tab" aria-selected="false" data-tab="writer">REDACCIÓN</button>
@@ -199,11 +275,20 @@
             <div class="knowledge-scope"><label for="search-scope">BUSCAR EN</label><select id="search-scope" aria-describedby="knowledge-caption"><option value="both">Documentos + base local</option><option value="documents">Solo mis documentos</option><option value="knowledge">Solo base local</option></select></div>
             <details id="knowledge-info" class="knowledge-info"><summary>Base local · temas y límites</summary><p id="knowledge-caption">Fichas propias, separadas de tus documentos. Incluyen síntesis de materiales de Aprende.org / Capacítate para el Empleo, PruébaT y un artículo de Fundación Carlos Slim, no los cursos completos. Funcionan sin conexión; abrir las fuentes originales requiere internet. La información jurídica y de SST no se actualiza sola ni sustituye asesoría profesional: comprueba su vigencia y aplicación.</p><p id="knowledge-meta"></p><div id="knowledge-catalog"></div></details>
           </div>
+          <section id="dialogue-setup" class="dialogue-setup" aria-label="Tutor con fuentes" hidden>
+            <strong>Tutor con fuentes</strong><p id="dialogue-status" role="status"></p>
+            <div class="dialogue-scope"><label for="dialogue-doc">Estudiar con</label><select id="dialogue-doc"></select></div>
+            <div class="dialogue-tools"><button type="button" class="btn-mini" id="dialogue-upload">Añadir documento</button><button type="button" class="btn-mini" id="dialogue-demo">Cargar demo</button></div><p id="dialogue-ingest" role="status"></p>
+            <details><summary>Motor y privacidad</summary>
+              <label class="check-row"><input id="dialogue-qwen" type="checkbox"> Añadir explicación de Qwen local</label><p id="dialogue-engine"></p>
+              <p>El historial y sus citas entran en tu respaldo. Quitar un documento no borra lo conversado; BORRAR elimina el chat, no las tarjetas que hayas guardado.</p></details>
+          </section>
+          <div id="dialogue-clear" class="citation-warning" hidden>¿Borrar todo el chat local, incluidos los otros modos?<button id="dialogue-clear-yes" class="btn-mini" type="button">Sí, borrar el chat</button><button id="dialogue-clear-no" class="btn-mini" type="button">Conservarlo</button></div>
           <section id="character-setup" class="character-setup hidden" aria-labelledby="character-title">
             <div class="character-heading"><span id="character-title"><span aria-hidden="true">✧</span> PERSONAJE LOCAL</span><span id="character-engine-badge" class="character-badge">SIN LLM</span></div>
             <p class="character-intro">Elige o sube el PDF de un libro y escribe el personaje tal como aparece en él.</p>
             <label for="character-book">LIBRO</label>
-            <div class="character-source-row"><select id="character-book" aria-describedby="character-status"><option value="">Selecciona un libro…</option></select><label class="btn-mini character-upload" for="character-file">+ SUBIR LIBRO<input id="character-file" class="sr-only" type="file" accept=".pdf,.epub,.txt,.md,.docx"></label></div>
+            <div class="character-source-row"><select id="character-book" aria-describedby="character-status"><option value="">Selecciona un libro…</option></select><label class="btn-mini character-upload" for="character-file">+ SUBIR LIBRO<input id="character-file" class="sr-only" type="file" accept=".pdf,application/pdf,.epub,.txt,.md,.docx"></label></div>
             <label for="character-name">PERSONAJE</label>
             <input id="character-name" type="text" maxlength="80" autocomplete="off" placeholder="Ej. Alicia" aria-describedby="character-status character-limits">
             <p id="character-status" class="character-status" role="status"></p>
@@ -211,7 +296,8 @@
             <details id="character-limits" class="character-limits"><summary>Motor, límites y privacidad</summary><p>Sin Qwen usa reglas y fragmentos literales. Con Qwen genera una interpretación ficticia: puede inventar, equivocarse o incluir spoilers. Los fragmentos consultados pueden ser narración o de otra persona y no verifican lo generado.</p><p>El libro y las preguntas no se envían a Hugging Face. El historial y el libro se guardan en este navegador si el almacenamiento está disponible y se incluyen en respaldos JSON. BORRAR elimina todo el chat, no el libro; quitar el libro no borra las citas guardadas en el chat.</p><p>El acompañamiento es básico y no reemplaza ayuda profesional ni servicios de emergencia. La detección de crisis es limitada.</p></details>
           </section>
           <div id="chat-messages" class="chat-messages" aria-live="polite" aria-relevant="additions"></div>
-          <div id="study-quick-actions" class="chat-quick-actions"><button class="btn-chip" data-prompt="Resume y analiza el documento completo">RESUMIR</button><button class="btn-chip" data-prompt="Detecta contradicciones en el documento">CONTRASTAR</button><button class="btn-chip" data-prompt="Aprende que ">ENSEÑAR</button></div>
+          <div id="dialogue-quick-actions" class="chat-quick-actions" hidden><button class="btn-chip" data-prompt="¿Por qué?">¿Por qué?</button><button class="btn-chip" data-prompt="Contrasta las fuentes">Contrastar fuentes</button><button class="btn-chip" data-prompt="¿Qué evidencia falta?">¿Qué falta?</button><button class="btn-chip" data-prompt="Revisa con la nueva evidencia">Revisar conclusión</button><button class="btn-chip" data-prompt="Ponme a prueba">Ponme a prueba</button></div>
+          <div id="study-quick-actions" class="chat-quick-actions"><button type="button" id="open-dialogue" class="btn-mini">Tutor con fuentes</button><button class="btn-chip" data-mode="resumen" data-prompt="Resume y analiza el documento completo">RESUMIR</button><button class="btn-chip" data-mode="critico" data-prompt="Detecta contradicciones en el documento">CONTRASTAR</button><button class="btn-chip" data-prompt="Aprende que ">ENSEÑAR</button></div>
           <div id="character-quick-actions" class="chat-quick-actions hidden"><button class="btn-chip" data-prompt="Háblame de ti">HÁBLAME DE TI</button><button class="btn-chip" data-prompt="¿Qué pasó después?">¿Y DESPUÉS?</button><button class="btn-chip" data-prompt="Necesito hablar">NECESITO HABLAR</button></div>
           <form id="chat-form" class="chat-form"><label class="sr-only" for="chat-input">Pregunta</label><input type="text" id="chat-input" placeholder="Pregunta a tus documentos o a la base local…" autocomplete="off"><button type="button" id="btn-stop-generation" class="btn-mini hidden">DETENER</button><button type="submit" id="btn-send" class="btn-hud btn-cyan">ENVIAR</button></form>
         </div>
@@ -220,7 +306,7 @@
           <div id="writer-output" class="writer-output"><p class="muted">Crea un borrador extractivo con el ámbito de fuentes seleccionado en CHAT. Comprueba las fuentes antes de usarlo.</p></div>
         </div>
         <div id="tab-bots" class="tab-pane" role="tabpanel">
-          <nav class="bots-nav" aria-label="Funciones de estudio"><button class="bot-btn active" data-bot="guide">GUÍA</button><button class="bot-btn" data-bot="flashcards">TARJETAS</button><button class="bot-btn" data-bot="quiz">QUIZ</button><button class="bot-btn" data-bot="vault">BÓVEDA</button><button class="bot-btn" data-bot="metrics">MÉTRICAS</button><button class="bot-btn" data-bot="backup">RESPALDO</button></nav>
+          <nav class="bots-nav" aria-label="Funciones de estudio"><button class="bot-btn active" data-bot="guide">GUÍA</button><button class="bot-btn" data-bot="plan">MI REPASO</button><button class="bot-btn" data-bot="flashcards">TARJETAS</button><button class="bot-btn" data-bot="quiz">QUIZ</button><button class="bot-btn" data-bot="vault">BÓVEDA</button><button class="bot-btn" data-bot="metrics">MÉTRICAS</button><button class="bot-btn" data-bot="backup">RESPALDO</button><button type="button" class="btn-mini" id="study-open-tutor">Tutor en Analizar ↗</button><button type="button" class="btn-mini" id="study-open-dialogue">Conversar con el tutor ↗</button></nav>
           <div id="bot-stage" class="bot-stage"></div>
         </div>
       </section>
@@ -230,6 +316,43 @@
   <canvas id="spider-canvas" aria-hidden="true"></canvas>
   <div id="node-tooltip" class="node-tooltip hidden" role="tooltip"></div>
   <div id="hud-toast" class="hud-toast hidden" role="status"><span id="hud-toast-msg"></span></div>
+  <dialog id="personal-dialog" aria-labelledby="personal-title" aria-describedby="personal-subtitle">
+    <div class="personal-shell">
+      <header class="personal-heading"><span class="personal-glyph" aria-hidden="true">✦</span><div><small>ASISTENTE VIRTUAL LOCAL</small><h2 id="personal-title">Spyder personal</h2></div><button type="button" id="personal-close" class="btn-mini" aria-label="Cerrar y volver">Cerrar ✕</button></header>
+      <p id="personal-subtitle">Un espacio para hablar de tu día, ordenar ideas o dar un paso pequeño. No es atención profesional ni un servicio de emergencias.</p>
+      <div class="personal-bar"><span id="personal-badge"></span><button id="personal-urgent" class="btn-mini" type="button">Ayuda urgente</button></div>
+      <details id="personal-prefs"><summary>Personalidad y memoria</summary><div class="personal-fields">
+        <label>Cómo quieres que te llame (opcional)<input id="personal-alias" spellcheck="false" maxlength="40" autocomplete="off"></label>
+        <label>Mi estilo contigo<select id="personal-tone"><option value="calm">Cálido y sereno</option><option value="practical">Breve y práctico</option><option value="curious">Curioso y reflexivo</option></select></label>
+        <label>Nota para retomar otro día (opcional)<textarea id="personal-note" autocomplete="off" spellcheck="false" rows="2" maxlength="240" placeholder="Por ejemplo: quiero practicar mi presentación de historia"></textarea></label>
+        <button type="button" class="btn-mini" id="personal-save">Guardar perfil</button>
+        <label class="check-row"><input id="personal-keep" type="checkbox"> Conservar los próximos turnos en este navegador</label>
+        <p>Por defecto la charla es temporal. Cambiar esta opción empieza un hilo vacío. Si la activas se guardan hasta 20 turnos, incluso personales; los que abran la ayuda urgente no se guardan. Quien use este navegador podría leerlos. El perfil y el hilo no entran en el respaldo de estudio.</p>
+        <label class="check-row"><input id="personal-qwen" type="checkbox"> Usar Qwen local en conversación cotidiana</label>
+        <p id="personal-engine"></p><button type="button" class="btn-mini" id="personal-model">Ver ajustes del modelo ↗</button>
+        <div class="personal-actions"><button type="button" class="btn-mini" id="personal-clear">Borrar mi charla</button><button type="button" class="btn-mini" id="personal-forget">Olvidar perfil y charla</button></div>
+      </div></details>
+      <div id="personal-confirm" hidden><span></span> <button type="button" class="btn-mini" id="personal-confirm-yes">Confirmar</button> <button type="button" class="btn-mini" id="personal-confirm-no">Cancelar</button></div>
+      <div id="personal-log" role="log" aria-label="Conversación con Spyder personal" aria-live="polite" aria-relevant="additions"></div>
+      <div id="personal-choices" class="personal-actions" aria-label="Opciones para continuar"></div>
+      <p id="personal-status" role="status"></p>
+      <form id="personal-form"><label for="personal-input" class="sr-only">Mensaje para Spyder personal</label><input id="personal-input" spellcheck="false" type="text" maxlength="1000" autocomplete="off" placeholder="Cuéntame, ¿qué tienes en mente?"><button id="personal-stop" type="button" class="btn-mini" hidden>Detener</button><button type="submit" id="personal-send" class="btn-hud btn-cyan">Enviar</button></form>
+      <footer class="personal-actions"><span id="personal-storage"></span><button type="button" id="personal-tutor" class="btn-mini">Tutor con fuentes ↗</button><button type="button" id="personal-review" class="btn-mini">Mi repaso ↗</button></footer>
+    </div>
+  </dialog>
+
+  <dialog id="question-dialog" aria-labelledby="question-heading">
+    <div class="modal-card">
+      <div class="modal-head"><h2 id="question-heading">Crear mi pregunta</h2><button type="button" id="question-cancel" class="btn-mini" aria-label="Cerrar sin guardar">✕</button></div>
+      <p id="question-location" class="muted"></p>
+      <div id="passage-picker"><label for="question-passage">Elige un pasaje completo o cierra y selecciona unas palabras en el visor.</label><select id="question-passage"></select></div>
+      <p>Este fragmento será la respuesta de referencia:</p><blockquote id="question-quote" dir="auto"></blockquote>
+      <label for="question-front">¿Qué quieres recordar?</label><textarea id="question-front" rows="2" maxlength="400" placeholder="Escribe una pregunta que puedas responder con el fragmento." required></textarea>
+      <small>Solo se guarda la pregunta si la añades a Mi repaso.</small>
+      <p role="status" id="question-status"></p><button class="btn-hud btn-cyan" id="question-save" type="button">Guardar en Mi repaso</button>
+      <details id="page-questions"><summary>Mis preguntas de esta página</summary><div id="page-question-list"></div></details>
+    </div>
+  </dialog>
   <div id="paste-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="paste-title-label">
     <div class="modal-card"><div class="modal-head"><span id="paste-title-label">PEGAR TEXTO</span><button id="btn-close-paste" class="btn-mini" aria-label="Cerrar">✕</button></div>
       <label for="paste-title">Título</label><input type="text" id="paste-title" placeholder="Apuntes de clase">
@@ -240,9 +363,9 @@
   <div id="model-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="model-heading">
     <div class="modal-card model-card">
       <div class="modal-head"><span id="model-heading">MODELOS LOCALES</span><button id="btn-close-model" class="btn-mini" aria-label="Cerrar modelos locales">✕</button></div>
-      <div class="model-detail"><span class="model-detail-icon" aria-hidden="true">✧</span><div><strong>Qwen3-0.6B · GGUF Q4_K_M</strong><small>Generación de texto · conversación por personaje</small></div></div>
+      <div class="model-detail"><span class="model-detail-icon" aria-hidden="true">✧</span><div><strong>Qwen3-0.6B · GGUF Q4_K_M</strong><small>Generación de texto · personaje, tutor y Spyder personal</small></div></div>
       <p class="muted small">Descarga opcional de <strong>397 MB</strong> desde Hugging Face, más 2,4 MB de motor desde esta instalación. Solo se solicita el archivo público: no se envían tus libros ni preguntas. Se verifica su SHA-256 y se guarda en este navegador.</p>
-      <p class="muted small">Tras descargarlo funciona sin conexión. Usa CPU de un hilo; puede tardar y necesita bastante más memoria que los 397 MB del archivo. Es una interpretación ficticia y puede inventar o equivocarse.</p>
+      <p class="muted small">Tras descargarlo funciona sin conexión. Usa CPU de un hilo; puede tardar y necesita bastante más memoria que los 397 MB del archivo. Puede inventar o equivocarse: su explicación no verifica una cita.</p>
       <div class="model-progress"><div class="model-progress-head"><span id="qwen-status" role="status">Qwen opcional desactivado.</span><span id="qwen-percent"></span></div><progress id="qwen-progress" max="100" value="0" aria-label="Progreso de Qwen"></progress></div>
       <div class="model-actions"><button id="btn-install-qwen" class="btn-hud btn-cyan">DESCARGAR Y ACTIVAR QWEN</button><button id="btn-disable-qwen" class="btn-hud btn-ghost hidden">DESACTIVAR QWEN</button><button id="btn-delete-qwen" class="btn-hud btn-ghost hidden">ELIMINAR QWEN</button><label id="qwen-import-label" class="btn-hud btn-ghost model-import">IMPORTAR GGUF<input id="qwen-file" type="file" class="sr-only" accept=".gguf,application/octet-stream"></label></div>
       <div class="model-detail model-section"><span class="model-detail-icon" aria-hidden="true">◇</span><div><strong>all-MiniLM-L6-v2 · ONNX</strong><small>384 dimensiones · búsqueda semántica, no conversación</small></div></div>
@@ -251,7 +374,7 @@
       <p class="muted small">Requiere HTTPS o localhost y almacenamiento local. Reindexa tus pasajes al abrir; para usarlo, mantén activada la búsqueda híbrida en Ajustes.</p>
       <div class="model-progress"><div class="model-progress-head"><span id="model-status" role="status">Modelo opcional desactivado.</span><span id="model-percent"></span></div><progress id="model-progress" max="100" value="0" aria-label="Progreso del modelo"></progress></div>
       <div class="model-actions"><button id="btn-install-model" class="btn-hud btn-cyan">DESCARGAR Y ACTIVAR</button><button id="btn-retry-index" class="btn-hud btn-cyan hidden">REINTENTAR ÍNDICE</button><button id="btn-disable-model" class="btn-hud btn-ghost hidden">DESACTIVAR</button><button id="btn-delete-model" class="btn-hud btn-ghost hidden">ELIMINAR DESCARGA</button></div>
-      <div class="model-backup"><strong>Tu conocimiento aprendido</strong><p class="muted small">Guarda tus documentos indexados, grafo y progreso en un respaldo JSON. No incluye los modelos ONNX ni GGUF.</p><button id="btn-download-brain" class="btn-mini">↓ DESCARGAR MI CEREBRO .JSON</button></div>
+      <div class="model-backup"><strong>Tu conocimiento aprendido</strong><p class="muted small">Guarda tus documentos indexados, grafo y progreso en un respaldo JSON. No incluye Spyder personal ni los modelos ONNX o GGUF.</p><button id="btn-download-brain" class="btn-mini">↓ DESCARGAR MI CEREBRO .JSON</button></div>
     </div>
   </div>
   <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-heading">

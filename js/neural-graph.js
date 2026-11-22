@@ -41,6 +41,21 @@
   let initialized = false;
 
   const store = () => root.NeuralStore;
+  const camera = root.NCOrbit.camera();
+  let orbitControl, placeGraph, pendingView = null;
+  const position = node => node.screen || node;
+  function clusterPosition(cluster, w, h) {
+    return camera.enabled ? camera.frame(w, h).at(cluster.x, cluster.y) : { x: cluster.x*w, y: cluster.y*h, scale: 1 };
+  }
+  // No reiniciar la simulación de fuerzas ni tocar el store al mover la cámara.
+  function viewChanged() {
+    if (pendingView !== null) return;
+    probe.inside = false; document.getElementById('swarm-tip')?.classList.add('hidden'); hideTooltip();
+    pendingView = requestAnimationFrame(() => {
+      pendingView = null; placeGraph?.();
+      if (!rafSphere) { if (rafStill) cancelAnimationFrame(rafStill); rafStill = null; drawSphere(0); }
+    });
+  }
 
   // Partículas decorativas: las entidades y citas reales siguen en el SVG D3.
   function init3DSphere() {
@@ -64,7 +79,7 @@
           x += Math.cos(angle) * step; y += Math.sin(angle) * step;
           const distance = Math.hypot(x, y);
           if (distance > 1) { x *= .92 / distance; y *= .92 / distance; angle += Math.PI * .8; }
-          points.push({ x, y, phase: Math.random() * 6.28, size: Math.random() < .06 ? 1.8 : .5 + Math.random() * .8 });
+          points.push({ x, y, xyz: root.NCOrbit.surface(cluster.x + x * cluster.r * .65, cluster.y + y * cluster.r), phase: Math.random() * 6.28, size: Math.random() < .06 ? 1.8 : .5 + Math.random() * .8 });
         }
         cluster.walks.push(points);
       }
@@ -278,7 +293,9 @@
       ctx.fillRect(star.x*w, star.y*h, star.size, star.size);
     });
     ctx.globalCompositeOperation = 'lighter';
-    const core = constellations[2], cx = core.x*w, cy = core.y*h;
+    const frame = camera.enabled ? camera.frame(w, h) : null;
+    if (frame) root.NCOrbit.drawGlobe(ctx, frame);
+    const core = clusterPosition(constellations[2], w, h), cx = core.x, cy = core.y;
     const qx = w * .19, qy = h * .46, qSize = size * .04, hx = w * .42, hy = h * .49;
     turnQueen(rect, qx, qy, dt);
     const queen = { size: qSize, queen: true, weaving: true, phase: t * 2.6, time: t, headAngle: queenHeadAngle };
@@ -292,26 +309,26 @@
     constellations.forEach(cluster => {
       if (cluster.id === 'core') return;
       ctx.strokeStyle = `rgba(${cluster.color.join(',')},.13)`; ctx.lineWidth = 1; ctx.setLineDash([2,5]);
-      ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cluster.x*w,cluster.y*h); ctx.stroke(); ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(cx,cy); const end = clusterPosition(cluster, w, h); ctx.lineTo(end.x,end.y); ctx.stroke(); ctx.setLineDash([]);
     });
     // Destellos ambientales; no son nodos ni mediciones de datos.
     ambientPackets.forEach(packet => {
       const cluster = constellations[packet.target], k = (packet.offset + t * packet.speed) % 1;
-      const x = cx + (cluster.x*w - cx) * k, y = cy + (cluster.y*h - cy) * k;
+      const end = clusterPosition(cluster, w, h), x = cx + (end.x - cx) * k, y = cy + (end.y - cy) * k;
       const glow = ctx.createRadialGradient(x,y,0,x,y,6);
       glow.addColorStop(0, `rgba(${cluster.color.join(',')},.7)`); glow.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(x,y,6,0,Math.PI*2); ctx.fill();
     });
     constellations.forEach(cluster => {
-      const x0 = cluster.x*w, y0 = cluster.y*h, rgb = cluster.color.join(',');
+      const center = clusterPosition(cluster, w, h), x0 = center.x, y0 = center.y, rgb = cluster.color.join(',');
       const running = !status.paused && status.spiders.some(sp => sp.cluster === cluster.id && sp.phase !== 'IDLE');
-      const boost = cluster.id === 'core' ? 1 : (running ? 1.15 : .85);
-      const radius = cluster.r * size * (1 + Math.sin(t*1.3+cluster.x*9)*.02);
+      const boost = (cluster.id === 'core' ? 1 : (running ? 1.15 : .85)) * (frame ? .62 + .36 * center.z : 1);
+      const radius = cluster.r * size * (frame ? center.scale * .64 : 1) * (1 + Math.sin(t*1.3+cluster.x*9)*.02);
       const angle = t*cluster.rotation, cosine = Math.cos(angle), sine = Math.sin(angle);
       const halo = ctx.createRadialGradient(x0,y0,0,x0,y0,radius*1.3);
       halo.addColorStop(0, `rgba(${rgb},${.16*boost})`); halo.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(x0,y0,radius*1.3,0,Math.PI*2); ctx.fill();
-      if (cluster.id === 'core') {
+      if (cluster.id === 'core' && !frame) {
         ctx.strokeStyle = `rgba(${rgb},.28)`; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.arc(x0,y0,radius*1.22,0,Math.PI*2); ctx.stroke();
         ctx.save(); ctx.translate(x0,y0); ctx.rotate(t*.15); ctx.setLineDash([3,9]);
@@ -324,10 +341,14 @@
       cluster.walks.forEach(walk => {
         ctx.strokeStyle = `rgba(${rgb},${.2*boost})`; ctx.beginPath();
         walk.forEach((point, i) => {
-          const jx = point.x + Math.sin(t*.9+point.phase)*.025, jy = point.y + Math.cos(t*.8+point.phase)*.025;
-          const x = x0+(jx*cosine-jy*sine)*radius, y = y0+(jx*sine+jy*cosine)*radius;
-          point.sx=x; point.sy=y;
-          if (i) ctx.lineTo(x,y); else ctx.moveTo(x,y);
+          if (frame) {
+            if (point.frame !== frame) { point.frame = frame; point.view = frame.projectInto(point.xyz, point.view || {}); }
+            point.sx = point.view.x; point.sy = point.view.y;
+          } else {
+            const jx = point.x + Math.sin(t*.9+point.phase)*.025, jy = point.y + Math.cos(t*.8+point.phase)*.025;
+            point.sx = x0+(jx*cosine-jy*sine)*radius; point.sy = y0+(jx*sine+jy*cosine)*radius;
+          }
+          if (i) ctx.lineTo(point.sx,point.sy); else ctx.moveTo(point.sx,point.sy);
         });
         ctx.stroke();
         walk.forEach(point => {
@@ -412,7 +433,7 @@
   // La sonda examina la decoración, pero el despacho usa únicamente pasajes reales.
   function nearestCluster(x, y, w, h) {
     return constellations.reduce((best, cluster) => {
-      const distance = Math.hypot(cluster.x * w - x, cluster.y * h - y);
+      const p = clusterPosition(cluster, w, h), distance = Math.hypot(p.x - x, p.y - y);
       return !best || distance < best.distance ? { cluster, distance } : best;
     }, null);
   }
@@ -436,13 +457,16 @@
           sentence ? `${sentence.docName || 'Documento'} · pág. ${sentence.sourcePage || sentence.pageNum}` : 'Disponible para textos reales'] };
     }
     if (semanticMode) {
-      const hub = graphNodes.filter(node => node.isSemantic).map(node => ({ node, distance: Math.hypot(x - node.x, y - node.y) }))
+      const hub = graphNodes.filter(node => node.isSemantic).map(node => ({ node, distance: Math.hypot(x - position(node).x, y - position(node).y) }))
         .filter(item => item.distance < size * .12).sort((a, b) => a.distance - b.distance)[0]?.node;
       if (!hub) return null;
       return { title: hub.label, color: hub.color,
         lines: [`${hub.count || 0} fragmentos · similitud MiniLM aproximada`, 'Clic: enviar arañas libres a este grupo'] };
     }
-    const nearby = constellations.map(cluster => ({ cluster, distance: Math.hypot(x - cluster.x * rect.width, y - cluster.y * rect.height) }))
+    const nearby = constellations.map(cluster => {
+      const p = clusterPosition(cluster, rect.width, rect.height);
+      return { cluster, distance: Math.hypot(x - p.x, y - p.y) / p.scale };
+    })
       .filter(item => item.distance < item.cluster.r * size * .95).sort((a, b) => a.distance - b.distance)[0];
     if (!nearby) return null;
     const { cluster } = nearby;
@@ -488,7 +512,7 @@
     const y = Math.max(0, Math.min(rect.height, clientY - rect.top));
     burstAt(x, y, rect);
     const nearest = semanticMode
-      ? graphNodes.filter(node => node.isSemantic).map(node => ({ node, distance: Math.hypot(node.x - x, node.y - y) }))
+      ? graphNodes.filter(node => node.isSemantic).map(node => ({ node, distance: Math.hypot(position(node).x - x, position(node).y - y) }))
         .sort((a, b) => a.distance - b.distance)[0]?.node
       : nearestCluster(x, y, rect.width, rect.height)?.cluster;
     const cluster = clusterOverride || activeCluster || (nearest?.id === 'core' ? null : nearest?.id);
@@ -522,7 +546,7 @@
     window.addEventListener('pointerdown', trackPointer, { capture: true, passive: true });
     const interactive = target => target?.closest?.('button, input, select, textarea, a, .arena-tools, .node-group, #node-inspector');
     stage.addEventListener('pointermove', ev => {
-      if (ev.pointerType === 'touch' || interactive(ev.target)) {
+      if (ev.pointerType === 'touch' || (camera.enabled && ev.buttons) || interactive(ev.target)) {
         probe.inside = false; document.getElementById('swarm-tip')?.classList.add('hidden'); redrawIfStill(); return;
       }
       const rect = stage.getBoundingClientRect();
@@ -539,7 +563,8 @@
       if (ev.target !== stage || (ev.key !== 'Enter' && ev.key !== ' ')) return;
       ev.preventDefault();
       const rect = stage.getBoundingClientRect();
-      activateNetworkAt(rect.left + rect.width * .53, rect.top + rect.height * .5);
+      const core = clusterPosition({ x: .53, y: .5 }, rect.width, rect.height);
+      activateNetworkAt(rect.left + core.x, rect.top + core.y);
     });
   }
 
@@ -574,6 +599,49 @@
       const next = HUBS[(i + 1) % HUBS.length];
       if (S.addLink) S.addLink(hub.id, next.id, 'hierarchy');
     });
+  }
+
+  // Una proyección bajo demanda, no una segunda colección de nodos. Nunca
+  // contar las sugerencias como cosechas ni entrenar con el movimiento de D3.
+  let studyFocus = null, focusNode = null;
+  function firstStudyId() {
+    const S = store(), doc = S.getActiveDoc();
+    return !doc?.mediaType && doc?.pages[S.state.activePage - 1]?.sentences[0]?.id;
+  }
+  function showStudyLinks(id, scroll) {
+    studyFocus = store().getSentence(id)?.id || null;
+    activeCluster = null;
+    document.getElementById('node-inspector').classList.add('hidden');
+    buildGraphData(); render(false);
+    if (scroll) { const stage = document.getElementById('arena-stage'); stage.scrollIntoView({ block: 'center' }); stage.focus({ preventScroll: true }); }
+  }
+  function projectStudyLinks(copy) {
+    const S = store(), source = S.getSentence(studyFocus), btn = document.getElementById('btn-study-links');
+    focusNode = null;
+    if (!source) studyFocus = null;
+    btn.disabled = !studyFocus && !firstStudyId(); btn.setAttribute('aria-pressed', String(!!source));
+    document.getElementById('link-guide').hidden = !source;
+    if (!source) { document.getElementById('link-caption').textContent = ''; return; }
+    const links = S.relatedPassages(studyFocus), needed = new Set([studyFocus, ...links.map(l => l.id)]), byAnchor = new Map();
+    for (const n of graphNodes) for (const sid of n.sentenceIds || []) {
+      // No colapsar dos extremos sobre un nodo histórico con varias citas.
+      if (needed.has(sid) && n.sentenceIds.length === 1 && !byAnchor.has(sid)) byAnchor.set(sid, n);
+    }
+    const positions = [[.5,.48],[.26,.36],[.73,.39],[.47,.72]];
+    function endpoint(s, i) {
+      if (byAnchor.has(s.id)) return byAnchor.get(s.id);
+      const [x,y] = positions[i], topicId = root.NCSemantic?.topicId(s.id);
+      const node = copy({ id: 'study-anchor:' + s.id, cluster: 'Estudio', topicId, topicLabel: displayedTopics.find(t => t.id === topicId)?.label || 'Pasaje de estudio',
+        label: U.truncate(s.sourceText, 38), text: s.sourceText, sentenceIds: [s.id], weight: 1, color: '#95efba', x: width*x, y: height*y });
+      graphNodes.push(node); return node;
+    }
+    focusNode = endpoint(source, 0);
+    links.forEach((l,i) => {
+      const target = endpoint(S.getSentence(l.id), i+1);
+      graphLinks.push({ key: JSON.stringify(['study', source.id, l.id]), kind: 'study', score: l.score, source: focusNode, target });
+    });
+    document.getElementById('link-caption').textContent = `«${U.truncate(source.sourceText, 52)}» · ${source.docName}, pág. ${source.sourcePage || source.pageNum}. ` +
+      (links.length ? `Vínculos en verde: ${links.length}. El grosor indica afinidad de estudio.` : 'Sin otro pasaje con términos en común.');
   }
 
   function buildGraphData() {
@@ -657,6 +725,10 @@
       const source = endpoint(link.source), target = endpoint(link.target);
       return { ...link, key: link.key || `${source}>${target}`, source: graphNodeById.get(source), target: graphNodeById.get(target), kind: link.kind || 'hierarchy' };
     }).filter(link => link.source && link.target);
+    // Los vínculos de estudio añaden como máximo cuatro anclas y tres aristas
+    // a la página limitada; no sustituyen ni amplían el grafo persistido.
+    projectStudyLinks(copy);
+    graphNodeById = new Map(graphNodes.map(node => [node.id, node]));
     updateGraphBrowser();
     graphNeighbors = new Map();
     // Solo unas pocas conexiones por nodo se usan para el efecto visual;
@@ -779,9 +851,11 @@
       .attr('stroke-dasharray', d => (d.kind === 'synaptic' ? '3,3' : null))
       .attr('opacity', d => d.source.isHub && d.target.isHub ? 0 : 1);
     const allLinks = linkEnter.merge(linkSel)
-      .attr('stroke', d => d.kind === 'semantic' ? d.target.color :
+      .attr('data-kind', d => d.kind)
+      .attr('stroke-width', d => d.kind === 'study' ? .6 + 3 * d.score : d.kind === 'synaptic' ? 1.4 : 1)
+      .attr('stroke', d => d.kind === 'study' ? '#8ce7af' : d.kind === 'semantic' ? d.target.color :
         d.kind === 'synaptic' ? 'rgba(245,170,60,.32)' : 'rgba(56,220,255,.15)')
-      .attr('stroke-opacity', d => d.kind === 'semantic' ? .38 : 1)
+      .attr('stroke-opacity', d => d.kind === 'study' ? .4 + .55*d.score : d.kind === 'semantic' ? .38 : 1)
       .attr('opacity', d => {
         if (d.source.isHub && d.target.isHub) return 0;
         if (!activeCluster) return 1;
@@ -807,7 +881,7 @@
         ev.preventDefault(); ev.stopPropagation();
         if (d.isHub) {
           const rect = document.getElementById('arena-stage').getBoundingClientRect();
-          activateNetworkAt(rect.left + d.x, rect.top + d.y, d.id);
+          const p = position(d); activateNetworkAt(rect.left + p.x, rect.top + p.y, d.id);
         } else openInspector(d);
       })
       .on('mouseenter', function(ev, d) { showTooltip(ev, d); if (!d.isHub) d3.select(this).select('.node-label').attr('opacity', 1); })
@@ -829,7 +903,7 @@
       .attr('font-family', 'monospace')
       .text(d => d.label);
 
-    const allNodes = nodeEnter.merge(nodeSel)
+    const allNodes = nodeEnter.merge(nodeSel).classed('graph-hub', d => d.isHub)
       .attr('aria-label', d => d.isHub ? 'Enviar arañas desde ' + d.label : 'Inspeccionar ' + d.label);
 
     const isHighlighted = d => highlighted.has(d.id) || (d.originId && highlighted.has(d.originId));
@@ -853,7 +927,7 @@
     if (full || !simulation) {
       if (simulation) simulation.stop();
       simulation = d3.forceSimulation(graphNodes)
-        .force('link', d3.forceLink(graphLinks).id(d => d.id).distance(d => (d.kind === 'synaptic' ? 92 : 62)).strength(0.35))
+        .force('link', d3.forceLink(graphLinks).id(d => d.id).distance(d => (d.kind === 'synaptic' ? 92 : 62)).strength(d => d.kind === 'study' ? .1 + .5 * d.score : .35))
         .force('charge', d3.forceManyBody().strength(-90))
         .force('collide', d3.forceCollide().radius(d => (d.isHub ? 26 : 18)))
         .force('center', d3.forceCenter(width / 2, height / 2).strength(0.06))
@@ -870,15 +944,24 @@
     simulation.force('topic-y', d3.forceY(d => topicHubs.get(d.topicId)?.fy ?? height / 2)
       .strength(d => semanticMode && !d.isHub ? .22 : 0));
 
-    const placeGraph = () => {
-      allLinks
-        .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-        .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    let sortedFrame = null;
+    placeGraph = () => {
+      // La barra/columna puede cambiar de tamaño antes de que se reajusten las
+      // fuerzas. Proyectar sobre el rectángulo visible, igual que el Canvas.
+      const rect = camera.enabled && document.getElementById('arena-stage').getBoundingClientRect();
+      const frame = rect ? camera.frame(rect.width || width, rect.height || height) : null;
       allNodes.attr('transform', d => {
         d.x = Math.max(18, Math.min(width - 18, d.x));
         d.y = Math.max(18, Math.min(height - 18, d.y));
-        return `translate(${d.x},${d.y})`;
-      });
+        d.screen = frame ? frame.at(d.px ?? d.x / width, d.py ?? d.y / height) : null;
+        return d.screen ? `translate(${d.screen.x},${d.screen.y}) scale(${d.screen.scale})` : `translate(${d.x},${d.y})`;
+      }).attr('opacity', d => frame ? .72 + .27 * d.screen.z : 1);
+      allLinks.attr('x1', d => position(d.source).x).attr('y1', d => position(d.source).y)
+        .attr('x2', d => position(d.target).x).attr('y2', d => position(d.target).y);
+      if (sortedFrame !== frame && !gNodes.node().contains(document.activeElement)) {
+        if (frame) allNodes.sort((a,b) => a.screen.z - b.screen.z); else allNodes.order();
+        sortedFrame = frame;
+      }
     };
     simulation.on('tick', placeGraph);
     if (isReducedMotion()) {
@@ -886,7 +969,7 @@
       simulation.stop(); simulation.tick(8); placeGraph();
     } else if (document.hidden || root.SpiderEngine?.getStatus().paused) {
       simulation.stop(); placeGraph();
-    }
+    } else placeGraph();
   }
 
   function dimmed(d) {
@@ -903,9 +986,10 @@
     return bounds && bounds.width > 0 && bounds.height > 0 ? bounds : null;
   }
   function idleNodePoint(node, rect) {
-    if (!node || dimmed(node) || !Number.isFinite(node.x) || !Number.isFinite(node.y) ||
-        node.x < 0 || node.y < 0 || node.x > rect.width || node.y > rect.height) return null;
-    const x = rect.left + node.x, y = rect.top + node.y;
+    if (!node || dimmed(node)) return null;
+    const p = position(node);
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || p.x < 0 || p.y < 0 || p.x > rect.width || p.y > rect.height) return null;
+    const x = rect.left + p.x, y = rect.top + p.y;
     // No enviar arañas a una parte de la red que esté fuera de la ventana.
     if (x < 16 || y < 16 || x > window.innerWidth - 16 || y > window.innerHeight - 16) return null;
     return { id: node.id, x, y };
@@ -1068,6 +1152,9 @@
       draw();
     }
 
+    const relations = document.getElementById('insp-relations'); relations.replaceChildren();
+    const anchor = (node.sentenceIds || []).find(id => store().getSentence(id));
+    if (anchor) relations.appendChild(root.NCPassagePanel.create(anchor));
     const askBtn = document.getElementById('btn-insp-ask');
     if (askBtn) {
       askBtn.onclick = () => {
@@ -1177,8 +1264,8 @@
     const svgEl = document.getElementById('neural-svg');
     if (!svgEl) return { x: window.innerWidth * 0.5, y: window.innerHeight * 0.5 };
     const rect = svgEl.getBoundingClientRect();
-    const hub = graphNodes.find(n => n.id === clusterId) || (store()?.state.nodes || []).find(n => n.id === clusterId);
-    if (hub && hub.x != null) return { x: rect.left + hub.x, y: rect.top + hub.y };
+    const hub = graphNodeById.get(clusterId) || (semanticMode ? graphNodeById.get('SEM-PENDING') : null);
+    if (hub && hub.x != null) { const p = position(hub); return { x: rect.left + p.x, y: rect.top + p.y }; }
     return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
   }
 
@@ -1197,6 +1284,11 @@
     if (hasD3) initD3();
     buildGraphData();
     init3DSphere();
+    if (hasD3 && sphereCtx) orbitControl = root.NCOrbit.bind(document.getElementById('arena-stage'), camera, viewChanged);
+    else {
+      const b = document.getElementById('btn-orbit'); b.disabled = true; b.title = 'La vista 3D necesita Canvas y el grafo D3 local.';
+      document.getElementById('swarm-help').textContent = 'CLIC O ENTER · ENVIAR ARAÑAS AL TEXTO';
+    }
     initNetworkInteraction();
     render(true);
     updateTelemetry();
@@ -1206,7 +1298,7 @@
     document.getElementById('node-inspector')?.addEventListener('keydown', event => {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeInspector(); }
     });
-    document.getElementById('btn-center-net')?.addEventListener('click', recenter);
+    document.getElementById('btn-center-net')?.addEventListener('click', () => { orbitControl?.reset(); recenter(); });
     const search = document.getElementById('graph-search');
     search?.addEventListener('input', debounce(() => {
       graphQuery = search.value; graphPage = 0; buildGraphData(); render(false);
@@ -1238,10 +1330,24 @@
       appendTickerRow(pattern);
       updateTelemetry();
     });
+    document.getElementById('btn-study-links').addEventListener('click', () => showStudyLinks(studyFocus ? null : firstStudyId(), false));
+    document.getElementById('link-compare').addEventListener('click', () => {
+      if (!focusNode) return;
+      openInspector(focusNode);
+      const details = document.querySelector('#insp-relations details');
+      if (details) { details.open = true; details.querySelector('summary').focus(); }
+    });
+    S.on('relations:changed', () => { if (studyFocus) scheduleGraphRefresh(); });
     S.on('semantic:updated', scheduleGraphRefresh);
-
     S.on('node:removed', () => { semanticDirty = true; buildGraphData(); render(true); updateTelemetry(); closeInspector(); });
-    S.on('doc:removed', () => { semanticDirty = true; buildGraphData(); render(true); updateTelemetry(); closeInspector(); document.getElementById('ticker-list')?.replaceChildren(); S.state.patterns.slice(-40).forEach(appendTickerRow); });
+    S.on('doc:removed', () => {
+      if (studyFocus && !S.getSentence(studyFocus)) studyFocus = null;
+      semanticDirty = true; buildGraphData(); render(true); updateTelemetry(); closeInspector();
+      document.getElementById('ticker-list')?.replaceChildren(); S.state.patterns.slice(-40).forEach(appendTickerRow);
+    });
+    for (const name of ['brain:importing', 'system:resetting']) S.on(name, () => {
+      studyFocus = null; focusNode = null; closeInspector(); document.getElementById('insp-relations').replaceChildren();
+    });
     S.on('brain:imported', () => {
       semanticDirty = true;
       ensureHubs(); buildGraphData(); render(true); updateTelemetry(); closeInspector();
@@ -1250,8 +1356,9 @@
     });
 
     S.on('system:reset', () => {
+      orbitControl?.reset();
       clearTimeout(graphRefreshTimer); graphRefreshTimer = null;
-      semanticCache = null; semanticDirty = true;
+      semanticCache = null; semanticDirty = true; studyFocus = null; focusNode = null;
       graphNodes = []; allGraphNodes = [];
       graphLinks = []; allGraphLinks = []; graphPage = 0; graphQuery = ''; activeCluster = null;
       const search = document.getElementById('graph-search'); if (search) search.value = '';
@@ -1270,7 +1377,10 @@
       updateMotionMode();
     });
 
-    S.on('doc:pageChanged', () => updateTelemetry());
+    S.on('doc:pageChanged', () => {
+      if (studyFocus && S.getSentence(studyFocus)?.docId !== S.state.activeDocId) showStudyLinks(null, false);
+      document.getElementById('btn-study-links').disabled = !studyFocus && !firstStudyId(); updateTelemetry();
+    });
     S.on('retrieve:indexed', () => updateTelemetry());
     S.on('spider:delivered', ({ cluster }) => {
       if (!motionStopped()) {
@@ -1353,5 +1463,5 @@
   }
 
   root.NeuralGraph = { init, getHubScreenPos, getIdleTargets, getIdleTarget, highlightPath, highlightSources,
-    recenter, setClusterFilter, scrollToSentence, updateTelemetry, ensureHubs };
+    recenter, setClusterFilter, scrollToSentence, showStudyLinks, updateTelemetry, ensureHubs };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -152,7 +152,7 @@
     if (!word || !zone) return null;
     let r = rectOf(word), z = zone.getBoundingClientRect();
     if (!r) return null;
-    if (reveal && r.height && z.height) {
+    if (reveal && r.height && z.height && !root.NCQuestionUI?.holdingPage() && Date.now() >= (store()?.state.autoNavigationPausedUntil || 0)) {
       let delta = 0;
       if (r.top < z.top + 6) delta = r.top - z.top - 6;
       else if (r.bottom > z.bottom - 6) delta = r.bottom - z.bottom + 6;
@@ -176,7 +176,7 @@
     if (!available.length) return null;
     const local = available.filter(s => doc && s.docId === doc.id && s.pageNum === page);
     const auto = document.getElementById('chk-auto-page');
-    const mayNavigate = (!auto || auto.checked) && Date.now() >= (S.state.autoNavigationPausedUntil || 0);
+    const mayNavigate = (!auto || auto.checked) && !root.NCQuestionUI?.holdingPage() && Date.now() >= (S.state.autoNavigationPausedUntil || 0);
     let pool;
     if (local.length) {
       const visible = local.filter(s => {
@@ -233,7 +233,7 @@
       for (const sp of spiders.filter(candidate => candidate.phase === 'IDLE').slice(0, 3)) {
         if (!current.targets.length) break;
         const auto = document.getElementById('chk-auto-page');
-        const mayNavigate = (!auto || auto.checked) && Date.now() >= (S.state.autoNavigationPausedUntil || 0);
+        const mayNavigate = (!auto || auto.checked) && !root.NCQuestionUI?.holdingPage() && Date.now() >= (S.state.autoNavigationPausedUntil || 0);
         const local = item => item.sentence.docId === S.state.activeDocId && item.sentence.pageNum === S.state.activePage;
         let item = current.targets[0];
         if (!local(item) && !mayNavigate) item = current.targets.find(local);
@@ -1048,6 +1048,9 @@
       S.emit('spiders:paused', { paused });
     }
     btnPause?.addEventListener('click', () => setPaused(!paused));
+    // Al restaurar un corpus no se emite doc:added. Respetar también en el
+    // arranque la preferencia guardada de no cosechar automáticamente.
+    if (S.getSetting('autoHarvest', true) === false) setPaused(true);
 
     S.on('doc:added', doc => {
       const totalChars = (doc.pages || []).reduce((acc, p) => acc + (p.text || '').length, 0);

@@ -1,57 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const { JSDOM, VirtualConsole } = require('jsdom');
 const { IDBFactory } = require('fake-indexeddb');
-const root = path.join(__dirname, '..');
-const scripts = ['util', 'retrieval', 'education-knowledge', 'knowledge-base', 'analysis', 'srs', 'db', 'embeddings', 'chunks', 'store', 'local-model', 'semantic-clusters', 'qwen-config', 'qwen-prompt', 'qwen-model', 'parsers', 'memory', 'providers', 'character', 'rag', 'kimi-aux-model', 'viewer', 'spider-visual', 'graph-projection', 'neural-graph', 'spider-paths', 'spider-motion', 'spiders', 'eval', 'brain-rag', 'study-bots', 'app'];
-const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-async function until(fn, timeout = 4000) {
-  const end = Date.now() + timeout;
-  while (Date.now() < end) { if (fn()) return; await wait(20); }
-  throw new Error('Tiempo agotado esperando condición');
-}
-function canvasContext() {
-  const gradient = () => ({ addColorStop() {} });
-  const ctx = { createRadialGradient: gradient, createLinearGradient: gradient, measureText: text => ({ width: String(text).length * 6 }) };
-  ['arc', 'beginPath', 'bezierCurveTo', 'quadraticCurveTo', 'clearRect', 'clip', 'closePath', 'ellipse', 'fill', 'fillRect', 'fillText', 'lineTo', 'moveTo', 'rect', 'restore', 'rotate', 'save', 'scale', 'setLineDash', 'setTransform', 'stroke', 'strokeRect', 'translate'].forEach(name => { ctx[name] = () => {}; });
-  return ctx;
-}
-async function createApp(indexedDB, withD3 = false, reducedMotion = true, clock = null) {
-  const errors = [];
-  const vc = new VirtualConsole();
-  vc.on('jsdomError', e => errors.push(e.message));
-  const dom = new JSDOM(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), {
-    url: 'https://local.test/', runScripts: 'outside-only', pretendToBeVisual: true, virtualConsole: vc
-  });
-  const w = dom.window;
-  Object.defineProperty(w, 'indexedDB', { value: indexedDB, configurable: true });
-  w.matchMedia = () => ({ matches: reducedMotion, addEventListener() {}, removeEventListener() {} });
-  w.confirm = () => true;
-  w.URL.createObjectURL = () => 'blob:https://local.test/fake';
-  w.URL.revokeObjectURL = () => {};
-  w.HTMLCanvasElement.prototype.getContext = function () {
-    const context = canvasContext();
-    if (clock && this.id === 'core-3d-canvas') context.clearRect = () => { clock.sphereDraws++; };
-    return context;
-  };
-  if (clock) {
-    let time = 0, next = 1;
-    const queue = new Map(); clock.sphereDraws = 0;
-    w.requestAnimationFrame = callback => { const id = next++; queue.set(id, callback); return id; };
-    w.cancelAnimationFrame = id => queue.delete(id);
-    clock.tick = delta => { time += delta; const callbacks = [...queue.values()]; queue.clear(); callbacks.forEach(callback => callback(time)); };
-  }
-  w.HTMLElement.prototype.scrollIntoView = function () {};
-  if (withD3) w.eval(fs.readFileSync(path.join(root, 'vendor', 'd3', 'd3.min.js'), 'utf8'));
-  for (const name of scripts) w.eval(fs.readFileSync(path.join(root, 'js', name + '.js'), 'utf8'));
-  await until(() => w.document.documentElement.dataset.appReady === 'true');
-  return { dom, w, errors };
-}
-function byText(w, selector, text) {
-  return [...w.document.querySelectorAll(selector)].find(x => x.textContent.includes(text));
-}
+const { createApp, wait, until, byText } = require('./support/dom.cjs');
 
 test('resumen global respeta filtros y no reintroduce texto excluido por contexto', async () => {
   const { dom, w, errors } = await createApp(new IDBFactory());
@@ -308,7 +258,8 @@ test('los errores de ingesta y avisos parciales se leen completos sin ejecutar c
     S.addDocument({ id: 'pdf', name: 'parcial.pdf', type: 'pdf', method: 'PDF.js local',
       ingestWarnings: ['Lectura parcial: no se pudieron extraer las páginas PDF 2.'],
       pages: [{ pageNum: 1, sourcePage: 3, text: 'Texto real de la tercera página.',
-        sentences: [{ id: 'pdf-s1', pageNum: 1, sourcePage: 3, text: 'Texto real de la tercera página.' }] }] });
+        sentences: [{ id: 'pdf-s1', pageNum: 1, sourcePage: 3, text: 'Texto real de la tercera página.' }] },
+        { pageNum: 2, sourcePage: 4, text: '', sentences: [] }] });
     await until(() => notice.textContent.includes('Lectura parcial'));
     assert.equal(notice.classList.contains('hidden'), false);
     assert.match(w.document.getElementById('doc-section').textContent, /PDF pág\. 3/);
@@ -317,6 +268,9 @@ test('los errores de ingesta y avisos parciales se leen completos sin ejecutar c
     const answer = await w.NCRag.ask('tercera =pag:3');
     assert.ok(answer.sources.some(source => source.sentenceId === 'pdf-s1' && source.sourcePage === 3 && source.pageNum === 1));
     assert.match(w.NCRag.toMarkdown(answer), /Pág 3/, 'la exportación también usa la página PDF física');
+    S.setActivePage(2);
+    await until(() => w.document.getElementById('doc-content').textContent.includes('La página 4 del PDF no tiene texto extraíble'));
+    assert.equal(S.getActiveDoc().pages[1].text, '', 'el aviso no se introduce en el texto del PDF');
     S.setActivePage(1);
     await until(() => notice.textContent.includes('Lectura parcial'));
     assert.deepEqual(errors, []);
@@ -823,6 +777,13 @@ test('D3 agrupa por vectores, separa nodos históricos mezclados y vuelve a role
     assert.ok(nodeA && nodeB);
     assert.equal(nodeA.__data__.cluster, 'AGT-01'); assert.equal(nodeB.__data__.cluster, 'AGT-01');
     assert.notEqual(nodeA.__data__.topicId, nodeB.__data__.topicId);
+    // Con agrupación semántica, la cámara proyecta centros reales de tema,
+    // no los hubs de agente retenidos en el store.
+    w.document.getElementById('btn-orbit').click();
+    const topic = groups().find(el => el.__data__.id === nodeA.__data__.topicId);
+    await until(() => topic.getAttribute('transform').includes('scale('));
+    const projected = topic.getAttribute('transform').match(/translate\(([^,]+),([^\)]+)\)/);
+    assert.deepEqual({ ...w.NeuralGraph.getHubScreenPos(nodeA.__data__.topicId) }, { x: +projected[1], y: +projected[2] });
     const semanticLinks = [...w.document.querySelectorAll('line.graph-link')];
     const linkA = semanticLinks.find(el => el.__data__.target.id === a.id);
     assert.equal(linkA.getAttribute('stroke'), nodeA.__data__.color, 'el enlace usa el color de su tema');

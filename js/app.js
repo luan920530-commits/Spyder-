@@ -4,6 +4,7 @@
   const S = root.NeuralStore;
   function setupTabs() {
     const brain = document.getElementById('panel-brain');
+    const analysis = document.getElementById('panel-analysis');
     const agents = document.getElementById('agents-panel');
     const metrics = document.getElementById('metrics-panel');
     const workspace = document.getElementById('hud-workspace');
@@ -17,9 +18,12 @@
     function setWorkspace(name, scroll) {
       const showBrain = name === 'chat' || name === 'study';
       brain.classList.toggle('hidden', !showBrain);
-      agents.classList.toggle('hidden', showBrain);
-      metrics.classList.toggle('hidden', showBrain);
-      workspace.classList.toggle('brain-open', showBrain);
+      const analyzing = name === 'network';
+      analysis.classList.toggle('hidden', !analyzing);
+      agents.classList.toggle('hidden', showBrain || analyzing);
+      metrics.classList.toggle('hidden', showBrain || analyzing);
+      workspace.classList.toggle('brain-open', showBrain || analyzing);
+      if (analyzing) selectAnalysis(false);
       document.querySelectorAll('.workspace-step').forEach(button => {
         const active = button.dataset.workspace === name;
         button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active));
@@ -28,11 +32,26 @@
       requestAnimationFrame(() => {
         root.NeuralGraph?.recenter();
         if (scroll && window.matchMedia && window.matchMedia('(max-width: 900px)').matches) {
-          const target = showBrain ? brain : name === 'network' ? document.getElementById('panel-arena') : document.getElementById('panel-doc');
-          target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          const target = showBrain ? brain : analyzing ? analysis : document.getElementById('panel-doc');
+          target?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
         }
       });
     }
+    function selectAnalysis(review) {
+      document.getElementById('tutor-stage').classList.toggle('hidden', review);
+      document.getElementById('review-stage').classList.toggle('hidden', !review);
+      document.getElementById('open-practice').setAttribute('aria-pressed', String(!review));
+      document.getElementById('open-review').setAttribute('aria-pressed', String(review));
+    }
+    document.getElementById('open-practice').addEventListener('click', () => selectAnalysis(false));
+    document.getElementById('open-review').addEventListener('click', () => selectAnalysis(true));
+    document.getElementById('study-open-tutor').addEventListener('click', () => {
+      setWorkspace('network', true); document.getElementById('open-practice').focus();
+    });
+    document.getElementById('analysis-graph').addEventListener('click', () => {
+      const graph = document.getElementById('arena-stage');
+      graph.scrollIntoView({ block: 'center' }); graph.focus({ preventScroll: true });
+    });
     document.querySelectorAll('.workspace-step').forEach(button => button.addEventListener('click', () => setWorkspace(button.dataset.workspace, true)));
     document.getElementById('btn-close-brain').addEventListener('click', () => setWorkspace('extract', true));
     document.querySelectorAll('.tab-btn').forEach(button => button.addEventListener('click', () => {
@@ -212,6 +231,7 @@
         : 'IndexedDB no disponible; se intenta guardar en localStorage. El espacio es limitado.';
     }
     mode.addEventListener('change', () => S.setSetting('mode', mode.value));
+    S.on('settings:changed', ({ key, value }) => { if (key === 'mode') mode.value = value; });
     [['cfg-dense', 'embedEnabled'], ['cfg-fuzzy', 'fuzzy'], ['cfg-reduced', 'reduceMotion']].forEach(([id, key]) => {
       document.getElementById(id).addEventListener('change', event => {
         S.setSetting(key, event.target.checked);
@@ -241,7 +261,7 @@
       root.DocParsers.loadDemo(); root.DocViewer.toast('Dos documentos de ejemplo indexados.');
     });
     document.getElementById('btn-reset-all').addEventListener('click', async () => {
-      if (!confirm('¿Borrar documentos, memoria, conversación y progreso de estudio de este navegador?')) return;
+      if (!confirm('¿Borrar los libros, el progreso de estudio y las conversaciones de este navegador, incluido el perfil de Spyder personal?')) return;
       await S.resetAll({ keepSettings: true, keepMemory: false });
       root.DocViewer.toast('Datos locales eliminados.');
     });
@@ -257,7 +277,7 @@
       root.NeuralGraph.init();
       root.SpiderEngine.init();
       setupTabs(); setupSettings(); setupActions(); setupDashboard(); setupModel();
-      root.BrainRAG.init(); root.StudyBots.init();
+      root.BrainRAG.init(); root.StudyBots.init(); root.NCCourseReview.init(); root.NCCompanionUI.init();
       document.documentElement.dataset.appReady = 'true';
       if ('serviceWorker' in navigator && location.protocol !== 'file:') {
         navigator.serviceWorker.register('./sw.js').catch(error => console.warn('[PWA]', error));

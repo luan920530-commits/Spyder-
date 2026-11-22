@@ -1,6 +1,8 @@
-/* Shell y dependencias empaquetadas: instalación atómica, sin CDN. */
+/* Shell y dependencias empaquetadas: instalación atómica, sin CDN.
+   El acompañante por reglas funciona offline; ni el perfil ni el hilo son recursos de caché. */
 importScripts('./js/qwen-config.js');
-const CACHE_NAME = 'neural-spider-os-v11-23';
+const CACHE_NAME = 'neural-spider-os-v11-30';
+const OCR_CACHE = 'neural-spider-ocr-es-lstm-6.1.2';
 const MODEL_CACHE = 'neural-spider-model-v1';
 const QWEN = self.NCQwenConfig;
 // Recursos de pdfjs-dist 4.2.67 incluidos en el shell: la lectura de CMaps y
@@ -41,20 +43,42 @@ const ASSETS = [
   './vendor/fonts/jetbrains-mono-latin-400-normal.woff2', './vendor/fonts/jetbrains-mono-latin-600-normal.woff2',
   './vendor/fonts/chakra-petch-latin-500-normal.woff2', './vendor/fonts/chakra-petch-latin-700-normal.woff2',
   './vendor/d3/d3.min.js', './vendor/jszip/jszip.min.js', './vendor/mammoth/mammoth.browser.min.js',
-  './vendor/pdfjs/pdf.min.mjs', './vendor/pdfjs/pdf.worker.min.mjs', ...PDF_CMAPS, ...PDF_FONTS,
-  './js/util.js', './js/retrieval.js', './js/education-knowledge.js', './js/knowledge-base.js', './js/analysis.js', './js/srs.js', './js/db.js',
-  './js/embeddings.js', './js/chunks.js', './js/store.js', './js/local-model.js', './js/semantic-clusters.js', './js/onnx-worker.js', './js/parsers.js', './js/memory.js', './js/providers.js',
+  './vendor/pdfjs/pdf.min.js', './vendor/pdfjs/pdf.worker.entry.js', './vendor/pdfjs/pdf.worker.min.js', ...PDF_CMAPS, ...PDF_FONTS,
+  './js/util.js', './js/retrieval.js', './js/education-knowledge.js', './js/knowledge-base.js', './js/analysis.js', './vendor/fsrs/ts-fsrs.umd.js', './js/srs.js', './js/db.js',
+  './js/embeddings.js', './js/chunks.js', './js/highlights.js', './js/passage-links.js', './js/smalltalk.js', './js/companion.js', './js/store.js', './js/local-model.js', './js/semantic-clusters.js', './js/onnx-worker.js', './js/ocr.js', './js/parsers.js', './js/memory.js', './js/providers.js',
   './js/qwen-config.js', './js/qwen-prompt.js', './js/qwen-model.js', './js/qwen-download-worker.js', './js/qwen-inference-worker.js', './vendor/sha256/sha256.min.js',
-  './js/character.js', './js/rag.js', './js/kimi-aux-model.js', './js/viewer.js', './js/spider-visual.js', './js/graph-projection.js', './js/neural-graph.js', './js/spiders.js',
-  './js/spider-paths.js', './js/spider-motion.js', './js/eval.js', './js/brain-rag.js', './js/study-bots.js', './js/app.js'
+  './js/character.js', './js/study-dialogue.js', './js/rag.js', './js/kimi-aux-model.js', './js/question-ui.js', './js/passage-panel.js', './js/viewer.js', './js/spider-visual.js', './js/orbit.js', './js/graph-projection.js', './js/neural-graph.js', './js/spiders.js',
+  './js/spider-paths.js', './js/spider-motion.js', './js/eval.js', './js/dialogue-ui.js', './js/brain-rag.js', './js/study-skills.js', './js/learner-review.js', './js/study-bots.js', './js/course-example.js', './js/course-review.js', './js/companion-ui.js', './js/app.js'
 ];
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // Al actualizar no mezclar parsers.js de la caché HTTP anterior con un worker
+  // nuevo. Revalidar el shell completo; si falta algo sigue activa la versión previa.
+  const shell = ASSETS.map(asset => new Request(new URL(asset, self.location.href), { cache: 'no-cache' }));
+  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(shell)).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys
-    .filter(key => key.startsWith('neural-spider-os-') && key !== CACHE_NAME)
-    .map(key => caches.delete(key)))).then(() => self.clients.claim()));
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    const previous = keys.filter(key => key.startsWith('neural-spider-os-') && key !== CACHE_NAME);
+    const shell = await caches.open(CACHE_NAME);
+    // Una pestaña de una versión anterior puede seguir abierta después de
+    // clients.claim() y cargar PDF.js solo cuando se elige un archivo. Copiar
+    // los módulos legacy ya descargados antes de eliminar su shell permite
+    // terminar esa lectura offline sin obligar a recargar ni duplicar estos
+    // archivos para instalaciones nuevas. La versión nueva usa los .js.
+    for (const key of previous) {
+      const old = await caches.open(key);
+      for (const asset of ['./vendor/pdfjs/pdf.min.mjs', './vendor/pdfjs/pdf.worker.min.mjs']) {
+        if (await shell.match(asset)) continue;
+        const response = await old.match(asset);
+        if (response) {
+          try { await shell.put(asset, response); } catch (_) { /* Si falta cuota, la nueva versión sigue disponible al recargar. */ }
+        }
+      }
+    }
+    await Promise.all(previous.map(key => caches.delete(key)));
+    await self.clients.claim();
+  })());
 });
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
@@ -71,10 +95,15 @@ self.addEventListener('fetch', event => {
     const optional = url.pathname.startsWith(new URL('./vendor/transformers/', self.location.href).pathname) ||
       url.pathname.startsWith(new URL('./models/minilm/', self.location.href).pathname);
     const qwenRuntime = url.pathname.startsWith(new URL('./vendor/wllama/', self.location.href).pathname);
-    const cache = await caches.open(qwenRuntime ? QWEN.cache : optional ? MODEL_CACHE : CACHE_NAME);
+    const ocr = url.href === new URL('./vendor/ocr/es-lstm-6.1.2.js', self.location.href).href;
+    const cache = await caches.open(ocr ? OCR_CACHE : qwenRuntime ? QWEN.cache : optional ? MODEL_CACHE : CACHE_NAME);
     const cached = await cache.match(event.request);
     if (cached) return cached;
-    try { return await fetch(event.request); }
+    try {
+      const response = await fetch(event.request);
+      if (ocr && response.ok && event.request.integrity) { try { await cache.put(event.request, response.clone()); } catch (_) { /* La lectura sigue disponible sin cuota de caché. */ } }
+      return response;
+    }
     catch (_) {
       if (event.request.mode === 'navigate') return (await cache.match('./index.html')) || Response.error();
       return new Response('Recurso no disponible sin conexión', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });

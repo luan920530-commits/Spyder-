@@ -39,6 +39,9 @@ test('el personaje usa solo el libro seleccionado y no inventa evidencia', () =>
   assert.equal(result.chunks[0].docId, 'book-a');
   assert.equal(result.chunks[0].sourcePage, 2);
   assert.match(result.reply.excerpt, /llave de plata/);
+  const mixed = C.respond({ ...context, question: 'Hola, Luna, ¿qué pasó con la llave?' });
+  assert.equal(mixed.intent, 'character-search'); assert.equal(mixed.chunks[0].id,result.chunks[0].id);
+  assert.equal(C.respond({ ...context, question:'Muchas gracias, Luna' }).intent,'courtesy');
   assert.doesNotMatch(result.text, /llave de oro/);
   assert.match(result.reply.excerptLabel, /narración o diálogo de otra persona/);
   assert.deepEqual(result.citations.used, [1]);

@@ -3,7 +3,7 @@
   'use strict';
   const U = root.NCUtil;
   const S = () => root.NeuralStore;
-  let busy = false, currentSend = null, nextQueryId = 0;
+  let busy = false, replacing = false, currentSend = null, nextQueryId = 0;
 
   function element(tag, className, text) {
     const node = document.createElement(tag);
@@ -43,6 +43,11 @@
     if (!box) return;
     const div = element('article', 'msg msg-ai');
     const body = element('div', 'answer-body');
+    if (result.intent === 'smalltalk' && result.smalltalk) {
+      body.textContent = result.text; div.append(body, element('small','muted','Spyder · charla local'));
+      box.appendChild(div); box.scrollTop = box.scrollHeight;
+      return div; // No es evidencia: sin citas, valoración de fuentes ni entrenamiento.
+    }
     const sources = Array.isArray(result.sources) ? result.sources : [];
     const localEntry = source => source?.origin === 'knowledge' ? root.NCKnowledge?.get(source.knowledgeId) : null;
     function showLocalSource(n) {
@@ -63,7 +68,10 @@
       return button;
     }
     const characterReply = result.mode === 'conversacion' && result.characterReply;
-    if (characterReply && typeof characterReply === 'object') {
+    const isTutor = result.mode === 'tutor' && result.dialogue?.version === 1;
+    if (isTutor) {
+      root.NCDialogueUI.render(body, result);
+    } else if (characterReply && typeof characterReply === 'object') {
       // El texto del libro es literal: sus corchetes no se convierten en citas de la app.
       body.appendChild(element('div', '', String(characterReply.lead || '')));
       if (characterReply.excerpt) {
@@ -88,7 +96,7 @@
       div.appendChild(element('p', 'citation-warning', 'Interpretación generada localmente: puede inventar o equivocarse. Los fragmentos consultados no verifican la respuesta.'));
     }
 
-    if (sources.length) {
+    if (!isTutor && sources.length) {
       const details = element('details', 'sources-details');
       const sourceLabel = result.provider === 'qwen-local' ? 'Fragmentos consultados' : 'Fuentes';
       details.appendChild(element('summary', '', `${sourceLabel} (${sources.length})`));
@@ -128,12 +136,12 @@
     }
     const actions = element('div', 'answer-actions');
     const isCharacter = result.mode === 'conversacion';
-    const modeLabel = isCharacter ? `${result.character?.name || 'Personaje'} · ${result.provider === 'qwen-local' ? 'Qwen local' : 'reglas locales'}` : `${result.mode || 'auto'} · motor local`;
+    const modeLabel = isTutor ? `Tutor · ${result.provider === 'qwen-local' ? 'reglas y explicación de Qwen' : 'reglas locales'}` : isCharacter ? `${result.character?.name || 'Personaje'} · ${result.provider === 'qwen-local' ? 'Qwen local' : 'reglas locales'}` : `${result.mode || 'auto'} · motor local`;
     const meta = element('span', 'muted', modeLabel + (Number.isFinite(result.latencyMs) ? ' · ' + U.formatMs(result.latencyMs) : ''));
     actions.appendChild(meta);
     // No copiar mensajes íntimos del modo personaje al registro de feedback ni
     // al modelo auxiliar: BORRAR debe eliminar el historial de esa conversación.
-    if (!isCharacter) {
+    if (!isCharacter && !isTutor) {
       const up = element('button', 'btn-mini', 'SÍ'); up.type = 'button'; up.setAttribute('aria-label', 'Respuesta útil');
       const down = element('button', 'btn-mini', 'NO'); down.type = 'button'; down.setAttribute('aria-label', 'Respuesta poco útil');
       function rate(rating) {
@@ -167,12 +175,14 @@
     const md = element('button', 'btn-mini', '↓ .md'); md.type = 'button';
     md.addEventListener('click', () => download('respuesta-neural.md', root.NCRag.toMarkdown({ ...result, sources }), 'text/markdown;charset=utf-8'));
     actions.appendChild(md); div.appendChild(actions);
-    box.appendChild(div); box.scrollTop = box.scrollHeight;
+    box.appendChild(div);
+    if (isTutor) box.scrollTop += div.getBoundingClientRect().top - box.getBoundingClientRect().top;
+    else box.scrollTop = box.scrollHeight;
     return div;
   }
   async function send(question, mode, target) {
     const q = String(question || '').trim();
-    if (!q || busy) return null;
+    if (!q || busy || replacing) return null;
     busy = true;
     const formButton = document.getElementById('btn-send');
     if (formButton) formButton.disabled = true;
@@ -190,6 +200,10 @@
     const pending = !target ? message('system', usingQwen ? 'Qwen está preparando la respuesta local…' : selectedMode === 'conversacion' ? 'Buscando en el libro elegido…' : 'Buscando en las fuentes seleccionadas…') : null;
     try {
       const result = await root.NCRag.ask(q, { mode: selectedMode, signal: controller.signal,
+        onGenerating() {
+          if (controller.signal.aborted || !pending) return;
+          stop?.classList.remove('hidden'); pending.textContent = 'Qwen redacta una explicación opcional. Las citas se conservan por separado…';
+        },
         onRetrieved(detail) {
           // Las fichas locales no son páginas del visor; solo se anima el
           // enjambre cuando hay candidatos privados. En búsquedas exclusivamente
@@ -227,7 +241,7 @@
     const box = document.getElementById('chat-messages');
     if (!box) return;
     box.replaceChildren();
-    message('system', 'Procesamiento local. Consulta la base local o carga un documento; Qwen opcional se activa desde MODELO para conversar con personajes.');
+    message('system', 'Procesamiento local. Saluda, consulta la base local o carga apuntes; ✦ HABLAR abre el espacio personal separado.');
     (S().state.chat || []).slice(-30).forEach(entry => {
       if (entry.role !== 'assistant') return;
       if (entry.question) message('user', entry.question);
@@ -252,17 +266,18 @@
       setup.classList.toggle('hidden', !active);
       document.getElementById('character-engine-badge').textContent = qwen ? 'QWEN LOCAL' : 'SIN LLM';
       document.getElementById('btn-character-qwen').classList.toggle('hidden', qwen);
-      document.getElementById('study-quick-actions')?.classList.toggle('hidden', active);
+      const tutor = S().getSetting('mode') === 'tutor';
+      document.getElementById('study-quick-actions')?.classList.toggle('hidden', active || tutor);
       document.getElementById('character-quick-actions')?.classList.toggle('hidden', !active);
-      document.getElementById('knowledge-controls')?.classList.toggle('hidden', active);
+      document.getElementById('knowledge-controls')?.classList.toggle('hidden', active || tutor);
       const chat = document.getElementById('chat-input');
-      if (chat) chat.placeholder = active ? 'Habla con tu personaje…' : 'Pregunta a tus documentos o a la base local…';
+      if (chat) chat.placeholder = active ? 'Habla con tu personaje…' : tutor ? 'Pregunta o sigue el hilo…' : 'Saluda o pregunta a tus documentos o a la base local…';
       const docs = textDocs(), key = JSON.stringify(docs.map(doc => [doc.id, doc.name]));
       if (key !== optionsKey) {
         optionsKey = key;
         book.replaceChildren(element('option', '', docs.length ? 'Selecciona un libro…' : 'Aún no hay libros cargados'));
         book.firstChild.value = '';
-        docs.forEach(doc => { const option = element('option', '', doc.name); option.value = doc.id; book.appendChild(option); });
+        docs.forEach(doc => { const option = element('option', '', doc.displayName || doc.name); option.value = doc.id; book.appendChild(option); });
       }
       const selected = String(S().getSetting('characterDocId', '') || '');
       if (selected && !docs.some(doc => doc.id === selected)) {
@@ -286,7 +301,7 @@
       const selectedFile = file.files?.[0];
       if (!selectedFile || uploading) return;
       notice = '';
-      if (!/\.(pdf|epub|txt|md|docx)$/i.test(selectedFile.name)) {
+      if (!['pdf', 'epub', 'txt', 'md', 'docx'].includes(root.DocParsers.fileType(selectedFile))) {
         notice = 'Selecciona un libro PDF, EPUB, TXT, Markdown o DOCX.';
         file.value = ''; sync(); return;
       }
@@ -358,23 +373,27 @@
     // Una recuperación pendiente no debe escribir ni despachar tras cambiar el corpus o ámbito.
     ['doc:added', 'doc:removed', 'system:resetting', 'brain:importing'].forEach(event => S().on(event, () => currentSend?.abort()));
     S().on('settings:changed', ({ key }) => {
-      if (['mode', 'searchScope', 'characterDocId', 'characterName'].includes(key)) currentSend?.abort();
+      if (['mode', 'searchScope', 'characterDocId', 'characterName', 'dialogueDocId', 'dialogueQwen'].includes(key)) currentSend?.abort();
     });
     const form = document.getElementById('chat-form');
     const input = document.getElementById('chat-input');
     restoreChat();
     setupKnowledge();
-    setupCharacter();
-    form?.addEventListener('submit', e => {
+    setupCharacter(); root.NCDialogueUI.init();
+    function submitLocal(e) {
       e.preventDefault();
-      if (!input || busy) return;
+      if (!input || busy || replacing) return;
       const q = input.value.trim(); if (!q) return;
       input.value = ''; send(q);
-    });
+    }
+    form?.addEventListener('submit', submitLocal);
+    // En un iframe sin allow-forms el navegador bloquea submit incluso antes
+    // del evento. El clic (también el implícito con Enter) solo procesa en local.
+    document.getElementById('btn-send')?.addEventListener('click', submitLocal);
     document.querySelectorAll('.btn-chip').forEach(button => button.addEventListener('click', () => {
       const prompt = button.dataset.prompt || '';
       if (prompt.endsWith(' ')) { input.value = prompt; input.focus(); }
-      else send(prompt);
+      else send(prompt, button.dataset.mode);
     }));
     document.getElementById('btn-run-writer')?.addEventListener('click', () => {
       const input = document.getElementById('writer-prompt');
@@ -385,11 +404,21 @@
       send(topic, 'redaccion', output);
     });
     document.getElementById('btn-stop-generation')?.addEventListener('click', () => currentSend?.abort());
-    document.getElementById('btn-clear-chat')?.addEventListener('click', () => {
-      if (!confirm('¿Borrar el historial de conversación local?')) return;
+    const clearPrompt = document.getElementById('dialogue-clear');
+    function clearChat() {
       currentSend?.abort(); S().emit('chat:clearing');
       S().state.chat = []; S().savePersistent(); restoreChat();
+      clearPrompt.hidden = true; S().emit('chat:cleared'); input.focus();
+    }
+    document.getElementById('btn-clear-chat')?.addEventListener('click', () => {
+      if (S().getSetting('mode') === 'tutor') {
+        clearPrompt.hidden = false; document.getElementById('dialogue-clear-no').focus();
+      } else if (confirm('¿Borrar el chat de estudio y de personajes? No se borrará Spyder personal.')) clearChat();
     });
+    document.getElementById('dialogue-clear-no').addEventListener('click', () => { clearPrompt.hidden = true; input.focus(); });
+    document.getElementById('dialogue-clear-yes').addEventListener('click', clearChat);
+    for (const e of ['system:resetting','brain:importing']) S().on(e, () => { replacing = true; clearPrompt.hidden = true; });
+    for (const e of ['system:reset','brain:imported','brain:importFailed']) S().on(e, () => { replacing = false; });
     S().on('chat:askAbout', ({ node }) => {
       document.querySelector('[data-tab="chat"]')?.click();
       send(`Explica ${node.label}`);

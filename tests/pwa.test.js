@@ -14,7 +14,10 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
     if (!buckets.has(name)) {
       const entries = new Map();
       buckets.set(name, {
-        addAll: async assets => { for (const asset of assets) entries.set(absolute(asset), new Response('cached:' + asset)); },
+        addAll: async assets => { for (const req of assets) {
+          assert.equal(req.cache, 'no-cache', 'la instalación debe revalidar los scripts de la caché HTTP');
+          entries.set(absolute(req), new Response('cached:' + req.url));
+        } },
         match: async request => entries.get(absolute(request))?.clone(),
         put: async (request, response) => { entries.set(absolute(request), response.clone()); }
       });
@@ -28,7 +31,7 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
       skipWaiting: async () => {}, clients: { claim: async () => {} } },
     caches: { open: async name => cacheFor(name), keys: async () => [...buckets.keys(), 'neural-spider-os-v3', 'other-app'], delete: async key => { removed.push(key); buckets.delete(key); } },
     importScripts: () => { context.self.NCQwenConfig = qwen; },
-    fetch: async request => { network.push(request.url); if (request.url === qwen.url) return new Response('modelo'); throw new Error('offline'); }, URL, Response, console
+    fetch: async request => { network.push(request.url); if (request.url === qwen.url) return new Response('modelo'); throw new Error('offline'); }, URL, Request, Response, console
   };
   vm.runInNewContext(fs.readFileSync(path.join(root, 'sw.js'), 'utf8') + '\nglobalThis.assets = ASSETS;', context);
   const assets = Array.from(context.assets);
@@ -43,14 +46,24 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
   assert.ok(manifest.icons.some(icon => icon.sizes === '192x192'));
   assert.ok(manifest.icons.some(icon => icon.sizes === '512x512'));
   for (const icon of manifest.icons) assert.ok(assets.includes('./' + icon.src));
-  assert.ok(assets.includes('./vendor/pdfjs/pdf.worker.min.mjs'));
+  for (const name of ['pdf.min.js', 'pdf.worker.entry.js', 'pdf.worker.min.js'])
+    assert.ok(assets.includes('./vendor/pdfjs/' + name), `Falta el lector PDF offline: ${name}`);
+  assert.ok(!assets.includes('./vendor/pdfjs/packed-assets.js'), 'el paquete para orígenes opacos no se descarga en la PWA');
+  assert.ok(!assets.some(asset => /vendor\/pdfjs\/.*\.mjs$/.test(asset)), 'no se precargan módulos legacy en instalaciones nuevas');
+  const packed = {};
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'vendor/pdfjs/packed-assets.js'), 'utf8'), packed);
   for (const [dir, extensions] of [['cmaps', ['.bcmap']], ['standard_fonts', ['.ttf', '.pfb']]]) {
     const files = fs.readdirSync(path.join(root, 'vendor/pdfjs', dir)).filter(name => extensions.some(ext => name.endsWith(ext)));
     assert.ok(files.length > 0);
-    for (const name of files) assert.ok(assets.includes(`./vendor/pdfjs/${dir}/${name}`), `Falta PDF.js offline: ${name}`);
+    for (const name of files) {
+      const asset = `./vendor/pdfjs/${dir}/${name}`;
+      assert.ok(assets.includes(asset), `Falta PDF.js offline: ${name}`);
+      assert.ok(packed.NCPdfPackedAssets[`${dir}/${name}`] === fs.readFileSync(path.join(root, asset)).toString('base64'), `Recurso PDF distinto en file: ${name}`);
+    }
   }
   assert.ok(assets.includes('./js/spider-visual.js'), 'la silueta compartida debe estar disponible sin conexión');
   assert.ok(assets.includes('./js/spider-motion.js'), 'la locomoción debe funcionar sin conexión');
+  for (const s of ['highlights', 'question-ui', 'passage-links', 'passage-panel', 'study-dialogue', 'dialogue-ui', 'smalltalk', 'companion', 'companion-ui']) assert.ok(assets.includes(`./js/${s}.js`));
   assert.ok(assets.includes('./js/chunks.js'), 'las ventanas deben poder reconstruirse sin conexión');
   assert.ok(assets.includes('./js/semantic-clusters.js'), 'los temas deben poder reconstruirse sin conexión');
   assert.ok(assets.includes('./js/graph-projection.js'), 'la paginación de la red debe estar disponible sin conexión');
@@ -58,25 +71,36 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
   assert.ok(assets.includes('./js/education-knowledge.js'), 'las síntesis educativas deben estar disponibles sin conexión');
   assert.ok(assets.includes('./js/character.js'), 'el modo personaje debe estar disponible sin conexión');
   assert.ok(assets.includes('./js/onnx-worker.js'));
-  assert.ok(!assets.some(asset => asset.startsWith('./models/minilm/') || asset.startsWith('./vendor/transformers/') || asset.startsWith('./vendor/wllama/') || asset.endsWith('.gguf')), 'los pesos y motores opcionales no deben descargarse al instalar el shell');
+  assert.ok(!assets.some(asset => asset.startsWith('./vendor/ocr/') || asset.startsWith('./models/minilm/') || asset.startsWith('./vendor/transformers/') || asset.startsWith('./vendor/wllama/') || asset.endsWith('.gguf')), 'los pesos y motores opcionales no deben descargarse al instalar el shell');
   assert.ok(assets.includes('./js/qwen-download-worker.js'));
   assert.ok(assets.includes('./js/qwen-inference-worker.js'));
   assert.ok(assets.includes('./vendor/sha256/sha256.min.js'));
   for (const font of ['jetbrains-mono-latin-400-normal.woff2', 'jetbrains-mono-latin-600-normal.woff2', 'chakra-petch-latin-500-normal.woff2', 'chakra-petch-latin-700-normal.woff2']) assert.ok(assets.includes('./vendor/fonts/' + font));
   let pending;
   listeners.install({ waitUntil: p => { pending = p; } }); await pending;
-  const previousShell = await context.caches.open('neural-spider-os-v11-22');
+  const previousShell = await context.caches.open('neural-spider-os-v11-23');
   await previousShell.put('https://local.test/app/js/spiders.js', new Response('versión anterior'));
+  await previousShell.put('https://local.test/app/js/parsers.js', new Response('lector anterior'));
+  await previousShell.put('https://local.test/app/vendor/pdfjs/pdf.min.mjs', new Response('pdf legacy'));
+  await previousShell.put('https://local.test/app/vendor/pdfjs/pdf.worker.min.mjs', new Response('worker legacy'));
+  const otherShell = await context.caches.open('neural-spider-os-v11-29');
+  await otherShell.put('https://local.test/app/js/parsers.js', new Response('lector de la otra rama'));
+  const ocrCache = await context.caches.open('neural-spider-ocr-es-lstm-6.1.2');
+  await ocrCache.put('https://local.test/app/vendor/ocr/es-lstm-6.1.2.js', new Response('motor OCR opcional'));
   const modelCache = await context.caches.open('neural-spider-model-v1');
   await modelCache.put('https://local.test/app/models/minilm/onnx/model_quantized.onnx', new Response('pesos opcionales'));
   const qwenCache = await context.caches.open(qwen.cache);
   await qwenCache.put('https://local.test/app/vendor/wllama/wllama.wasm', new Response('runtime qwen'));
   await qwenCache.put('https://local.test/app/' + qwen.modelPath, new Response('pesos qwen'));
   listeners.activate({ waitUntil: p => { pending = p; } }); await pending;
-  assert.deepEqual(removed, ['neural-spider-os-v11-22', 'neural-spider-os-v3']);
-  assert.ok(!buckets.has('neural-spider-os-v11-22'), 'la actualización sustituye el shell anterior');
+  assert.deepEqual(removed, ['neural-spider-os-v11-23', 'neural-spider-os-v11-29', 'neural-spider-os-v3']);
+  assert.ok(!buckets.has('neural-spider-os-v11-23') && !buckets.has('neural-spider-os-v11-29'), 'la actualización sustituye ambos shells anteriores');
+  assert.ok(buckets.has('neural-spider-ocr-es-lstm-6.1.2'), 'actualizar el shell no debe borrar OCR');
   assert.ok(buckets.has('neural-spider-model-v1'), 'actualizar el shell no debe borrar MiniLM');
   assert.ok(buckets.has(qwen.cache), 'actualizar el shell no debe borrar Qwen');
+  const shell = await context.caches.open('neural-spider-os-v11-30');
+  assert.equal(await (await shell.match('https://local.test/app/vendor/pdfjs/pdf.min.mjs')).text(), 'pdf legacy');
+  assert.equal(await (await shell.match('https://local.test/app/vendor/pdfjs/pdf.worker.min.mjs')).text(), 'worker legacy');
   let response;
   listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/js/rag.js', mode: 'cors' }, respondWith: p => { response = p; } });
   assert.match(await (await response).text(), /cached:.*js\/rag/);
@@ -94,6 +118,8 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
   assert.match(await (await response).text(), /cached:.*js\/education-knowledge/);
   listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/vendor/pdfjs/cmaps/UniJIS-UCS2-H.bcmap', mode: 'cors' }, respondWith: p => { response = p; } });
   assert.match(await (await response).text(), /cached:.*UniJIS-UCS2-H\.bcmap/);
+  listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/vendor/ocr/es-lstm-6.1.2.js', mode: 'cors' }, respondWith: p => { response = p; } });
+  assert.equal(await (await response).text(), 'motor OCR opcional');
   listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/models/minilm/onnx/model_quantized.onnx', mode: 'cors' }, respondWith: p => { response = p; } });
   assert.equal(await (await response).text(), 'pesos opcionales');
   listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/vendor/wllama/wllama.wasm', mode: 'cors' }, respondWith: p => { response = p; } });

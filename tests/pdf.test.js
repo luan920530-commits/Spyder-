@@ -21,8 +21,9 @@ async function withPdfJs(run) {
   try {
     // La distribución legacy también debe funcionar bajo Node 20, que carece de
     // Promise.withResolvers; el navegador usa exactamente estos mismos archivos.
-    const actual = await import(pathToFileURL(path.join(root, 'vendor/pdfjs/pdf.min.mjs')).href);
-    actual.GlobalWorkerOptions.workerSrc = pathToFileURL(path.join(root, 'vendor/pdfjs/pdf.worker.min.mjs')).href;
+    await import(pathToFileURL(path.join(root, 'vendor/pdfjs/pdf.min.js')).href);
+    const actual = await global.pdfjsLibPromise;
+    actual.GlobalWorkerOptions.workerSrc = pathToFileURL(path.join(root, 'vendor/pdfjs/pdf.worker.entry.js')).href;
     let usedOptions;
     global.document = { baseURI: 'https://local.test/app/' };
     global.pdfjsLib = {
@@ -70,7 +71,7 @@ test('PDF.js local extrae texto con CMaps y conserva las páginas y los fragment
     assert.equal(options().cMapPacked, true);
     assert.equal(options().cMapUrl, 'https://local.test/app/vendor/pdfjs/cmaps/');
     assert.equal(options().standardFontDataUrl, 'https://local.test/app/vendor/pdfjs/standard_fonts/');
-    assert.equal(global.pdfjsLib.GlobalWorkerOptions.workerSrc, 'https://local.test/app/vendor/pdfjs/pdf.worker.min.mjs');
+    assert.equal(global.pdfjsLib.GlobalWorkerOptions.workerSrc, 'https://local.test/app/vendor/pdfjs/pdf.worker.entry.js');
     assert.equal(progress.at(-1).page, 3);
     const fragmented = await P.parsePDF(file('fragmentos.pdf', fs.readFileSync(path.join(root, 'tests/fixtures/pdf-fragmentos.pdf'))));
     assert.equal(fragmented.text.trim(), 'El protocolo Zafiro contiene texto verificable.');
@@ -180,9 +181,9 @@ test('un lector ausente o incompatible no se presenta como PDF escaneado', async
     assert.equal(result.code, 'reader');
     assert.doesNotMatch(result.error, /OCR|escanead/i);
     global.document = { baseURI: 'https://local.test/' };
-    global.pdfjsLib = { GlobalWorkerOptions: {}, getDocument() { throw new Error('worker no disponible'); } };
+    global.pdfjsLib = { GlobalWorkerOptions: {}, getDocument() { throw new Error('Setting up fake worker failed: Failed to fetch dynamically imported module'); } };
     result = await P.parsePDF(file('ejemplo.pdf', [37, 80, 68, 70]));
-    assert.equal(result.code, 'open');
+    assert.equal(result.code, 'reader', 'un fallo de carga del worker no es un PDF dañado');
     assert.doesNotMatch(result.error, /OCR|escanead/i);
   } finally {
     for (const [key, value] of Object.entries(previous)) restore(key, value);

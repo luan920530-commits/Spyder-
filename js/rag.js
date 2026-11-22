@@ -15,15 +15,17 @@
   const M = root.NCMemory || {};
   const C = root.NCCharacter || ((typeof require === 'function' && typeof module !== 'undefined') ? require('./character.js') : {});
   const K = root.NCKnowledge || ((typeof require === 'function' && typeof module !== 'undefined') ? require('./knowledge-base.js') : null);
-  const api = factory(U, R, A, P, M, C, K);
+  const D = root.NCStudyDialogue || ((typeof module !== 'undefined' && module.exports) ? require('./study-dialogue.js') : {});
+  const Talk = root.NCSmalltalk || ((typeof module !== 'undefined' && module.exports) ? require('./smalltalk.js') : null);
+  const api = factory(U, R, A, P, M, C, K, D, Talk);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.NCRag = Object.assign(root.NCRag || {}, api);
-})(typeof window !== 'undefined' ? window : globalThis, function (U, R, A, P, M, C, K) {
+})(typeof window !== 'undefined' ? window : globalThis, function (U, R, A, P, M, C, K, D, Talk) {
   'use strict';
 
   const MAX_CONTEXT_CHARS = 7000;
   let contradictionCache = { index: null, length: -1, value: [] };
-  let activeCharacterJob = null;
+  let activeLocalJob = null;
   const abortError = () => new DOMException('Generación cancelada', 'AbortError');
 
   const store = () => (typeof window !== 'undefined' ? window.NeuralStore : (globalThis.NeuralStore || null));
@@ -31,14 +33,21 @@
   // ─────────────────────────────────────────────────────────────────────────
   // Intención
   // ─────────────────────────────────────────────────────────────────────────
-  function detectIntent(question) {
+  function mathExpression(question) {
+    const q = U.normalize(question).trim().replace(/^¿\s*/, '').replace(/\?$/, '').trim();
+    if (/^calcula\b/.test(q)) return q.replace(/^calcula\b[:\s]*/, '');
+    const expr = q.replace(/^(?:cuanto es|cuanto vale|resultado de)\s+/, '');
+    // «¿Cuánto vale la latencia?» sigue siendo una consulta al material.
+    if (expr !== q && /^(?:[.\d(+\-]|(?:sqrt|log|ln|abs|sin|cos|tan|exp|round|floor|ceil|pi)\b)/.test(expr)) return expr;
+    return /\d/.test(q) && /^[\d\s().,+\-*/%^]+$/.test(q) ? q : null;
+  }
+  function taskIntent(question) {
     const q = U.normalize(question || '');
-    if (/^(hola|buenas|hey|que tal|saludos|buenos dias|buenas tardes|buenas noches)\b/.test(q) && q.split(/\s+/).length <= 14) return 'smalltalk';
     // El nombre del portal no es una orden de memorizar. «Aprende que …» y
     // «Aprende: …» conservan su significado como comandos explícitos.
     const portalQuery = /^aprende\s*\.\s*org\b/.test(q) || !!K?.isBareAprendeQuery?.(q);
     if ((/^aprende\b/.test(q) && !portalQuery) || /^(consolida|recuerda|guarda|memoriza)\b/.test(q)) return 'learn';
-    if (/^(calcula|cuanto es|cuanto vale|resultado de)\b/.test(q) || /^[\d\s().+\-*/%^]+$/.test(q)) return 'math';
+    if (mathExpression(question) !== null) return 'math';
     if (/(resum|sintetiza|sintesis|de que trata|idea principal|panorama)/.test(q)) return 'resumen';
     if (/(critic|debilidad|falla|sesgo|contradic|inconsisten|revisa|evalua)/.test(q)) return 'critico';
     if (/(redacta|ensayo|articulo|escribe un|escribe una|monografia)/.test(q)) return 'redaccion';
@@ -47,12 +56,17 @@
     return 'auto';
   }
 
-  function resolveMode(question, requested) {
+  function detectIntent(question) {
+    const { social, request } = Talk.parse(question);
+    return social ? 'smalltalk' : taskIntent(request);
+  }
+  function modeFor(intent, requested) {
     if (requested && requested !== 'auto') return requested;
-    const intent = detectIntent(question);
     if (['resumen', 'critico', 'redaccion', 'socratico', 'examen'].includes(intent)) return intent;
     return 'examen';
   }
+
+  const resolveMode = (question, requested) => modeFor(detectIntent(question), requested);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Utilidades de composición
@@ -115,23 +129,32 @@
       .map(x => x.n);
   }
 
-  function contradictionsForAll() {
+  function contradictionScan(filters) {
     const S = store();
-    if (!S) return [];
+    if (!S) return { value: [], eligible: 0, sampled: 0 };
     const sents = S.state.allSentences || [], index = S.state.index;
-    if (contradictionCache.index === index && contradictionCache.length === sents.length) return contradictionCache.value;
+    const scope = filters ? JSON.stringify(filters) : '';
+    if (contradictionCache.index === index && contradictionCache.length === sents.length && contradictionCache.scope === scope) return contradictionCache;
     // Contrastar oraciones originales evita contar como afirmaciones distintas
     // el mismo número repetido en las ventanas solapadas.
-    const sample = sents.slice(0, 1500).map(s => ({ ...s, text: s.sourceText || s.text }));
+    const literal = s => ({ id: s.id, docName: s.docName, docId: s.docId, pageNum: s.pageNum, sourcePage: s.sourcePage, text: s.sourceText ?? s.text });
+    const eligible = filters ? sents.filter(s => {
+      const item = literal(s);
+      return R.passesFilters(item, filters) && !R.containsExcluded(item, filters);
+    }) : sents;
+    const sample = U.sampleEvenly(eligible, 1500).map(literal);
     let value = [];
     try { value = A.detectContradictions(sample, { max: 20 }); } catch (e) { console.warn('[RAG] contradicciones:', e.message); }
-    contradictionCache = { index, length: sents.length, value };
-    return value;
+    contradictionCache = { index, length: sents.length, scope, value, eligible: eligible.length, sampled: sample.length };
+    return contradictionCache;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
   // Compositor interno (extractivo, verificable, sin descargas)
   // ─────────────────────────────────────────────────────────────────────────
+  const contradictionsForAll = filters => contradictionScan(filters).value;
+  const sourceOf = (side, chunks) => chunks.find(x => x.docId === side.docId && (x.id === side.id || x.sentenceIds?.includes(side.id)));
+
   function composeExtractive(ctx) {
     const chunks = ctx.chunks || [];
     const mode = ctx.mode || 'examen';
@@ -142,7 +165,7 @@
     const claims = A.extractClaims(items);
     const summary = A.summarize(items, Math.min(4, items.length));
     const keyphrases = A.keyphrases(items, 6);
-    const contradictions = (ctx.contradictions || []).slice(0, 4);
+    const contradictions = (ctx.contradictions || []).filter(pair => sourceOf(pair.a, chunks) && sourceOf(pair.b, chunks)).slice(0, 4);
     const critique = A.critique(chunks, claims, contradictions);
 
     if (mode === 'socratico') return composeSocratic(ctx, chunks, claims, keyphrases);
@@ -242,7 +265,7 @@
   function composeSocratic(ctx, chunks, claims, keyphrases) {
     const questions = A.socraticQuestions(chunks, claims, keyphrases);
     let out = `### Guía socrática\n`;
-    out += `No te doy la respuesta: te doy el camino. Responde por escrito y vuelve a preguntarme.\n\n`;
+    out += `Usa estas preguntas para orientar tu lectura. Para responder, pedir pistas y comparar tu explicación con el original, abre **Analizar → Tutor de estudio**.\n\n`;
     questions.forEach((q, i) => {
       const idx = Math.min(chunks.length, i + 1);
       out += `**${i + 1}.** ${q.q}\n   - *Por qué importa:* ${q.why} (pista en la fuente ${idx})\n`;
@@ -265,15 +288,18 @@
     if (contradictions.length) {
       out += `**Contradicciones entre fuentes.**\n`;
       contradictions.forEach(c => {
-        const aPage = (c.a.sourcePage || c.a.pageNum) ? ` (Pág ${c.a.sourcePage || c.a.pageNum})` : '';
-        const bPage = (c.b.sourcePage || c.b.pageNum) ? ` (Pág ${c.b.sourcePage || c.b.pageNum})` : '';
         out += `- ${c.type === 'numeric' ? 'Cifras' : 'Tendencias'} discrepantes: ${c.reason}.\n`;
-        out += `  · «${U.truncate(c.a.text, 150)}»${aPage}\n`;
-        out += `  · «${U.truncate(c.b.text, 150)}»${bPage}\n`;
+        for (const side of [c.a, c.b]) {
+          const source = sourceOf(side, chunks);
+          const page = side.sourcePage || side.pageNum;
+          out += `  · «${U.truncate(side.text, 150)}» — ${side.docName || 'Documento'}${page ? ` · Pág ${page}` : ''}${cite(source.index)}\n`;
+        }
       });
       out += `\n`;
     }
 
+    if (ctx.coverage?.eligible > ctx.coverage?.sampled) out += `**Cobertura del detector:** muestra de ${ctx.coverage.sampled} de ${ctx.coverage.eligible} oraciones elegibles. No se contrastó el libro completo. Para revisar una parte concreta, usa =doc: o =pag:.\n\n`;
+    if (ctx.contradictions?.length > contradictions.length) out += 'Solo se detallan pares con ambas fuentes en el contexto mostrado, hasta cuatro. Acota el tema o ajusta el máximo de fuentes.\n\n';
     const missing = [];
     if (!claims.some(c => c.numbers.length)) missing.push('no se detectaron cifras en la extracción automática');
     if (!chunks.some(c => /(metodolog|muestra|experimento|medici[oó]n)/i.test(c.text))) missing.push('descripción metodológica');
@@ -330,9 +356,9 @@
       .slice(-2).map(entry => ({ question: entry.question, answer: entry.characterReply?.lead || entry.text }));
     const job = new AbortController(), abortFromCaller = () => job.abort();
     if (options.signal?.aborted) throw abortError();
-    activeCharacterJob?.abort();
+    activeLocalJob?.abort();
     options.signal?.addEventListener('abort', abortFromCaller, { once: true });
-    activeCharacterJob = job;
+    activeLocalJob = job;
     try {
       if (q.length > 1000) throw new Error('La pregunta supera 1.000 caracteres; prueba una más corta.');
       const prompt = promptBuilder.build({ name, question: q, snippets: excerpt ? [excerpt] : [], history, noEvidence });
@@ -354,8 +380,37 @@
         character: reply.character, characterReply: { ...reply.reply, lead: notice + reply.reply.lead }, t0, S });
     } finally {
       options.signal?.removeEventListener('abort', abortFromCaller);
-      if (activeCharacterJob === job) activeCharacterJob = null;
+      if (activeLocalJob === job) activeLocalJob = null;
     }
+  }
+
+  async function askStudy({ question, request, scope, o, t0, S }) {
+    const index = S?.state.index, length = index?.sentences.length;
+    const { reply, chunks } = D.prepare({ question: request, scope, index, history: S?.state.chat });
+    const engine = typeof window !== 'undefined' && window.NCQwenModel;
+    const withModel = reply.action !== 'practice' && chunks.length && S?.getSetting('dialogueQwen', false) === true && engine?.info?.().enabled;
+    if (withModel) {
+      const job = new AbortController(), cancel = () => job.abort();
+      activeLocalJob?.abort(); activeLocalJob = job; o.signal?.addEventListener('abort', cancel, { once: true });
+      try {
+        const prompt = window.NCQwenPrompt.buildStudy({ ...reply, question: request, chunks });
+        o.onGenerating?.();
+        const output = await engine.generate(prompt, { signal: job.signal });
+        const clean = window.NCQwenPrompt.cleanOutput(output).slice(0,2000);
+        if (!clean) throw new Error('Sin texto');
+        reply.generated = clean;
+      } catch (error) {
+        if (job.signal.aborted || error?.name === 'AbortError') throw abortError();
+        reply.notice = 'Qwen no pudo completar la explicación. Se conserva la lectura local con sus citas.';
+      } finally {
+        o.signal?.removeEventListener('abort',cancel);
+        if (activeLocalJob === job) activeLocalJob = null;
+      }
+      if (job.signal.aborted || o.signal?.aborted || S.state.index !== index || index.sentences.length !== length) throw abortError();
+    }
+    return finalize({ question, text: D.transcript(reply,chunks), provider: reply.generated ? 'qwen-local' : 'internal',
+      model: reply.generated ? 'Qwen3-0.6B Q4_K_M' : 'tutor documental', fallback: !!reply.notice,
+      mode: 'tutor', intent: reply.action, dialogue: reply, chunks, t0, S });
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -371,8 +426,8 @@
     if (o.signal?.aborted) throw abortError();
     if (!q) return emptyResult(q);
 
-    // No se ejecutan comandos de memoria ni se mezclan otros documentos o
-    // conversaciones: el contexto procede solo del libro y personaje elegidos.
+    // Los dos chats dedicados no ejecutan comandos de memoria. Cada uno
+    // construye su propio contexto: el tutor no hereda una ficción del personaje.
     const requestedMode = o.mode || (S ? S.getSetting('mode', 'auto') : 'auto');
     if (requestedMode === 'conversacion') {
       const docId = o.characterDocId ?? (S ? S.getSetting('characterDocId', '') : '');
@@ -384,7 +439,7 @@
       // Las reglas básicas de crisis/acompañamiento y los errores de selección
       // conservan prioridad: no se prometen detección ni seguridad completas.
       const noContinuation = reply.intent === 'continuation' && !reply.chunks.length;
-      if (qwen?.info().enabled && promptBuilder && !noContinuation && !['crisis', 'emotional', 'setup', 'missing-character'].includes(reply.intent)) {
+      if (qwen?.info().enabled && promptBuilder && !noContinuation && !['crisis', 'emotional', 'setup', 'missing-character', 'courtesy'].includes(reply.intent)) {
         return await askCharacterQwen({ q, name, doc, reply, qwen, promptBuilder, options: o, t0, S });
       }
       return finalize({ question: q, text: reply.text, provider: 'internal', model: 'personaje por reglas',
@@ -392,11 +447,21 @@
         character: reply.character, characterReply: reply.reply, t0, S });
     }
 
-    const intent = detectIntent(q);
+    if (requestedMode === 'tutor' && q.length > D.MAX_QUESTION) throw new Error(`Escribe una pregunta de hasta ${D.MAX_QUESTION} caracteres.`);
+    const dialogueScope = requestedMode === 'tutor' ? (o.dialogueScope ?? S?.getSetting('dialogueDocId', '') ?? '') : null;
+    const last = S?.state.chat.at(-1);
+    const previous = last?.mode === requestedMode && last?.intent === 'smalltalk' && last.smalltalk?.scope === dialogueScope ? last.smalltalk.kind : null;
+    const { social, request } = Talk.parse(q, { afterCheckin: ['hello','checkin'].includes(previous) });
+    if (social) {
+      return finalize({ question:q, text:Talk.reply(social, { tutor:requestedMode === 'tutor', again:previous === 'hello' }),
+        provider:'internal', model:'charla por reglas', mode:requestedMode, intent:'smalltalk', smalltalk:{ kind:social.kind, scope: dialogueScope }, chunks:[], citations:null, t0, S });
+    }
+    if (requestedMode === 'tutor') return askStudy({question:q, request, scope: dialogueScope, o, t0, S});
+    const intent = taskIntent(request);
 
     // 1. Comandos directos
     if (intent === 'learn') {
-      const fact = q.replace(/^(aprende|consolida|recuerda|guarda|memoriza)(\s+que)?[:;\s-]*/i, '').trim();
+      const fact = request.replace(/^(aprende|consolida|recuerda|guarda|memoriza)(\s+que)?[:;\s-]*/i, '').trim();
       const entry = M.addFact ? M.addFact(fact) : null;
       if (fact && M.vaultAdd) M.vaultAdd({ phrase: fact, detail: fact });
       const text = fact
@@ -406,7 +471,7 @@
     }
 
     if (intent === 'math') {
-      const expr = q.replace(/^(calcula|cuanto es|cuanto vale|resultado de)\s*/i, '').replace(/[?¿]/g, '').trim();
+      const expr = mathExpression(request);
       const value = U.evaluateArithmetic(expr);
       const text = value == null
         ? `No pude evaluar «${expr}» como expresión aritmética. Admite + - * / % ^ y funciones como sqrt(), log(), sin().`
@@ -414,17 +479,8 @@
       return finalize({ question: q, text, provider: 'internal', model: 'calculadora', mode: 'math', chunks: [], citations: null, intent, t0, S });
     }
 
-    if (intent === 'smalltalk') {
-      const st = S ? S.stats() : { docs: 0, sentences: 0, nodes: 0 };
-      const refl = M.selfReflection ? M.selfReflection() : null;
-      const text = `¡Hola! Soy **KIMI-CORE v11**, tu cerebro local. Tengo ${st.docs} documento(s), ${st.sentences} pasajes y ${st.nodes} conceptos en la red.` +
-        (refl ? `\n\n${refl.text}` : '') +
-        `\n\nPuedo resumir, explicar como en un examen, hacerte preguntas socráticas, criticar el material o redactar. También acepto filtros: \`=doc:nombre\`, \`=pag:12\`, \`"frase exacta"\` y \`-excluir\`.`;
-      return finalize({ question: q, text, provider: 'internal', model: 'kimi-core', mode: 'auto', chunks: [], citations: null, intent, t0, S });
-    }
-
     // 2. Recuperación
-    const mode = resolveMode(q, o.mode || (S ? S.getSetting('mode', 'auto') : 'auto'));
+    const mode = modeFor(intent, requestedMode);
     const k = Math.max(1, Math.min(10, Number(o.k || (S ? S.getSetting('topK', 6) : 6)) || 6));
     const window_ = S ? S.getSetting('window', 1) : 1;
     const requestedScope = o.scope || (S ? S.getSetting('searchScope', 'both') : 'both');
@@ -435,26 +491,41 @@
     const localModel = typeof window !== 'undefined' ? window.NCLocalModel : null;
     const initialIndex = S?.state.index, initialLength = initialIndex?.sentences.length;
     if (useDocs && S && S.getSetting('embedEnabled', true) && localModel?.info().enabled) {
-      try { neuralScores = await localModel.scores(R.parseQuery(q).cleaned); }
+      try { neuralScores = await localModel.scores(R.parseQuery(request).cleaned); }
       catch (_) { /* La búsqueda interna sigue operativa si se desactiva o falla el modelo. */ }
       if (o.signal?.aborted || S.state.index !== initialIndex || initialIndex.sentences.length !== initialLength) throw abortError();
       if (!S.getSetting('embedEnabled', true) || !localModel.info().enabled) neuralScores = null;
     }
     if (o.signal?.aborted) throw abortError();
-    let searchResult = useDocs && S ? S.search(q, { k, fuzzy: S.getSetting('fuzzy', true), neuralScores }) :
-      { hits: [], tookMs: 0, total: 0, parsed: R.parseQuery(q), contextIndex: S?.state.index };
-    const knowledgeResult = useKnowledge ? K.search(q, { k }) : null;
+    let searchResult = useDocs && S ? S.search(request, { k, fuzzy: S.getSetting('fuzzy', true), neuralScores }) :
+      { hits: [], tookMs: 0, total: 0, parsed: R.parseQuery(request), contextIndex: S?.state.index };
+    const knowledgeResult = useKnowledge ? K.search(request, { k }) : null;
     const searchedIndex = S?.state.index, searchedLength = searchedIndex?.sentences.length;
 
     // Para una petición global, muestra una muestra del corpus en lugar de tratar
     // las palabras «resumir documento» como si fueran un tema presente en él.
-    const genericWords = new Set(['resum', 'resumen', 'sintetiz', 'analiz', 'analisis', 'critic', 'evalu', 'revis', 'document', 'material', 'texto', 'complet', 'corpus', 'archiv', 'general', 'todo', 'principal', 'redact', 'contradicc', 'inconsist', 'compar']);
-    const contentTerms = (searchResult.parsed?.uniqueTerms || []).filter(t => !genericWords.has(t));
+    const genericWords = new Set(['resum', 'resumen', 'sintetiz', 'analiz', 'analisis', 'critic', 'evalu', 'revis', 'document', 'material', 'texto', 'complet', 'corpus', 'archiv', 'general', 'todo', 'principal', 'redact', 'contradicc', 'inconsist', 'compar', ...U.tokens('detecta contradicciones inconsistencias')]);
+    // Las expansiones aprendidas de una consulta nunca cambian su alcance.
+    const contentTerms = U.tokens(searchResult.parsed?.cleaned || '').filter(t => !genericWords.has(t));
+    const filters = searchResult.parsed?.filters;
+    const filteredIndex = searchResult.contextIndex || S?.state.index;
+    const targetTerms = new Set(contentTerms);
+    const scan = useDocs ? contradictionScan(searchResult.parsed?.hasFilters ? filters : null) : { value: [], sampled: 0, eligible: 0 };
+    const contradictions = scan.value.filter(c => !targetTerms.size || (c.sharedTerms || []).some(term => targetTerms.has(term)));
     if (useDocs && S && ['resumen', 'critico', 'redaccion'].includes(mode) && !contentTerms.length && S.state.index.sentences.length) {
-      const filters = searchResult.parsed?.filters;
-      const all = (searchResult.contextIndex || S.state.index).sentences.filter(sentence => R.passesFilters(sentence, filters) && !R.containsExcluded(sentence, filters));
+      const all = filteredIndex.sentences.filter(sentence => R.passesFilters(sentence, filters) && !R.containsExcluded(sentence, filters));
       const count = Math.min(k, all.length);
-      const hits = Array.from({ length: count }, (_, i) => ({ sentence: all[Math.floor(i * all.length / count)], score: 1 }));
+      const selected = new Map();
+      // Al contrastar, mostrar primero las fuentes de ambos lados del hallazgo,
+      // no una muestra que por casualidad podría no contener ninguno de ellos.
+      if (mode === 'critico') for (const pair of contradictions.slice(0, 4)) {
+        for (const side of [pair.a, pair.b]) {
+          const source = filteredIndex.sentences[filteredIndex.posById.get(side.id)];
+          if (source && R.passesFilters(source, filters) && !R.containsExcluded(source, filters)) selected.set(source.id, source);
+        }
+      }
+      for (const sentence of U.sampleEvenly(all, count)) selected.set(sentence.id, sentence);
+      const hits = [...selected.values()].slice(0, count).map(sentence => ({ sentence, score: 1 }));
       searchResult = { ...searchResult, hits, total: all.length, globalSample: true, neuralUsed: false, neuralOnly: false };
     }
 
@@ -478,11 +549,9 @@
       o.onRetrieved({ hits: searchResult.globalSample ? [] : searchResult.hits, scope,
         method: searchResult.neuralUsed ? 'minilm' : 'local', globalSample: !!searchResult.globalSample });
     }
-    const filters = searchResult.parsed?.filters;
-    const filteredIndex = searchResult.contextIndex || S?.state.index;
     const sourceRestricted = !!(filters?.docs?.length || filters?.pages?.length || filters?.phrases?.length);
     const safeText = text => !R.containsExcluded({ text: text || '' }, filters);
-    const memoryQuery = searchResult.parsed?.cleaned || q;
+    const memoryQuery = searchResult.parsed?.cleaned || request;
     const graphNodes = (useDocs ? relatedNodes(memoryQuery, 8) : []).filter(node => {
       if (!safeText(`${node.label || ''} ${node.text || ''}`)) return false;
       if (!searchResult.parsed?.hasFilters) return true;
@@ -498,14 +567,9 @@
       .filter(item => safeText(`${item.phrase || ''} ${item.detail || ''}`));
     const fewShots = !useDocs || sourceRestricted || !M.fewShots ? [] : M.fewShots(memoryQuery, 2)
       .filter(item => safeText(`${item.question || ''} ${item.answer || ''}`));
-    const targetTerms = new Set(contentTerms);
-    const contradictions = (useDocs && chunks.some(chunk => !chunk.knowledgeId) ? contradictionsForAll() : []).filter(c => {
-      if (![c.a, c.b].every(item => R.passesFilters(item, filters) && !R.containsExcluded(item, filters))) return false;
-      return !targetTerms.size || (c.sharedTerms || []).some(term => targetTerms.has(term));
-    });
 
     const ctx = {
-      question: q,
+      question: request,
       mode,
       scope,
       chunks,
@@ -513,7 +577,7 @@
       facts,
       memory: facts.map(f => ({ fact: f.fact })).concat(vaultHits.map(v => ({ fact: v.phrase }))),
       fewShots,
-      contradictions,
+      contradictions, coverage: { sampled: scan.sampled, eligible: scan.eligible },
       settings: S ? S.state.settings : {},
       signal: o.signal
     };
@@ -593,6 +657,7 @@
         n: c.index || i + 1,
         text: c.text,
         excerpt: U.truncate(c.text, 220),
+        ...(p.dialogue ? { offset: c.offset } : {}),
         pageNum: c.pageNum,
         sourcePage: c.sourcePage || null,
         docName: c.docName,
@@ -632,7 +697,9 @@
       latencyMs: latency,
       trace,
       intent: p.intent,
+      ...(p.smalltalk ? { smalltalk: p.smalltalk } : {}),
       fallback: !!p.fallback,
+      ...(p.dialogue ? { dialogue: p.dialogue } : {}),
       character: p.character || null,
       characterReply: p.characterReply || null,
       nodeIds: (p.graphNodes || []).map(n => n.id),
@@ -646,6 +713,8 @@
       S.state.chat.push({
         id: U.uid('msg'), role: 'assistant', question: p.question, text: p.text,
         mode: p.mode, provider: p.provider, model: p.model, intent: p.intent, fallback: !!p.fallback, citations: p.citations, sources, trace,
+        ...(p.dialogue ? { dialogue: p.dialogue } : {}),
+        ...(p.smalltalk ? { smalltalk: p.smalltalk } : {}),
         character: result.character, characterReply: result.characterReply,
         nodeIds: result.nodeIds, vaultIds: result.vaultIds, latencyMs: result.latencyMs, at: result.at
       });
@@ -684,11 +753,11 @@
   function init() {
     if (P.setInternalComposer) P.setInternalComposer(composeExtractive);
     const S = store();
-    const cancel = () => activeCharacterJob?.abort();
+    const cancel = () => activeLocalJob?.abort();
     const invalidateContradictions = () => { contradictionCache = { index: null, length: -1, value: [] }; };
     ['doc:added', 'doc:removed', 'system:resetting', 'brain:importing'].forEach(event => S?.on(event, invalidateContradictions));
-    ['system:resetting', 'brain:importing', 'doc:removed', 'chat:clearing'].forEach(event => S?.on(event, cancel));
-    S?.on('settings:changed', ({ key }) => { if (['mode', 'characterDocId', 'characterName'].includes(key)) cancel(); });
+    ['system:resetting', 'brain:importing', 'doc:added', 'doc:removed', 'chat:clearing'].forEach(event => S?.on(event, cancel));
+    S?.on('settings:changed', ({ key }) => { if (['mode', 'characterDocId', 'characterName', 'dialogueDocId', 'dialogueQwen'].includes(key)) cancel(); });
     return api;
   }
 

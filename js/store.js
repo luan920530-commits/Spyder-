@@ -15,10 +15,14 @@
   const R = (typeof require === 'function' && typeof module !== 'undefined') ? require('./retrieval.js') : (root.NCRetrieval || {});
   const DB = (typeof require === 'function' && typeof module !== 'undefined') ? require('./db.js') : (root.NCDB || {});
   const C = (typeof require === 'function' && typeof module !== 'undefined') ? require('./chunks.js') : root.NCChunks;
-  const api = factory(U, R, DB, C);
+  const K = (typeof require === 'function' && typeof module !== 'undefined') ? require('./study-skills.js') : root.NCStudySkills;
+  const node = typeof module !== 'undefined' && module.exports;
+  const api = factory(U, R, DB, C, K, node ? require('./highlights.js') : root.NCHighlights,
+    node ? require('./passage-links.js') : root.NCPassageLinks, node ? require('./srs.js') : root.NCSRS,
+    node ? require('./companion.js') : root.NCCompanion);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.NeuralStore = Object.assign(root.NeuralStore || {}, api);
-})(typeof window !== 'undefined' ? window : globalThis, function (U, R, DB, C) {
+})(typeof window !== 'undefined' ? window : globalThis, function (U, R, DB, C, K, H, L, SRS, Companion) {
   'use strict';
 
   const DEFAULT_SETTINGS = {
@@ -26,6 +30,7 @@
     model: '',
     mode: 'auto',
     searchScope: 'both',
+    dialogueDocId: '', dialogueQwen: false,
     characterDocId: '',
     characterName: '',
     qwenEnabled: false,
@@ -58,6 +63,7 @@
     claimedTargets: new Set(),
 
     // Memoria
+    personal: Companion.record(null), // No forma parte de collections ni alimenta la recuperación.
     consolidatedMemory: [],
     vault: [],
     chat: [],
@@ -65,7 +71,9 @@
 
     // Estudio
     cards: [],
+    relationVotes: [],
     quizRuns: [],
+    tutorRuns: [],
 
     // Evaluación
     evalRuns: [],
@@ -131,7 +139,7 @@
   // ─────────────────────────────────────────────────────────────────────────
   const dirty = new Set();
   const SAVE_DEBOUNCE = 900;
-  const ALL_COLLECTIONS = ['docs', 'nodes', 'links', 'patterns', 'vault', 'chat', 'feedback', 'cards', 'quizRuns', 'evalRuns', 'settings', 'memory'];
+  const ALL_COLLECTIONS = ['docs', 'nodes', 'links', 'patterns', 'vault', 'chat', 'feedback', 'cards', 'relationVotes', 'quizRuns', 'tutorRuns', 'evalRuns', 'settings', 'memory'];
   let saveTimer = null;
 
   function scheduleSave(collection) {
@@ -170,6 +178,8 @@
     if (items.includes('chat')) data.chat = tail(state.chat, 200);
     if (items.includes('feedback')) data.feedback = tail(state.feedback, 400);
     if (items.includes('cards')) data.cards = state.cards;
+    if (items.includes('relationVotes')) data.relationVotes = state.relationVotes;
+    if (items.includes('tutorRuns')) data.tutorRuns = tail(state.tutorRuns, 50);
     if (items.includes('quizRuns')) data.quizRuns = tail(state.quizRuns, 50);
     if (items.includes('evalRuns')) data.evalRuns = tail(state.evalRuns, 50);
     if (items.includes('memory')) data.consolidatedMemory = tail(state.consolidatedMemory, 300);
@@ -225,11 +235,23 @@
     return flushChain;
   }
 
-  /** Guardado inmediato (usado antes de exportar o al cerrar). */
+  /** Guardado inmediato de las colecciones actuales. */
+  function saveCards() {
+    scheduleSave('cards'); return flush();
+  }
+
   function savePersistent() {
     scheduleSave();
     clearTimeout(saveTimer);
     return flush();
+  }
+
+  // Compartir la barrera de escritura con reset/import sin meter una charla
+  // personal en las colecciones de estudio. Se guarda una copia acotada.
+  function savePersonal(data) {
+    const snapshot = Companion.record(data); state.personal = snapshot;
+    flushChain = flushChain.then(() => data == null ? DB.del(DB.PERSONAL) : DB.put(DB.PERSONAL, snapshot)).catch(() => false);
+    return flushChain;
   }
 
   function embeddings() {
@@ -290,6 +312,80 @@
     return normalized;
   }
 
+  // Solo conservar el progreso mínimo del tutor, nunca el texto escrito por el
+  // alumno. Este mismo contrato se aplica al guardar, restaurar e importar.
+  function tutorSummary(run) {
+    if (!run || typeof run.skill !== 'string' || !Object.hasOwn(K.SKILLS, run.skill) || typeof run.docId !== 'string' || !run.docId || !Number.isFinite(run.at) ||
+        !Array.isArray(run.turns) || !run.turns.length || run.turns.length > K.SESSION_SIZE || run.turns.some(t =>
+          !t || typeof t.sentenceId !== 'string' || !t.sentenceId || typeof t.ok !== 'boolean' || typeof t.hint !== 'boolean')) return null;
+    if (new Set(run.turns.map(t => t.sentenceId)).size !== run.turns.length) return null;
+    return { docId: run.docId, skill: run.skill, at: run.at, turns: run.turns.map(({ sentenceId, ok, hint }) => ({ sentenceId, ok, hint })) };
+  }
+  function liveTutorRun(run) {
+    return run && run.turns.every(t => getSentence(t.sentenceId)?.docId === run.docId);
+  }
+  function recordTutorRun(run) {
+    const summary = tutorSummary(run);
+    if (!liveTutorRun(summary)) return false;
+    state.tutorRuns.push(summary);
+    state.tutorRuns = state.tutorRuns.slice(-50);
+    scheduleSave('tutorRuns'); flush();
+    return true;
+  }
+
+  // El selector se vuelve a comprobar contra el documento vivo, también al
+  // guardar desde un modal: una selección vieja nunca cita otra página/libro.
+  function addQuestion(source, question) {
+    const doc = getActiveDoc(), front = String(question || '').trim();
+    if (!doc || !front || front.length > H.MAX_QUESTION || source?.pageNum !== state.activePage) return null;
+    const a = H.resolve(H.indexPage(doc, state.activePage), source);
+    if (!a) return null;
+    const duplicate = state.cards.find(c => c.kind === 'highlight' && c.docId === a.docId && c.pageNum === a.pageNum &&
+      c.selector.start === a.selector.start && c.selector.end === a.selector.end && c.front === front);
+    if (duplicate) return duplicate;
+    const card = SRS.newCard({ ...a, id: U.uid('mine'), kind: 'highlight', front, back: a.selector.quote });
+    state.cards.push(card); saveCards(); emit('questions:changed', { docId: doc.id });
+    return card;
+  }
+  function removeQuestion(id) {
+    const i = state.cards.findIndex(c => c.id === id && c.kind === 'highlight');
+    if (i < 0) return;
+    const [card] = state.cards.splice(i, 1); saveCards(); emit('questions:changed', { docId: card.docId });
+  }
+
+  // Índices derivados, no se exportan. El entrenamiento se reproduce desde
+  // señales explícitas y acotadas; un libro jamás entrena a otro por su nombre.
+  const relationModels = new Map();
+  function relationModel(docId) {
+    if (relationModels.has(docId)) return relationModels.get(docId);
+    const doc = state.docs.find(d => d.id === docId && !d.mediaType);
+    if (!doc) return null;
+    if (relationModels.size >= 3) relationModels.delete(relationModels.keys().next().value);
+    const model = L.create(doc, state.relationVotes); relationModels.set(docId, model); return model;
+  }
+  function relatedPassages(id) {
+    const docId = getSentence(id)?.docId;
+    return relationModel(docId)?.suggest(id).filter(l => getSentence(l.id)?.docId === docId) || [];
+  }
+  function saveRelations(docId) { scheduleSave('relationVotes'); flush(); emit('relations:changed', { docId }); }
+  function clearRelations(docId) {
+    if (!state.relationVotes.some(v => v.docId === docId)) return false;
+    state.relationVotes = state.relationVotes.filter(v => v.docId !== docId);
+    relationModels.get(docId)?.fit([]); saveRelations(docId); return true;
+  }
+  function rateRelation(id, other, useful) {
+    const docId = getSentence(id)?.docId, v = L.example({ docId, a: id, b: other, useful });
+    if (!v || getSentence(other)?.docId !== docId || !relationModel(docId)?.pair(id, other)) return false;
+    const i = state.relationVotes.findIndex(r => r.docId === docId && r.a === v.a && r.b === v.b);
+    if (i >= 0 && state.relationVotes[i].useful === useful) return false;
+    if (i >= 0) state.relationVotes.splice(i, 1);
+    state.relationVotes.push(v);
+    const lost = state.relationVotes.length > L.MAX_VOTES && state.relationVotes.shift();
+    if (lost && lost.docId !== docId) relationModels.delete(lost.docId);
+    relationModel(docId).fit(state.relationVotes);
+    saveRelations(docId); return true;
+  }
+
   function removeDocument(docId) {
     const doc = state.docs.find(d => d.id === docId);
     if (!doc) return;
@@ -297,6 +393,7 @@
     state.docs = state.docs.filter(d => d.id !== docId);
     exclusionCache = null; state.lastSearch = null;
     if (state.settings.characterDocId === docId) state.settings.characterDocId = '';
+    if (state.settings.dialogueDocId === docId) state.settings.dialogueDocId = '';
     state.allSentences = state.allSentences.filter(s => s.docId !== docId);
     rebuildSentenceLookup();
     state.patterns = state.patterns.filter(p => !removed.has(p.sentenceId));
@@ -311,7 +408,9 @@
     });
     state.links = state.links.filter(l => !removedNodes.has(typeof l.source === 'object' ? l.source.id : l.source) &&
       !removedNodes.has(typeof l.target === 'object' ? l.target.id : l.target));
-    state.cards = state.cards.filter(c => !removed.has(c.sentenceId));
+    state.cards = state.cards.filter(c => !removed.has(c.sentenceId) && !(c.kind === 'highlight' && c.docId === docId));
+    state.relationVotes = state.relationVotes.filter(v => v.docId !== docId); relationModels.delete(docId);
+    state.tutorRuns = state.tutorRuns.filter(run => run.docId !== docId);
     state.vault.forEach(v => { v.sources = (v.sources || []).filter(src => !removed.has(src.sentenceId)); });
     // Las preferencias no deben reaparecer si se vuelve a utilizar un ID borrado.
     state.feedback.forEach(f => { if (Array.isArray(f.sentenceIds)) f.sentenceIds = f.sentenceIds.filter(id => !removed.has(id)); });
@@ -325,7 +424,7 @@
     emit('doc:removed', { docId });
     emit('doc:pageChanged', { docId: state.activeDocId, pageNum: state.activePage });
     emit('retrieve:indexed', { stats: R.stats(state.index) });
-    scheduleSave();
+    savePersistent();
   }
 
   /** Deja tiempo para leer una página elegida manualmente antes del avance automático. */
@@ -554,10 +653,10 @@
     }
 
     try {
-      const [settings, docs, nodes, links, patterns, vault, chat, feedback, cards, quizRuns, evalRuns, memory] = await Promise.all([
+      const [settings, docs, nodes, links, patterns, vault, chat, feedback, cards, quizRuns, tutorRuns, evalRuns, memory, votes, personal] = await Promise.all([
         DB.get('settings'), DB.get('docs'), DB.get('nodes'), DB.get('links'), DB.get('patterns'),
         DB.get('vault'), DB.get('chat'), DB.get('feedback'), DB.get('cards'), DB.get('quizRuns'),
-        DB.get('evalRuns'), DB.get('consolidatedMemory')
+        DB.get('tutorRuns'), DB.get('evalRuns'), DB.get('consolidatedMemory'), DB.get('relationVotes'), DB.get(DB.PERSONAL)
       ]);
 
       state.settings = Object.assign({}, DEFAULT_SETTINGS, settings && typeof settings === 'object' ? settings : {});
@@ -568,13 +667,16 @@
       state.links = Array.isArray(links) ? links : [];
       state.patterns = Array.isArray(patterns) ? patterns : [];
       state.vault = Array.isArray(vault) ? vault : [];
+      state.personal = Companion.record(personal);
       state.chat = Array.isArray(chat) ? chat : [];
       state.feedback = Array.isArray(feedback) ? feedback : [];
       state.cards = Array.isArray(cards) ? cards : [];
+      state.relationVotes = Array.isArray(votes) ? votes : [];
       state.quizRuns = Array.isArray(quizRuns) ? quizRuns : [];
+      state.tutorRuns = Array.isArray(tutorRuns) ? tutorRuns.slice(-50).map(tutorSummary).filter(Boolean) : [];
       state.evalRuns = Array.isArray(evalRuns) ? evalRuns : [];
       state.consolidatedMemory = Array.isArray(memory) ? memory : [];
-      if (!memory && !chat && typeof localStorage !== 'undefined') {
+      if (!memory && !chat) {
         try {
           const old = JSON.parse(localStorage.getItem('neural_spider_os_v2') || '{}');
           if (Array.isArray(old.consolidatedMemory)) state.consolidatedMemory = old.consolidatedMemory;
@@ -589,6 +691,19 @@
     exclusionCache = null; state.lastSearch = null;
     state.allSentences = state.docs.flatMap(doc => C.fromDocument(doc));
     rebuildSentenceLookup();
+    relationModels.clear();
+    const votes = L.restoreVotes(state.relationVotes, v => getSentence(v.a)?.docId === v.docId && getSentence(v.b)?.docId === v.docId);
+    if (votes.length !== state.relationVotes.length) scheduleSave('relationVotes');
+    state.relationVotes = votes;
+    const liveRuns = state.tutorRuns.filter(liveTutorRun);
+    if (liveRuns.length !== state.tutorRuns.length) scheduleSave('tutorRuns');
+    state.tutorRuns = liveRuns;
+    state.cards = state.cards.map(card => {
+      const upgraded = K.upgradeCard(card, getSentence(card?.sentenceId));
+      if (upgraded !== card) dirty.add('cards');
+      return upgraded;
+    });
+    if (dirty.has('cards')) scheduleSave('cards');
     state.index = R.rebuildFrom(state.allSentences);
     indexVectors();
     state.persistence = Object.assign(state.persistence, DB.status());
@@ -633,18 +748,25 @@
     state.patterns = [];
     state.visitedPatternHashes = new Set();
     state.claimedTargets = new Set();
+    state.personal = Companion.record(null);
     state.chat = [];
     state.quizRuns = [];
+    state.relationVotes = []; relationModels.clear();
+    state.tutorRuns = [];
     state.evalRuns = [];
     if (!o.keepMemory) { state.vault = []; state.consolidatedMemory = []; state.cards = []; state.feedback = []; }
-    else state.feedback.forEach(f => { if (Array.isArray(f.sentenceIds)) f.sentenceIds = []; });
+    else {
+      state.feedback.forEach(f => { if (Array.isArray(f.sentenceIds)) f.sentenceIds = []; });
+      state.cards = state.cards.filter(c => c.kind !== 'highlight');
+    }
     if (!o.keepSettings) state.settings = Object.assign({}, DEFAULT_SETTINGS);
     // El personaje y su libro son datos del usuario, no preferencias de interfaz.
     state.settings.characterDocId = '';
     state.settings.characterName = '';
+    state.settings.dialogueDocId = '';
 
+    try { localStorage.removeItem('neural_spider_os_v2'); } catch (_) {}
     try {
-      if (typeof localStorage !== 'undefined') localStorage.removeItem('neural_spider_os_v2');
       await DB.clearAll();
       if (o.keepSettings) await DB.put('settings', state.settings);
       if (o.keepMemory) {
@@ -659,7 +781,6 @@
 
   function auxiliarySnapshot() {
     const out = {};
-    if (typeof localStorage === 'undefined') return out;
     for (const key of ['kimi_aux_brain_v2', 'neural_spider_microai_v2']) {
       try { const value = localStorage.getItem(key); if (value) out[key] = JSON.parse(value); } catch (_) {}
     }
@@ -683,7 +804,7 @@
 
   async function importBrain(obj, opts) {
     if (!obj || !obj.data || typeof obj.data !== 'object' || Array.isArray(obj.data)) throw new Error('Respaldo inválido: falta el campo data');
-    const allowed = ['docs', 'nodes', 'links', 'patterns', 'vault', 'chat', 'feedback', 'cards', 'quizRuns', 'evalRuns', 'settings', 'consolidatedMemory', 'meta'];
+    const allowed = [...ALL_COLLECTIONS.map(key => key === 'memory' ? 'consolidatedMemory' : key), 'meta'];
     for (const key of allowed.filter(k => !['settings', 'meta'].includes(k))) {
       if (obj.data[key] !== undefined && !Array.isArray(obj.data[key])) throw new Error('Respaldo inválido: ' + key);
     }
@@ -693,26 +814,56 @@
     if (obj.auxiliary && (typeof obj.auxiliary !== 'object' || Array.isArray(obj.auxiliary) || JSON.stringify(obj.auxiliary).length > 2000000)) throw new Error('Respaldo auxiliar inválido');
     const auxiliary = obj.auxiliary || {};
     obj = { ...obj, data: Object.fromEntries(allowed.filter(k => Object.prototype.hasOwnProperty.call(obj.data, k)).map(k => [k, obj.data[k]]) ) };
+    if (obj.data.tutorRuns) {
+      const summaries = obj.data.tutorRuns.slice(-50).map(tutorSummary);
+      if (summaries.some(run => !run)) throw new Error('Respaldo inválido: progreso del tutor');
+      obj.data.tutorRuns = summaries;
+    }
+    const studyDocs = obj.data.docs ?? (opts?.merge ? state.docs : []);
+    if (obj.data.relationVotes?.length) {
+      obj.data.relationVotes = L.restoreVotes(obj.data.relationVotes, undefined, true);
+      const missing = new Map();
+      for (const { docId, a, b } of obj.data.relationVotes) {
+        if (!missing.has(docId)) missing.set(docId, new Set());
+        missing.get(docId).add(a).add(b);
+      }
+      for (const doc of studyDocs) {
+        const ids = missing.get(doc.id);
+        if (ids && !doc.mediaType) for (const p of doc.pages) for (const s of p.sentences) ids.delete(s.id);
+      }
+      if ([...missing.values()].some(ids => ids.size)) throw new Error('Respaldo inválido: vínculo sin fuente');
+    }
+    if (obj.data.cards?.some(c => c?.kind === 'highlight')) {
+      const docs = new Map(studyDocs.map(d => [d.id, d]));
+      const pages = new Map();
+      for (const c of obj.data.cards.filter(c => c?.kind === 'highlight')) {
+        const key = JSON.stringify([c.docId, c.pageNum]);
+        if (!pages.has(key)) pages.set(key, H.indexPage(docs.get(c.docId), c.pageNum));
+        if (!H.resolve(pages.get(key), c) || !c.id || typeof c.front !== 'string' || !c.front.trim() ||
+            c.front.length > H.MAX_QUESTION || c.back !== c.selector.quote) throw new Error('Respaldo inválido: pregunta sin cita literal');
+      }
+    }
     // Una carga de libro anterior no debe mezclarse con el respaldo importado.
     emit('brain:importing');
-    clearTimeout(saveTimer); dirty.clear();
-    await flushChain;
-    await DB.importAll(obj, opts);
     try {
-      if (typeof localStorage !== 'undefined') {
-        for (const key of ['kimi_aux_brain_v2', 'neural_spider_microai_v2']) {
-          const value = auxiliary[key];
-          if (value && typeof value === 'object' && !Array.isArray(value)) localStorage.setItem(key, JSON.stringify(value));
-          else localStorage.removeItem(key);
+      await flush();
+      await DB.importAll(obj, opts);
+      try {
+        if (typeof localStorage !== 'undefined') {
+          for (const key of ['kimi_aux_brain_v2', 'neural_spider_microai_v2']) {
+            const value = auxiliary[key];
+            if (value && typeof value === 'object' && !Array.isArray(value)) localStorage.setItem(key, JSON.stringify(value));
+            else localStorage.removeItem(key);
+          }
         }
-      }
-      if (typeof window !== 'undefined') {
-        if (window.KimiAuxModel) window.KimiAuxModel.restore(auxiliary.kimi_aux_brain_v2);
-        if (window.SpiderEngine) window.SpiderEngine.reloadMicroBrains();
-      }
-    } catch (_) {}
-    await init();
-    emit('brain:imported', { stats: R.stats(state.index) });
+        if (typeof window !== 'undefined') {
+          if (window.KimiAuxModel) window.KimiAuxModel.restore(auxiliary.kimi_aux_brain_v2);
+          if (window.SpiderEngine) window.SpiderEngine.reloadMicroBrains();
+        }
+      } catch (_) {}
+      await init();
+      emit('brain:imported', { stats: R.stats(state.index) });
+    } catch (error) { emit('brain:importFailed', error); throw error; }
     return state;
   }
 
@@ -728,6 +879,7 @@
       vault: state.vault.length,
       cards: state.cards.length,
       quizRuns: state.quizRuns.length,
+      tutorRuns: state.tutorRuns.length,
       index: R.stats(state.index)
     };
   }
@@ -758,9 +910,9 @@
     on, off, emit,
     init,
     getSetting, setSetting,
-    savePersistent, flush,
+    savePersistent, saveCards, savePersonal, flush, recordTutorRun,
     addDocument, removeDocument, setActiveDoc, setActivePage, holdAutoNavigation, getActiveDoc, getSentence,
-    addPattern, addLink, removeNode,
+    addPattern, addLink, removeNode, addQuestion, removeQuestion, relatedPassages, rateRelation, clearRelations,
     search, synonyms,
     resetAll, exportBrain, importBrain, stats,
     hashPattern, persistPatternIDB

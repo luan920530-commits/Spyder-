@@ -251,3 +251,19 @@ test('un fallo fatal cancela la inferencia y permite reactivar la caché local',
     assert.equal(h.model.info().status, 'ready'); assert.equal(h.requests.length, 0);
   } finally { h.model.deactivate(); h.dom.window.close(); }
 });
+
+// El tutor y el acompañante comparten un worker. Cancelar un turno rechazado
+// por estar ocupado no debe interrumpir la generación de la otra interfaz.
+test('el worker de inferencia solo cancela al propietario de la generación', async () => {
+  const vm = require('node:vm'), events = [];
+  const self = { NCQwenConfig: CFG, location: { href:'https://local.test/app/js/qwen-inference-worker.js' }, postMessage: v => events.push(v) };
+  let sig, finish;
+  const stubLlama = { tokenize: async () => [1,2,3], createCompletion: (_p,o) => { sig = o.abortSignal; return new Promise(resolve => { finish = resolve; }); } };
+  vm.runInNewContext(fs.readFileSync(path.join(root,'js/qwen-inference-worker.js'),'utf8')+'\nllama = stubLlama;', {self,URL,DOMException,AbortController,stubLlama,importScripts(){}});
+  const send=(id,type) => self.onmessage({data:{id,type,prompt:'ejemplo'}});
+  send(1,'generate'); await until(()=>!!finish); send(2,'generate'); await until(()=>events.some(v=>v.id===2 && /curso/.test(v.error)));
+  send(2,'cancel'); assert.equal(sig.aborted,false); finish('primero'); await until(()=>events.some(v=>v.id===1&&v.result==='primero'));
+  finish=null; send(3,'generate'); await until(()=>!!finish); send(1,'cancel'); assert.equal(sig.aborted,false);
+  send(3,'cancel'); assert.equal(sig.aborted,true); finish('tardío'); await until(()=>events.some(v=>v.id===3 && v.name==='AbortError'));
+  assert.ok(!events.some(v=>v.result==='tardío'));
+});

@@ -1,0 +1,36 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+const { openBrowser, boot, root } = require('../support/browser.cjs');
+
+test('revisión docente desde disco: valora un caso real, exporta y reabre el dictamen sin tocar el historial del tutor', async t => {
+  const page = await (await openBrowser(t)).newPage(), url = pathToFileURL(path.join(root, 'index.html')).href;
+  const errors = [], network = []; page.on('pageerror', e => errors.push(e.message)); page.on('request', r => { if (/^https?:/.test(r.url())) network.push(r.url()); });
+  const review = async () => { await page.click('[data-workspace="network"]'); await page.click('#open-review'); };
+  const importFile = async data => page.locator('#review-file').setInputFiles({ name: 'curso.json', mimeType: 'application/json', buffer: Buffer.from(data) });
+  await boot(page, url); await review(); assert.match(await page.textContent('#review-summary'), /0\/6/);
+  await page.selectOption('#review-case', '1'); assert.match(await page.textContent('#review-question'), /cuatro últimos caracteres/);
+  assert.match(await page.textContent('#review-gap'), /Término: posiciones/); assert.match(await page.textContent('#review-options'), /Distractores:/);
+  await page.selectOption('#review-cloze', 'no'); await page.selectOption('#review-distractors', 'si'); await page.selectOption('#review-guidance', 'no');
+  await page.click('#review-save'); assert.match(await page.textContent('#review-status'), /Describe la orientación/);
+  const note = 'Pedir que trace los índices desde el último carácter.'; await page.fill('#review-note', note);
+  await page.click('[data-workspace="chat"]'); await review(); await page.selectOption('#review-case', '0'); await page.selectOption('#review-case', '1');
+  assert.equal(await page.inputValue('#review-note'), note); await page.click('#review-save'); assert.match(await page.textContent('#review-summary'), /1\/6.*Huecos útiles: 0\/1.*plausibles: 1\/1/);
+  await importFile('{}'); await page.waitForFunction(() => document.getElementById('review-status').textContent.startsWith('No se importó'));
+  assert.match(await page.textContent('#review-summary'), /1\/6/);
+  const downloaded = page.waitForEvent('download'); await page.click('#review-export'); const json = await fs.readFile(await (await downloaded).path(), 'utf8');
+  const report = JSON.parse(json); assert.equal(report.cases[1].verdict.note, note); assert.equal(report.cases.filter(r => !r.verdict).length, 5);
+  assert.doesNotMatch(await page.evaluate(async () => JSON.stringify(await NeuralStore.exportBrain())), /trace los índices/);
+  await boot(page, url); await review(); assert.match(await page.textContent('#review-summary'), /0\/6/);
+  await importFile(json); await page.waitForFunction(() => document.getElementById('review-summary').textContent.includes('1/6'));
+  await page.selectOption('#review-case', '1'); assert.equal(await page.inputValue('#review-note'), note);
+  const custom = { ...report.bank, subject: 'Mi clase', items: [{ ...report.bank.items[0], passage: '2 + 2 = 4', question: 'Explica <b>esta suma</b>.' }] };
+  await importFile(JSON.stringify(custom)); await page.click('#review-keep'); assert.match(await page.textContent('#review-summary'), /1\/6/);
+  await importFile(JSON.stringify(custom)); await page.click('#review-replace'); await page.waitForFunction(() => document.getElementById('review-subject').textContent === 'Mi clase');
+  assert.ok(await page.locator('#review-distractors').isDisabled()); assert.equal(await page.textContent('#review-question'), custom.items[0].question);
+  assert.equal(await page.locator('#review-question b').count(), 0); assert.match(await page.textContent('#review-summary'), /0\/1/);
+  assert.deepEqual(await page.evaluate(() => [NeuralStore.state.docs.length, NeuralStore.state.tutorRuns.length]), [0, 0]);
+  assert.deepEqual(network, []); assert.deepEqual(errors, []);
+});

@@ -2,10 +2,11 @@
 (function (root, factory) {
   const U = (typeof require === 'function' && typeof module !== 'undefined') ? require('./util.js') : root.NCUtil;
   const R = (typeof require === 'function' && typeof module !== 'undefined') ? require('./retrieval.js') : root.NCRetrieval;
-  const api = factory(U, R);
+  const Talk = (typeof require === 'function' && typeof module !== 'undefined') ? require('./smalltalk.js') : root.NCSmalltalk;
+  const api = factory(U, R, Talk);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.NCCharacter = api;
-})(typeof window !== 'undefined' ? window : globalThis, function (U, R) {
+})(typeof window !== 'undefined' ? window : globalThis, function (U, R, Talk) {
   'use strict';
 
   // Estas palabras describen la petición, no el tema del libro. Solo se usan
@@ -171,16 +172,16 @@
     const found = profile(index, doc.id, name);
     if (!found.mentions.length) return finish(makeReply(
       `No encontré «${name}» en el texto extraído de este libro. Comprueba la escritura o prueba otro nombre tal como aparece en la obra.`,
-      { closing: 'Si el PDF no contiene texto extraíble, este modo no puede leerlo y no incluye OCR.', intent: 'missing-character' }
+      { closing: 'Si el PDF es un escaneo, usa «Leer un escaneo · OCR» en Documento y selecciona el texto reconocido.', intent: 'missing-character' }
     ));
 
-    const q = U.normalize(question);
-    if (/^(?:hola|buenas|buenos dias|buenas tardes|buenas noches|saludos|hey)\b/.test(q) && U.words(q).length <= 12) {
-      return finish(makeReply(`¡Hola! Soy una versión sencilla de ${name}, inspirada en el libro que elegiste. ¿Sobre qué te gustaría conversar?`, { intent: 'greeting' }));
+    const { social, request } = Talk.parse(question,{ address:name });
+    const q = U.normalize(request);
+    if (social?.kind === 'hello' || social?.kind === 'meet') {
+      return finish(makeReply(`¡${social.salutation || 'Hola'}! Soy una versión sencilla de ${name}, inspirada en el libro que elegiste. ¿Sobre qué te gustaría conversar?`, { intent: 'greeting' }));
     }
-    if (/\b(?:como estas|como te encuentras)\b/.test(q) && U.words(q).length <= 9) {
-      return finish(makeReply('Estoy aquí y listo para conversar. ¿Cómo te sientes tú?', { intent: 'greeting' }));
-    }
+    if (social?.kind === 'checkin') return finish(makeReply('Estoy aquí y listo para conversar. ¿Cómo te sientes tú?', { intent: 'greeting' }));
+    if (social && ['thanks','thanksBye','bye','good'].includes(social.kind)) return finish(makeReply(Talk.reply(social),{ intent:'courtesy' }));
 
     const previous = lastSource(o.history, doc.id, name, index);
     const forward = /\b(?:que paso despues|que sucede despues|que sucedio despues|y despues|que sigue|continua|siguiente pasaje|sigue leyendo)\b/.test(q);
@@ -194,7 +195,7 @@
         'Puede ser narración o diálogo de otro personaje. ¿Quieres seguir leyendo?', [], 'continuation'));
     }
 
-    const terms = topicTerms(question, name);
+    const terms = topicTerms(request, name);
     const general = /\b(?:quien eres|como te llamas|hablame de ti|hablame sobre ti|cuentame de ti|cuentame tu historia|presentate)\b/.test(q);
     if (general || !terms.length) {
       const used = new Set((o.history || []).filter(entry => entry.mode === 'conversacion' && entry.character?.docId === doc.id && normalizedWords(entry.character?.name) === normalizedWords(name))
