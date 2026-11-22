@@ -415,6 +415,8 @@
   }
   function cancelTarget(sp) {
     clearScan(sp); releaseClaim(sp); clearSpiderIdle(sp);
+    if (sp.relatedTarget) root.NeuralGraph?.endDelivery?.(sp.id);
+    sp.relatedTarget = null; sp.arrivedRelated = false;
     sp.phase = 'IDLE'; sp.targetSentence = null; sp.queryId = null; sp.extractedPattern = null; sp.cargo = null;
     sp.route = null; sp.routeSignature = ''; sp.approach = false; sp.wait = null;
     sp.lastProgressAt = animationTime; sp.nextPickAt = animationTime + 200;
@@ -436,7 +438,8 @@
     if (S) S.emit('spiders:count', { count: spiders.length });
   }
   function extractPattern(sentence) {
-    const label = U.words3(sentence.sourceText || sentence.text).replace(/[.,;:]$/, '');
+    const source = sentence.sourceText || sentence.text;
+    const label = root.NCHarvestLinks?.label(source) || U.words3(source).replace(/[.,;:]$/, '');
     return { cluster: null, label, text: U.truncate(sentence.text, 1200), pageNum: sentence.pageNum,
       sentenceId: sentence.id, section: sentence.section || '' };
   }
@@ -760,8 +763,12 @@
     pattern.cluster = sp.cluster; pattern.color = sp.color;
     sp.extractedPattern = pattern;
     clearScan(sp);
+    // Se elige una sola vez; durante el viaje se sigue la posición proyectada
+    // del vecino, no un centro fijo ni una posición congelada en pantalla.
+    sp.relatedTarget = root.NeuralGraph?.beginDelivery?.(sp.id, sp.targetSentence.id) || null;
     sp.phase = 'ARRASTRAR_A_RED'; sp.lastProgressAt = now; sp.route = null;
-    store()?.emit('spider:extracted', { spiderId: sp.id, sentenceId: sp.targetSentence.id, label: pattern.label });
+    store()?.emit('spider:extracted', { spiderId: sp.id, sentenceId: sp.targetSentence.id, label: pattern.label,
+      relatedNodeId: sp.relatedTarget?.nodeId || null });
   }
   function updateScan(sp, now, dt) {
     if (!sp.scanElement?.isConnected || (sp.scanElements || []).some(element => !element.isConnected)) { cancelTarget(sp); return; }
@@ -830,8 +837,12 @@
     if (sp.phase === 'EXTRAER_DATOS') { updateScan(sp, now, dt); return; }
     if (sp.phase === 'ARRASTRAR_A_RED') {
       const destination = root.NCSemantic?.topicId(sp.targetSentence.id) || sp.cluster;
-      const hub = root.NeuralGraph.getHubScreenPos(destination);
-      if (travel(sp, hub, false, dt)) { sp.phase = 'ALIMENTAR_NODO'; sp.lastProgressAt = now; sp.route = null; }
+      const related = sp.relatedTarget && root.NeuralGraph?.getDeliveryScreenPos?.(sp.id);
+      const point = related || root.NeuralGraph.getHubScreenPos(destination);
+      if (travel(sp, point, false, dt)) {
+        sp.arrivedRelated = !!related;
+        sp.phase = 'ALIMENTAR_NODO'; sp.lastProgressAt = now; sp.route = null;
+      }
       return;
     }
     if (sp.phase === 'ALIMENTAR_NODO') {
@@ -843,9 +854,10 @@
         canonical.harvested = true;
         sp.targetSentence.harvested = true;
         sentenceElement(sp.targetSentence.id)?.classList.add('sentence-harvested');
+        let deliveredNode = null;
         if (fresh) {
-          S.addPattern({ cluster: p.cluster, label: p.label, text: p.text, pageNum: p.pageNum,
-            sentenceId: p.sentenceId, color: p.color, section: p.section });
+          deliveredNode = S.addPattern({ cluster: p.cluster, label: p.label, text: p.text, pageNum: p.pageNum,
+            sentenceId: p.sentenceId, color: p.color, section: p.section, relatedTarget: sp.arrivedRelated ? sp.relatedTarget : null });
           learnFromPattern(sp, p.section + ' ' + p.text + ' ' + p.label, 1);
           root.KimiAuxModel?.trainOnPattern(p.section + ' ' + p.text, 1);
           root.NCMemory?.vaultAdd({ phrase: p.label, detail: p.text, cluster: p.cluster,
@@ -853,9 +865,17 @@
           sp.harvestedCount++; harvestWindow.count++;
         }
         if (!isReduced()) shockwaves.push({ x: sp.x, y: sp.y, r: 4, maxR: 38, color: sp.color, alpha: 1 });
-        S.emit('spider:delivered', { spiderId: sp.id, sentenceId: p.sentenceId, cluster: p.cluster, fresh });
+        // La afinidad confirmada debe conservar las dos citas elegidas, no
+        // solo el mismo nodo histórico (que puede contener varias anclas).
+        const connection = deliveredNode && sp.arrivedRelated && sp.relatedTarget && S.harvestConnections?.(deliveredNode.id)
+          ?.find(edge => (edge.source === deliveredNode.id && edge.target === sp.relatedTarget.nodeId &&
+            edge.sourceSentenceId === p.sentenceId && edge.targetSentenceId === sp.relatedTarget.sentenceId) ||
+            (edge.target === deliveredNode.id && edge.source === sp.relatedTarget.nodeId &&
+            edge.targetSentenceId === p.sentenceId && edge.sourceSentenceId === sp.relatedTarget.sentenceId));
+        S.emit('spider:delivered', { spiderId: sp.id, sentenceId: p.sentenceId, cluster: p.cluster, fresh,
+          relatedNodeId: connection ? sp.relatedTarget.nodeId : null });
         S.emit('spider:thought', { spiderId: sp.id, role: sp.role, color: sp.color,
-          text: `${sp.id} (${sp.role}) llevó «${p.label}» a la red` });
+          text: `${sp.id} (${sp.role}) llevó «${p.label}» ${connection ? 'junto a una cita afín' : 'a la red'}` });
       }
       cancelTarget(sp); emitProgress(now);
     }

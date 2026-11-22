@@ -19,6 +19,10 @@ Se conservan los **últimos 256 pares valorados entre todos los libros**, con ID
 
 **Qué no se usa como etiqueta:** abrir una fuente, girar la esfera, escribir el intento privado, calificar el recuerdo con FSRS o conversar con un personaje, con el [tutor documental](TUTOR_CON_FUENTES.md) o con [Spyder personal](SPYDER_PERSONAL.md). Los votos de vínculo no alteran el calendario ni las respuestas del chat. No se modifican los pesos de Qwen ni los de MiniLM. La afinidad no es una medida de verdad ni de comprensión.
 
+### Hilos ámbar de las cosechas
+
+Desde el shell 32, la red también dibuja afinidades automáticas entre **nodos ya cosechados**, incluso de libros distintos. Son independientes de este clasificador verde: requieren al menos dos raíces compartidas y conservan dos citas concretas. Se reconstruyen localmente y no se guardan como votos ni modifican los pesos del modelo de estudio. Un voto explícito **No útil** sí excluye esa pareja concreta de las afinidades ámbar; un voto útil permite volver a considerarla si sigue cumpliendo el umbral, pero no garantiza su selección. Compartir palabras puede enlazar frases contradictorias y no demuestra comprensión. [Algoritmo, límites y ejemplo de programación](IMPLEMENTACION_V11.md#afinidades-automáticas-de-cosecha-shell-32).
+
 ## Prueba reproducible sin consola ni modelos
 
 Desmarca **AUTO** y pega lo siguiente como un documento nuevo. Los títulos separan las tres páginas:

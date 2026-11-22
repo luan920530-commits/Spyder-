@@ -31,6 +31,9 @@
   let graphNodes = [], allGraphNodes = [];
   let graphLinks = [], allGraphLinks = [], graphNodeById = new Map(), graphNeighbors = new Map();
   let graphPage = 0, graphQuery = '', projection = null;
+  // Anclas de viajes en curso y la última pareja: solo proyección efímera.
+  const deliveryTargets = new Map(), positionSeeds = new Map();
+  let recentDelivery = null;
   let semanticMode = false, displayedTopics = [];
   // Los temas se derivan del corpus; paginar o buscar no debe reconstruir
   // miles de nodos temáticos mientras no cambien los datos ni el tamaño.
@@ -42,7 +45,7 @@
 
   const store = () => root.NeuralStore;
   const camera = root.NCOrbit.camera();
-  let orbitControl, placeGraph, pendingView = null;
+  let orbitControl, placeGraph, pendingView = null, requestGraphRefresh = null;
   const position = node => node.screen || node;
   function clusterPosition(cluster, w, h) {
     return camera.enabled ? camera.frame(w, h).at(cluster.x, cluster.y) : { x: cluster.x*w, y: cluster.y*h, scale: 1 };
@@ -649,8 +652,8 @@
     if (!S) return;
     const previous = new Map(graphNodes.map(n => [n.id, n]));
     const copy = n => {
-      const old = previous.get(n.id);
-      return Object.assign({}, old ? { x: old.x, y: old.y, vx: old.vx, vy: old.vy } : {}, n);
+      const old = previous.get(n.id), seed = positionSeeds.get(n.originId || n.id);
+      return Object.assign({}, old ? { x: old.x, y: old.y, vx: old.vx, vy: old.vy } : seed || {}, n);
     };
     const semantic = root.NCSemantic;
     semanticMode = !!semantic?.info().active;
@@ -708,12 +711,51 @@
         sourceNodes: S.state.nodes, count: S.state.nodes.length, width, height };
       semanticDirty = false;
     }
+    // Los temas MiniLM solo cambian la proyección. Las afinidades siguen
+    // enlazando las dos citas concretas, incluso si un nodo histórico se
+    // divide en varios temas; compartir centroide no crea una relación nueva.
+    const affinities = S.harvestEdges();
+    if (semanticMode) {
+      const byAnchor = new Map(), byOrigin = new Map();
+      for (const node of allGraphNodes) if (!node.isHub) {
+        const origin = node.originId || node.id;
+        if (!byOrigin.has(origin)) byOrigin.set(origin, []);
+        byOrigin.get(origin).push(node.id);
+        for (const id of node.sentenceIds || []) byAnchor.set(JSON.stringify([origin, id]), node.id);
+      }
+      // Una arista histórica sin citas solo se proyecta cuando ambos extremos
+      // son inequívocos; no atribuirla arbitrariamente a un tema dividido.
+      const saved = (S.state.links || []).map(edge => {
+        const id = value => typeof value === 'object' && value ? value.id : value;
+        const source = byOrigin.get(id(edge.source)), target = byOrigin.get(id(edge.target));
+        return source?.length === 1 && target?.length === 1
+          ? { ...edge, key: 'saved:' + (edge.key || JSON.stringify([source[0], target[0], edge.kind])), source: source[0], target: target[0] } : null;
+      }).filter(Boolean);
+      allGraphLinks = allGraphLinks.concat(saved, affinities.map(edge => {
+        const source = byAnchor.get(JSON.stringify([edge.source, edge.sourceSentenceId]));
+        const target = byAnchor.get(JSON.stringify([edge.target, edge.targetSentenceId]));
+        return source && target ? { ...edge, key: edge.key + JSON.stringify([source, target]), source, target } : null;
+      }).filter(Boolean));
+    } else allGraphLinks = allGraphLinks.concat(affinities);
     updateGroupingControls();
-    // Solo esta muestra llega al DOM y a la simulación. El grafo completo y
-    // todas sus citas/relaciones permanecen intactos en el store.
+    const pins = [];
+    if (!activeCluster && !graphQuery.trim()) {
+      for (const target of deliveryTargets.values()) {
+        const node = projectedHarvestNode(target.nodeId, target.sentenceId);
+        if (node) pins.push(node.id);
+      }
+      for (const target of recentDelivery || []) {
+        const node = projectedHarvestNode(target.nodeId, target.sentenceId);
+        if (node) pins.push(node.id);
+      }
+    }
+    // Solo esta muestra y unas pocas anclas de entrega llegan a D3; paginar o
+    // buscar nunca modifica ni elimina las citas y relaciones originales.
+    const recentPair = (recentDelivery || []).map(target => projectedHarvestNode(target.nodeId, target.sentenceId)?.id).filter(Boolean);
     projection = root.NCGraphProjection.project(allGraphNodes, allGraphLinks, {
       limit: width < 420 ? 24 : 40, edgeLimit: 90, page: graphPage, query: graphQuery,
-      cluster: activeCluster, semantic: semanticMode
+      cluster: activeCluster, semantic: semanticMode, pins: [...new Set(pins)],
+      affinityPair: recentPair.length === 2 ? recentPair : null
     });
     graphPage = projection.page;
     graphNodes = projection.nodes.map(copy);
@@ -748,8 +790,10 @@
     const status = document.getElementById('graph-page');
     if (status && projection) {
       status.textContent = `${projection.start}–${projection.end} / ${projection.filtered}`;
-      status.title = `${projection.total} conceptos en total · página ${projection.page + 1} de ${projection.pages} · ${projection.links.length} de ${projection.matchingLinks} conexiones visibles. El inspector permite recorrer todas las relaciones guardadas.`;
+      status.title = `${projection.total} conceptos en total · página ${projection.page + 1} de ${projection.pages} · ${projection.links.length} de ${projection.matchingLinks} conexiones visibles. El inspector permite recorrer afinidades y relaciones, incluso fuera de página.`;
     }
+    const info = store()?.harvestInfo(), caption = document.getElementById('harvest-affinity-status');
+    if (caption && info) caption.textContent = `${store().harvestEdges().length} afinidades${info.indexing ? ` · reconstruyendo ${info.indexed}/${info.total}` : ''}${projection?.pinned ? ` · ${projection.pinned} fuera de página` : ''}.`;
     const prev = document.getElementById('graph-prev'), next = document.getElementById('graph-next');
     if (prev) prev.disabled = !projection || projection.page <= 0;
     if (next) next.disabled = !projection || projection.page >= projection.pages - 1;
@@ -852,10 +896,12 @@
       .attr('opacity', d => d.source.isHub && d.target.isHub ? 0 : 1);
     const allLinks = linkEnter.merge(linkSel)
       .attr('data-kind', d => d.kind)
-      .attr('stroke-width', d => d.kind === 'study' ? .6 + 3 * d.score : d.kind === 'synaptic' ? 1.4 : 1)
-      .attr('stroke', d => d.kind === 'study' ? '#8ce7af' : d.kind === 'semantic' ? d.target.color :
+      .attr('aria-label', d => d.kind === 'affinity' ? `Afinidad por palabras compartidas: ${(d.shared || []).join(', ')}` : null)
+      .attr('stroke-width', d => d.kind === 'study' ? .6 + 3 * d.score : d.kind === 'affinity' ? 1.2 + 2 * d.score : d.kind === 'synaptic' ? 1.4 : 1)
+      .attr('stroke-dasharray', d => d.kind === 'affinity' ? '5,3' : d.kind === 'synaptic' ? '3,3' : null)
+      .attr('stroke', d => d.kind === 'study' ? '#8ce7af' : d.kind === 'affinity' ? '#ffd184' : d.kind === 'semantic' ? d.target.color :
         d.kind === 'synaptic' ? 'rgba(245,170,60,.32)' : 'rgba(56,220,255,.15)')
-      .attr('stroke-opacity', d => d.kind === 'study' ? .4 + .55*d.score : d.kind === 'semantic' ? .38 : 1)
+      .attr('stroke-opacity', d => d.kind === 'study' ? .4 + .55*d.score : d.kind === 'affinity' ? .78 : d.kind === 'semantic' ? .38 : 1)
       .attr('opacity', d => {
         if (d.source.isHub && d.target.isHub) return 0;
         if (!activeCluster) return 1;
@@ -927,7 +973,9 @@
     if (full || !simulation) {
       if (simulation) simulation.stop();
       simulation = d3.forceSimulation(graphNodes)
-        .force('link', d3.forceLink(graphLinks).id(d => d.id).distance(d => (d.kind === 'synaptic' ? 92 : 62)).strength(d => d.kind === 'study' ? .1 + .5 * d.score : .35))
+        .force('link', d3.forceLink(graphLinks).id(d => d.id)
+          .distance(d => d.kind === 'affinity' ? 36 + 16 * (1 - d.score) : d.kind === 'synaptic' ? 92 : 62)
+          .strength(d => d.kind === 'study' ? .1 + .5 * d.score : d.kind === 'affinity' ? .4 + .35 * d.score : .35))
         .force('charge', d3.forceManyBody().strength(-90))
         .force('collide', d3.forceCollide().radius(d => (d.isHub ? 26 : 18)))
         .force('center', d3.forceCenter(width / 2, height / 2).strength(0.06))
@@ -1034,7 +1082,7 @@
     document.getElementById('node-tooltip')?.classList.add('hidden');
   }
 
-  let inspectorReturnFocus = null;
+  let inspectorReturnFocus = null, refreshInspectorConnections = null;
   function focusWithoutScroll(element) {
     if (!element?.focus) return;
     try { element.focus({ preventScroll: true }); } catch (_) { element.focus(); }
@@ -1044,7 +1092,7 @@
     const focusedInside = insp?.contains(document.activeElement);
     insp?.classList.add('hidden');
     if (focusedInside) focusWithoutScroll(inspectorReturnFocus?.isConnected ? inspectorReturnFocus : document.getElementById('arena-stage'));
-    inspectorReturnFocus = null;
+    inspectorReturnFocus = null; refreshInspectorConnections = null;
   }
   function openInspector(node) {
     if (!node || node.isHub) return;
@@ -1115,34 +1163,60 @@
     if (details && list && prev && next && status) {
       const original = node.originId || node.id;
       const endpoint = value => typeof value === 'object' && value ? value.id : value;
-      const edges = (store()?.state.links || []).filter(link => endpoint(link.source) === original || endpoint(link.target) === original);
+      const anchors = new Set(node.sentenceIds || []);
       let page = 0;
-      details.querySelector('summary').textContent = `Conexiones guardadas (${edges.length})`;
       const draw = () => {
+        const affinities = (store()?.harvestConnections(original) || []).filter(link =>
+          anchors.has(endpoint(link.source) === original ? link.sourceSentenceId : link.targetSentenceId));
+        const saved = (store()?.state.links || []).filter(link => endpoint(link.source) === original || endpoint(link.target) === original);
+        const edges = affinities.concat(saved);
+        details.querySelector('summary').textContent = `Afinidades y conexiones (${edges.length})`;
         const pages = Math.max(1, Math.ceil(edges.length / 12));
         page = Math.max(0, Math.min(page, pages - 1));
+        const focused = list.contains(document.activeElement) ? document.activeElement.dataset.connectionFocus : null;
         list.replaceChildren();
         edges.slice(page * 12, page * 12 + 12).forEach(link => {
           const from = endpoint(link.source), to = endpoint(link.target), neighborId = from === original ? to : from;
-          const neighbor = allGraphNodes.find(n => n.id === neighborId || n.originId === neighborId) ||
+          const neighborSentence = link.kind === 'affinity' ? (from === original ? link.targetSentenceId : link.sourceSentenceId) : null;
+          const neighbor = allGraphNodes.find(n => (n.id === neighborId || n.originId === neighborId) &&
+            (!neighborSentence || (n.sentenceIds || []).includes(neighborSentence))) ||
             (store()?.state.nodes || []).find(n => n.id === neighborId);
           const button = document.createElement('button');
           button.type = 'button'; button.className = 'citation-chip';
-          button.textContent = `${link.kind || 'relación'} · ${neighbor?.label || neighborId}`;
+          const focusKey = link.key || JSON.stringify([from, to, link.kind]);
+          button.dataset.connectionFocus = focusKey;
+          button.textContent = `${link.kind === 'affinity' ? 'Afinidad' : link.kind || 'relación'} · ${neighbor?.label || neighborId}`;
           button.title = 'Explorar conexión';
           button.addEventListener('click', () => {
             if (!neighbor) return;
             if (neighbor.isHub) setClusterFilter(neighbor.id);
             else openInspector(neighbor);
           });
-          list.appendChild(button);
+          if (link.kind !== 'affinity') { list.appendChild(button); return; }
+          const row = document.createElement('div'); row.className = 'affinity-connection'; row.appendChild(button);
+          const reason = document.createElement('p');
+          reason.textContent = `Afinidad ${Math.round(link.score * 100)}/100 · Palabras afines: ${(link.shared || []).join(', ')}.`;
+          row.appendChild(reason);
+          const currentSentence = from === original ? link.sourceSentenceId : link.targetSentenceId;
+          for (const [role, id] of [['Esta cita', currentSentence], ['Cita vecina', neighborSentence]]) {
+            const sentence = store()?.getSentence(id); if (!sentence) continue;
+            const source = document.createElement('button'); source.type = 'button'; source.className = 'source-link';
+            source.dataset.connectionFocus = focusKey + ':' + id;
+            source.textContent = `${role}: ${sentence.docName || 'Documento'} · pág. ${sentence.sourcePage || sentence.pageNum}`;
+            source.title = `Ir a la fuente: ${U.truncate(sentence.sourceText ?? sentence.text, 140)}`;
+            source.addEventListener('click', () => root.DocViewer?.goToSentence(id));
+            row.appendChild(source);
+          }
+          list.appendChild(row);
         });
-        if (!edges.length) list.textContent = 'Sin relaciones guardadas.';
+        if (!edges.length) list.textContent = 'Sin afinidades ni relaciones guardadas.';
         status.textContent = `${edges.length ? page * 12 + 1 : 0}–${Math.min(edges.length, (page + 1) * 12)} / ${edges.length}`;
         prev.disabled = page === 0; next.disabled = page >= pages - 1;
         if (pageInput) { pageInput.max = String(pages); pageInput.value = String(page + 1); }
         if (pageCount) pageCount.textContent = `/ ${pages}`;
+        if (focused) focusWithoutScroll([...list.querySelectorAll('[data-connection-focus]')].find(el => el.dataset.connectionFocus === focused) || details.querySelector('summary'));
       };
+      refreshInspectorConnections = draw;
       prev.onclick = () => { page--; draw(); }; next.onclick = () => { page++; draw(); };
       if (pageInput) {
         const jump = () => { const n = Number(pageInput.value); if (Number.isFinite(n)) page = Math.floor(n) - 1; draw(); };
@@ -1260,6 +1334,40 @@
     highlightPath(allGraphNodes.filter(node => !node.isHub && (node.sentenceIds || []).some(id => ids.has(id))).map(node => node.id));
   }
 
+  function projectedHarvestNode(nodeId, sentenceId) {
+    return allGraphNodes.find(node => !node.isHub && (node.originId || node.id) === nodeId &&
+      (!sentenceId || (node.sentenceIds || []).includes(sentenceId))) || null;
+  }
+  function visibleHarvestNode(nodeId, sentenceId) {
+    return graphNodes.find(node => !node.isHub && (node.originId || node.id) === nodeId &&
+      (!sentenceId || (node.sentenceIds || []).includes(sentenceId)) && !dimmed(node)) || null;
+  }
+  function beginDelivery(spiderId, sentenceId) {
+    if (!root.d3 || !gNodes) return null;
+    const candidates = store()?.harvestCandidates(sentenceId) || [];
+    // Respetar una búsqueda o filtro elegido por el usuario; no cambiar su
+    // página. Si no hay filtro, mostrar temporalmente un vecino fuera de ella.
+    let match = candidates.find(c => visibleHarvestNode(c.nodeId, c.sentenceId));
+    if (!match && !activeCluster && !graphQuery.trim()) match = candidates.find(c => projectedHarvestNode(c.nodeId, c.sentenceId));
+    if (!match) return null;
+    const target = { nodeId: match.nodeId, sentenceId: match.sentenceId, sourceSentenceId: sentenceId };
+    deliveryTargets.set(spiderId, target);
+    if (!visibleHarvestNode(target.nodeId, target.sentenceId)) { buildGraphData(); render(false); }
+    return target;
+  }
+  function getDeliveryScreenPos(spiderId) {
+    const target = deliveryTargets.get(spiderId), svgEl = document.getElementById('neural-svg');
+    if (!target || !svgEl || !store()?.getSentence(target.sentenceId) || !store()?.getSentence(target.sourceSentenceId)) return null;
+    const node = visibleHarvestNode(target.nodeId, target.sentenceId), point = node && position(node);
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
+    const rect = svgEl.getBoundingClientRect();
+    return { x: rect.left + point.x, y: rect.top + point.y };
+  }
+  function endDelivery(spiderId) {
+    if (!deliveryTargets.delete(spiderId)) return;
+    if (requestGraphRefresh) requestGraphRefresh();
+    else { buildGraphData(); render(false); }
+  }
   function getHubScreenPos(clusterId) {
     const svgEl = document.getElementById('neural-svg');
     if (!svgEl) return { x: window.innerWidth * 0.5, y: window.innerHeight * 0.5 };
@@ -1325,9 +1433,28 @@
         graphRefreshTimer = null; buildGraphData(); render(false);
       }, 120);
     };
-    S.on('node:added', ({ pattern }) => {
+    requestGraphRefresh = scheduleGraphRefresh;
+    S.on('node:added', ({ node, isNew, pattern }) => {
+      if (isNew && node) {
+        const links = S.harvestConnections(node.id);
+        const travel = [...deliveryTargets.values()].find(target => target.sourceSentenceId === pattern?.sentenceId);
+        const edge = links.find(link => travel && (link.source === travel.nodeId || link.target === travel.nodeId)) || links[0];
+        recentDelivery = null;
+        if (edge) {
+          const ownFirst = edge.source === node.id;
+          const own = { nodeId: node.id, sentenceId: ownFirst ? edge.sourceSentenceId : edge.targetSentenceId };
+          const other = { nodeId: ownFirst ? edge.target : edge.source, sentenceId: ownFirst ? edge.targetSentenceId : edge.sourceSentenceId };
+          recentDelivery = [own, other];
+          const neighbor = visibleHarvestNode(other.nodeId, other.sentenceId);
+          if (neighbor && Number.isFinite(neighbor.x) && Number.isFinite(neighbor.y)) {
+            positionSeeds.set(node.id, { x: neighbor.x + 20, y: neighbor.y + 15 });
+            if (positionSeeds.size > 20) positionSeeds.delete(positionSeeds.keys().next().value);
+          }
+        }
+      }
       scheduleGraphRefresh();
-      appendTickerRow(pattern);
+      refreshInspectorConnections?.();
+      if (pattern) appendTickerRow(pattern);
       updateTelemetry();
     });
     document.getElementById('btn-study-links').addEventListener('click', () => showStudyLinks(studyFocus ? null : firstStudyId(), false));
@@ -1337,15 +1464,28 @@
       const details = document.querySelector('#insp-relations details');
       if (details) { details.open = true; details.querySelector('summary').focus(); }
     });
-    S.on('relations:changed', () => { if (studyFocus) scheduleGraphRefresh(); });
+    const refreshAffinities = () => {
+      // Una valoración o reconstrucción puede invalidar un destino a mitad
+      // de camino. No mantener una entrega dirigida a una afinidad rechazada.
+      for (const [id, target] of deliveryTargets) if (!S.harvestTargetValid(target.sourceSentenceId, target)) deliveryTargets.delete(id);
+      scheduleGraphRefresh(); refreshInspectorConnections?.();
+    };
+    S.on('relations:changed', refreshAffinities);
+    S.on('harvest:linksUpdated', refreshAffinities);
+    S.on('doc:added', refreshAffinities);
     S.on('semantic:updated', scheduleGraphRefresh);
-    S.on('node:removed', () => { semanticDirty = true; buildGraphData(); render(true); updateTelemetry(); closeInspector(); });
+    S.on('node:removed', () => {
+      deliveryTargets.clear(); recentDelivery = null; positionSeeds.clear();
+      semanticDirty = true; buildGraphData(); render(true); updateTelemetry(); closeInspector();
+    });
     S.on('doc:removed', () => {
       if (studyFocus && !S.getSentence(studyFocus)) studyFocus = null;
+      deliveryTargets.clear(); recentDelivery = null; positionSeeds.clear();
       semanticDirty = true; buildGraphData(); render(true); updateTelemetry(); closeInspector();
       document.getElementById('ticker-list')?.replaceChildren(); S.state.patterns.slice(-40).forEach(appendTickerRow);
     });
     for (const name of ['brain:importing', 'system:resetting']) S.on(name, () => {
+      deliveryTargets.clear(); recentDelivery = null; positionSeeds.clear();
       studyFocus = null; focusNode = null; closeInspector(); document.getElementById('insp-relations').replaceChildren();
     });
     S.on('brain:imported', () => {
@@ -1462,6 +1602,7 @@
     return function () { clearTimeout(t); t = setTimeout(fn, ms); };
   }
 
-  root.NeuralGraph = { init, getHubScreenPos, getIdleTargets, getIdleTarget, highlightPath, highlightSources,
+  root.NeuralGraph = { init, getHubScreenPos, beginDelivery, getDeliveryScreenPos, endDelivery,
+    getIdleTargets, getIdleTarget, highlightPath, highlightSources,
     recenter, setClusterFilter, scrollToSentence, showStudyLinks, updateTelemetry, ensureHubs };
 })(typeof window !== 'undefined' ? window : globalThis);

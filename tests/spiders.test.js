@@ -1286,3 +1286,97 @@ test('borrar el chat libera la guía incluso después de responder, sin interrum
     assert.ok(!h.store.state.patterns.some(p => p.sentenceId === 's2'));
   } finally { h.dom.window.close(); }
 });
+
+test('una entrega sigue al vecino afín proyectado y libera su destino al terminar o cancelar', () => {
+  const h = makeHarness();
+  try {
+    const positions = [], ended = [], hubs = [];
+    const target = { nodeId: 'n-previo', sentenceId: 's2', sourceSentenceId: 's1' };
+    h.w.NeuralGraph.beginDelivery = (spider, sid) => { assert.equal(sid, 's1'); return target; };
+    h.w.NeuralGraph.getDeliveryScreenPos = spider => { positions.push(spider); return { x: 432, y: 176 }; };
+    h.w.NeuralGraph.endDelivery = spider => ended.push(spider);
+    h.w.NeuralGraph.getHubScreenPos = id => { hubs.push(id); return { x: 580, y: 245 }; };
+    h.store.emit('spider:dispatchToSentence', { sentence: h.sentences[0] });
+    h.tick(2);
+    assert.equal(h.events.find(e => e.type === 'spider:extracted').payload.relatedNodeId, 'n-previo');
+    h.tick();
+    const moving = h.w.SpiderEngine.getStatus().spiders[0];
+    assert.equal(moving.phase, 'ALIMENTAR_NODO');
+    assert.deepEqual([moving.x, moving.y], [432, 176], 'el destino es el nodo y no el hub');
+    h.tick();
+    assert.equal(h.store.state.patterns[0].relatedTarget, target);
+    assert.deepEqual(ended, positions); assert.equal(hubs.length, 0);
+
+    h.w.NeuralGraph.beginDelivery = () => null;
+    h.store.emit('spider:dispatchToSentence', { sentence: h.sentences[1] });
+    h.tick(4);
+    assert.ok(hubs.includes('AGT-01'), 'sin evidencia vuelve al centro disponible');
+    assert.equal(h.store.state.patterns.length, 2);
+
+    h.w.NeuralGraph.beginDelivery = () => target;
+    h.store.emit('spider:dispatchToSentence', { sentence: h.sentences[0] });
+    h.tick(2);
+    h.store.state.allSentences = [];
+    h.store.emit('doc:removed', { docId: 'd1' });
+    assert.equal(ended.length, 2, 'una cancelación libera el ancla de entrega');
+    assert.equal(h.store.state.claimedTargets.size, 0);
+  } finally { h.dom.window.close(); }
+});
+
+test('si un destino se mueve durante el trayecto, la araña sigue su posición actual', () => {
+  const h = makeHarness();
+  try {
+    const target = { nodeId: 'vecino', sentenceId: 's2', sourceSentenceId: 's1' };
+    let point = { x: 430, y: 170 }, calls = 0;
+    h.w.NeuralGraph.beginDelivery = () => target;
+    h.w.NeuralGraph.getDeliveryScreenPos = () => { calls++; return point; };
+    h.w.NeuralGraph.endDelivery = () => {};
+    h.store.emit('spider:dispatchToSentence', { sentence: h.sentences[0] });
+    h.tick(2); h.setReduced(false); // La lectura termina; el viaje sí usa locomoción.
+    h.tick(6);
+    assert.equal(h.w.SpiderEngine.getStatus().spiders[0].phase, 'ARRASTRAR_A_RED');
+    point = { x: 670, y: 315 }; // Equivale a mover el nodo o rotar la cámara.
+    let ticks = 0;
+    while (h.w.SpiderEngine.getStatus().spiders[0].phase === 'ARRASTRAR_A_RED' && ticks++ < 400) h.tick();
+    const arrived = h.w.SpiderEngine.getStatus().spiders[0];
+    assert.equal(arrived.phase, 'ALIMENTAR_NODO'); assert.ok(calls > 6);
+    assert.ok(Math.hypot(arrived.x - point.x, arrived.y - point.y) < .01);
+  } finally { h.dom.window.close(); }
+});
+
+test('si desaparece el destino en vuelo usa el hub y no comunica una llegada afín', () => {
+  const h = makeHarness();
+  try {
+    const target = { nodeId: 'vecino', sentenceId: 's2', sourceSentenceId: 's1' };
+    h.w.NeuralGraph.beginDelivery = () => target;
+    h.w.NeuralGraph.getDeliveryScreenPos = () => null;
+    h.w.NeuralGraph.getHubScreenPos = () => ({ x: 580, y: 245 });
+    h.w.NeuralGraph.endDelivery = () => {};
+    h.store.addPattern = function (p) { this.state.patterns.push(p); return { id: 'nuevo' }; };
+    h.store.harvestConnections = () => [{ source: 'nuevo', target: 'vecino', sourceSentenceId: 's1', targetSentenceId: 's2' }];
+    h.store.emit('spider:dispatchToSentence', { sentence: h.sentences[0] });
+    h.tick(3);
+    const arrived = h.w.SpiderEngine.getStatus().spiders[0];
+    assert.deepEqual([arrived.x, arrived.y], [580, 245]);
+    h.tick();
+    assert.equal(h.store.state.patterns[0].relatedTarget, null);
+    assert.equal(h.events.find(event => event.type === 'spider:delivered').payload.relatedNodeId, null);
+  } finally { h.dom.window.close(); }
+});
+
+test('una entrega solo se anuncia afín cuando la arista confirma ambas citas del destino', () => {
+  for (const [edgeAnchor, expected] of [['s2', 'vecino'], ['otra-cita', null]]) {
+    const h = makeHarness();
+    try {
+      const target = { nodeId: 'vecino', sentenceId: 's2', sourceSentenceId: 's1' };
+      h.w.NeuralGraph.beginDelivery = () => target;
+      h.w.NeuralGraph.getDeliveryScreenPos = () => ({ x: 432, y: 176 });
+      h.w.NeuralGraph.endDelivery = () => {};
+      h.store.addPattern = function (p) { this.state.patterns.push(p); return { id: 'nuevo' }; };
+      h.store.harvestConnections = () => [{ source: 'nuevo', target: 'vecino', sourceSentenceId: 's1', targetSentenceId: edgeAnchor }];
+      h.store.emit('spider:dispatchToSentence', { sentence: h.sentences[0] });
+      h.tick(4);
+      assert.equal(h.events.find(event => event.type === 'spider:delivered').payload.relatedNodeId, expected);
+    } finally { h.dom.window.close(); }
+  }
+});

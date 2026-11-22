@@ -26,6 +26,7 @@
   <script defer src="js/chunks.js"></script>
   <script defer src="js/highlights.js"></script>
   <script defer src="js/passage-links.js"></script>
+  <script defer src="js/harvest-links.js"></script>
   <script defer src="js/smalltalk.js"></script>
   <script defer src="js/companion.js"></script>
   <script defer src="js/store.js"></script>
@@ -135,6 +136,7 @@
         <span class="orbit-heading">Red de conceptos</span>
         <button type="button" id="btn-orbit" class="btn-mini" aria-pressed="false" aria-controls="arena-stage orbit-controls orbit-guide" title="Alternar entre el plano y la esfera giratoria">Órbita 3D</button>
         <button type="button" id="btn-study-links" class="btn-mini" aria-controls="neural-svg link-guide" aria-pressed="false" disabled>Vínculos de estudio</button>
+        <p id="harvest-affinity-guide"><span aria-hidden="true">┄</span> Hilos ámbar: afinidad por palabras, no relación demostrada. <span id="harvest-affinity-status">0 afinidades.</span></p>
         <p id="link-guide" hidden><span id="link-caption"></span> <button id="link-compare" type="button" class="btn-mini">Valorar vínculos</button></p>
         <div id="orbit-controls" role="group" aria-label="Cámara de la esfera" hidden>
           <button type="button" data-orbit-key="ArrowLeft" aria-label="Girar a la izquierda" title="Girar a la izquierda">←</button><button type="button" data-orbit-key="ArrowRight" aria-label="Girar a la derecha" title="Girar a la derecha">→</button>
@@ -180,7 +182,7 @@
           <div class="inspector-head"><span id="insp-cluster" class="badge">AGT-01</span><span id="insp-weight" class="insp-weight">×1</span><button id="btn-close-inspector" class="btn-mini" aria-label="Cerrar inspector">✕</button></div>
           <h4 id="insp-label"></h4><p id="insp-text" class="insp-text"></p><div id="insp-citations" class="insp-citations"></div>
           <div id="insp-citation-pages" class="insp-citation-pages hidden"><button type="button" class="btn-mini" id="insp-citation-prev" aria-label="Citas anteriores">‹</button><span id="insp-citation-status" role="status" aria-live="polite"></span><button type="button" class="btn-mini" id="insp-citation-next" aria-label="Citas siguientes">›</button><label for="insp-citation-page">Pág.</label><input id="insp-citation-page" type="number" min="1" value="1" inputmode="numeric" aria-label="Página de citas"><span id="insp-citation-page-count"></span></div>
-          <details id="insp-connections" class="insp-connections"><summary>Conexiones</summary><div id="insp-connection-list"></div><div class="insp-connection-pages"><button type="button" class="btn-mini" id="insp-connection-prev" aria-label="Conexiones anteriores">‹</button><span id="insp-connection-status" role="status" aria-live="polite"></span><button type="button" class="btn-mini" id="insp-connection-next" aria-label="Conexiones siguientes">›</button><label for="insp-connection-page">Pág.</label><input id="insp-connection-page" type="number" min="1" value="1" inputmode="numeric" aria-label="Página de conexiones"><span id="insp-connection-page-count"></span></div></details>
+          <details id="insp-connections" class="insp-connections"><summary>Conexiones</summary><p>La afinidad se basa en palabras de las citas; puede ser imprecisa o conectar afirmaciones contradictorias. Revisa ambas fuentes.</p><div id="insp-connection-list"></div><div class="insp-connection-pages"><button type="button" class="btn-mini" id="insp-connection-prev" aria-label="Conexiones anteriores">‹</button><span id="insp-connection-status" role="status" aria-live="polite"></span><button type="button" class="btn-mini" id="insp-connection-next" aria-label="Conexiones siguientes">›</button><label for="insp-connection-page">Pág.</label><input id="insp-connection-page" type="number" min="1" value="1" inputmode="numeric" aria-label="Página de conexiones"><span id="insp-connection-page-count"></span></div></details>
           <div id="insp-relations"></div>
           <button class="btn-mini" id="btn-insp-ask">Preguntar por este concepto</button>
         </div>

@@ -19,10 +19,10 @@
   const node = typeof module !== 'undefined' && module.exports;
   const api = factory(U, R, DB, C, K, node ? require('./highlights.js') : root.NCHighlights,
     node ? require('./passage-links.js') : root.NCPassageLinks, node ? require('./srs.js') : root.NCSRS,
-    node ? require('./companion.js') : root.NCCompanion);
+    node ? require('./companion.js') : root.NCCompanion, node ? require('./harvest-links.js') : root.NCHarvestLinks);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.NeuralStore = Object.assign(root.NeuralStore || {}, api);
-})(typeof window !== 'undefined' ? window : globalThis, function (U, R, DB, C, K, H, L, SRS, Companion) {
+})(typeof window !== 'undefined' ? window : globalThis, function (U, R, DB, C, K, H, L, SRS, Companion, HarvestLinks) {
   'use strict';
 
   const DEFAULT_SETTINGS = {
@@ -304,6 +304,8 @@
     indexVectors();
     state.activeDocId = normalized.id;
     state.activePage = 1;
+    // También puede hacer válida una cita de un respaldo antiguo.
+    rebuildHarvestIndex();
 
     emit('doc:added', normalized);
     emit('doc:pageChanged', { docId: normalized.id, pageNum: 1 });
@@ -371,7 +373,7 @@
   function clearRelations(docId) {
     if (!state.relationVotes.some(v => v.docId === docId)) return false;
     state.relationVotes = state.relationVotes.filter(v => v.docId !== docId);
-    relationModels.get(docId)?.fit([]); saveRelations(docId); return true;
+    relationModels.get(docId)?.fit([]); rebuildHarvestIndex(); saveRelations(docId); return true;
   }
   function rateRelation(id, other, useful) {
     const docId = getSentence(id)?.docId, v = L.example({ docId, a: id, b: other, useful });
@@ -383,7 +385,7 @@
     const lost = state.relationVotes.length > L.MAX_VOTES && state.relationVotes.shift();
     if (lost && lost.docId !== docId) relationModels.delete(lost.docId);
     relationModel(docId).fit(state.relationVotes);
-    saveRelations(docId); return true;
+    rebuildHarvestIndex(); saveRelations(docId); return true;
   }
 
   function removeDocument(docId) {
@@ -421,6 +423,7 @@
     }
     state.index = R.rebuildFrom(state.allSentences);
     indexVectors();
+    rebuildHarvestIndex();
     emit('doc:removed', { docId });
     emit('doc:pageChanged', { docId: state.activeDocId, pageNum: state.activePage });
     emit('retrieve:indexed', { stats: R.stats(state.index) });
@@ -458,6 +461,44 @@
   // ─────────────────────────────────────────────────────────────────────────
   // Grafo y patrones
   // ─────────────────────────────────────────────────────────────────────────
+  // Las afinidades se derivan de las citas cosechadas, no se confunden con los
+  // enlaces guardados ni se exportan. Se reconstruyen incluso para respaldos
+  // anteriores; una cita ausente o un voto «No útil» no puede producirlas.
+  let harvestIndex = null, harvestNodes = null, harvestNodeCount = -1;
+  let harvestEpoch = 0, harvestTimer = null, harvestTotal = 0, harvestPending = 0;
+  function rebuildHarvestIndex() {
+    const epoch = ++harvestEpoch;
+    clearTimeout(harvestTimer); harvestTimer = null;
+    const rejected = new Set(state.relationVotes.filter(v => v.useful === false).map(v => HarvestLinks.pairKey(v.a, v.b)));
+    const model = HarvestLinks.create(getSentence, (a, b) => rejected.has(HarvestLinks.pairKey(a, b)));
+    harvestIndex = model; harvestNodes = state.nodes; harvestNodeCount = state.nodes.length;
+    const nodes = state.nodes.filter(n => !n.isHub);
+    let cursor = 0; harvestTotal = nodes.length; harvestPending = nodes.length;
+    function step(notify) {
+      if (epoch !== harvestEpoch) return;
+      const start = Date.now(); let count = 0;
+      do { if (cursor >= nodes.length) break; model.add(nodes[cursor++]); count++; }
+      while (count < 64 && Date.now() - start < 8);
+      harvestPending = nodes.length - cursor;
+      if (harvestPending) harvestTimer = setTimeout(() => step(true), 0);
+      else harvestTimer = null;
+      if (notify) emit('harvest:linksUpdated', harvestInfo());
+    }
+    // Un corpus pequeño queda listo antes del primer render; uno grande cede
+    // el hilo principal entre lotes y admite nuevas entregas durante la carga.
+    step(false);
+    return model;
+  }
+  function ensureHarvestIndex() {
+    return !harvestIndex || harvestNodes !== state.nodes || harvestNodeCount !== state.nodes.length
+      ? rebuildHarvestIndex() : harvestIndex;
+  }
+  function harvestEdges() { return ensureHarvestIndex().edges(); }
+  function harvestConnections(nodeId) { return ensureHarvestIndex().connections(nodeId); }
+  function harvestCandidates(sentenceId) { return ensureHarvestIndex().suggest(sentenceId); }
+  function harvestTargetValid(sourceId, target) { return !!target && ensureHarvestIndex().validTarget(sourceId, target.nodeId, target.sentenceId); }
+  function harvestInfo() { return { indexed: harvestIndex?.size() || 0, total: harvestTotal, indexing: harvestPending > 0 }; }
+
   function linkKey(source, target, kind) {
     return `${source}>${target}:${kind || 'h'}`;
   }
@@ -499,8 +540,9 @@
     return link;
   }
 
-  function addPattern({ cluster, label, text, pageNum, sentenceId, color, section }) {
+  function addPattern({ cluster, label, text, pageNum, sentenceId, color, section, relatedTarget }) {
     if (!label || !text) return null;
+    const affinity = ensureHarvestIndex();
     const norm = U.normalize(label).trim();
     const hash = U.hash(text), alreadyVisited = state.visitedPatternHashes.has(hash);
     // La misma etiqueta genérica puede aparecer en temas distintos. Solo se
@@ -512,7 +554,11 @@
     if (existing) {
       existing.weight = (existing.weight || 1) + 1;
       if (pageNum != null && !existing.pageNums.includes(pageNum)) existing.pageNums.push(pageNum);
-      if (sentenceId && !existing.sentenceIds.includes(sentenceId)) existing.sentenceIds.push(sentenceId);
+      if (sentenceId && !existing.sentenceIds.includes(sentenceId)) {
+        existing.sentenceIds.push(sentenceId);
+        rememberPatternNode(existing);
+        rebuildHarvestIndex();
+      }
       if (existing.cluster !== cluster) {
         addLink(existing.id, cluster, 'synaptic');
       }
@@ -533,6 +579,8 @@
       };
       state.nodes.push(node);
       rememberPatternNode(node); indexedNodeCount = state.nodes.length;
+      affinity.add(node, relatedTarget);
+      harvestNodes = state.nodes; harvestNodeCount = state.nodes.length; harvestTotal++;
       addLink(cluster, node.id, 'hierarchy');
       state.visitedPatternHashes.add(hash);
     }
@@ -553,6 +601,7 @@
       const t = typeof l.target === 'object' ? l.target.id : l.target;
       return s !== nodeId && t !== nodeId;
     });
+    rebuildHarvestIndex();
     emit('node:removed', { nodeId });
     scheduleSave();
   }
@@ -706,6 +755,7 @@
     if (dirty.has('cards')) scheduleSave('cards');
     state.index = R.rebuildFrom(state.allSentences);
     indexVectors();
+    rebuildHarvestIndex();
     state.persistence = Object.assign(state.persistence, DB.status());
     state.visitedPatternHashes = new Set();
     state.patterns.forEach(p => { if (p.hash) state.visitedPatternHashes.add(p.hash); });
@@ -752,6 +802,7 @@
     state.chat = [];
     state.quizRuns = [];
     state.relationVotes = []; relationModels.clear();
+    rebuildHarvestIndex();
     state.tutorRuns = [];
     state.evalRuns = [];
     if (!o.keepMemory) { state.vault = []; state.consolidatedMemory = []; state.cards = []; state.feedback = []; }
@@ -913,6 +964,7 @@
     savePersistent, saveCards, savePersonal, flush, recordTutorRun,
     addDocument, removeDocument, setActiveDoc, setActivePage, holdAutoNavigation, getActiveDoc, getSentence,
     addPattern, addLink, removeNode, addQuestion, removeQuestion, relatedPassages, rateRelation, clearRelations,
+    harvestEdges, harvestConnections, harvestCandidates, harvestTargetValid, harvestInfo,
     search, synonyms,
     resetAll, exportBrain, importBrain, stats,
     hashPattern, persistPatternIDB

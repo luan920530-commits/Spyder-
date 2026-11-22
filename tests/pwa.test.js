@@ -63,7 +63,7 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
   }
   assert.ok(assets.includes('./js/spider-visual.js'), 'la silueta compartida debe estar disponible sin conexión');
   assert.ok(assets.includes('./js/spider-motion.js'), 'la locomoción debe funcionar sin conexión');
-  for (const s of ['highlights', 'question-ui', 'passage-links', 'passage-panel', 'study-dialogue', 'dialogue-ui', 'smalltalk', 'companion', 'companion-ui']) assert.ok(assets.includes(`./js/${s}.js`));
+  for (const s of ['highlights', 'question-ui', 'passage-links', 'harvest-links', 'passage-panel', 'study-dialogue', 'dialogue-ui', 'smalltalk', 'companion', 'companion-ui']) assert.ok(assets.includes(`./js/${s}.js`));
   assert.ok(assets.includes('./js/chunks.js'), 'las ventanas deben poder reconstruirse sin conexión');
   assert.ok(assets.includes('./js/semantic-clusters.js'), 'los temas deben poder reconstruirse sin conexión');
   assert.ok(assets.includes('./js/graph-projection.js'), 'la paginación de la red debe estar disponible sin conexión');
@@ -87,6 +87,8 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
   await otherShell.put('https://local.test/app/js/parsers.js', new Response('lector de la otra rama'));
   const latestShell = await context.caches.open('neural-spider-os-v11-30');
   await latestShell.put('https://local.test/app/js/knowledge-base.js', new Response('base anterior sin cláusula penal'));
+  const previous31 = await context.caches.open('neural-spider-os-v11-31');
+  await previous31.put('https://local.test/app/js/spiders.js', new Response('cosechas sin afinidades'));
   const ocrCache = await context.caches.open('neural-spider-ocr-es-lstm-6.1.2');
   await ocrCache.put('https://local.test/app/vendor/ocr/es-lstm-6.1.2.js', new Response('motor OCR opcional'));
   const modelCache = await context.caches.open('neural-spider-model-v1');
@@ -95,12 +97,12 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
   await qwenCache.put('https://local.test/app/vendor/wllama/wllama.wasm', new Response('runtime qwen'));
   await qwenCache.put('https://local.test/app/' + qwen.modelPath, new Response('pesos qwen'));
   listeners.activate({ waitUntil: p => { pending = p; } }); await pending;
-  assert.deepEqual(removed, ['neural-spider-os-v11-23', 'neural-spider-os-v11-29', 'neural-spider-os-v11-30', 'neural-spider-os-v3']);
-  assert.ok(!buckets.has('neural-spider-os-v11-23') && !buckets.has('neural-spider-os-v11-29') && !buckets.has('neural-spider-os-v11-30'), 'la actualización sustituye los shells anteriores');
+  assert.deepEqual(removed, ['neural-spider-os-v11-23', 'neural-spider-os-v11-29', 'neural-spider-os-v11-30', 'neural-spider-os-v11-31', 'neural-spider-os-v3']);
+  assert.ok(!buckets.has('neural-spider-os-v11-23') && !buckets.has('neural-spider-os-v11-29') && !buckets.has('neural-spider-os-v11-30') && !buckets.has('neural-spider-os-v11-31'), 'la actualización sustituye los shells anteriores');
   assert.ok(buckets.has('neural-spider-ocr-es-lstm-6.1.2'), 'actualizar el shell no debe borrar OCR');
   assert.ok(buckets.has('neural-spider-model-v1'), 'actualizar el shell no debe borrar MiniLM');
   assert.ok(buckets.has(qwen.cache), 'actualizar el shell no debe borrar Qwen');
-  const shell = await context.caches.open('neural-spider-os-v11-31');
+  const shell = await context.caches.open('neural-spider-os-v11-32');
   assert.equal(await (await shell.match('https://local.test/app/vendor/pdfjs/pdf.min.mjs')).text(), 'pdf legacy');
   assert.equal(await (await shell.match('https://local.test/app/vendor/pdfjs/pdf.worker.min.mjs')).text(), 'worker legacy');
   let response;
@@ -114,6 +116,8 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
   assert.match(await (await response).text(), /cached:.*js\/spiders/, 'el nuevo enjambre se sirve sin conexión');
   listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/js/graph-projection.js', mode: 'cors' }, respondWith: p => { response = p; } });
   assert.match(await (await response).text(), /cached:.*js\/graph-projection/);
+  listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/js/harvest-links.js', mode: 'cors' }, respondWith: p => { response = p; } });
+  assert.match(await (await response).text(), /cached:.*js\/harvest-links/);
   listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/js/knowledge-base.js', mode: 'cors' }, respondWith: p => { response = p; } });
   assert.match(await (await response).text(), /cached:.*js\/knowledge-base/);
   listeners.fetch({ request: { method: 'GET', url: 'https://local.test/app/js/education-knowledge.js', mode: 'cors' }, respondWith: p => { response = p; } });

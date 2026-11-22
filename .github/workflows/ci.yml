@@ -32,3 +32,6 @@ jobs:
       - name: Benchmark de proyección acotada de la red
         if: matrix.node == 22
         run: npm run bench:graph -- 20000
+      - name: Benchmark sintético de afinidades de cosecha
+        if: matrix.node == 22
+        run: npm run bench:harvest -- 20000

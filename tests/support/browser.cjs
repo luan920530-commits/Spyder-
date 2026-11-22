@@ -21,7 +21,7 @@ async function boot(page, url) {
 // Host estático sin CORS, sin configuración para .mjs y con una subruta como
 // la de Pages. No se cambia la política de seguridad de index.html.
 async function serve(t) {
-  const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.woff2': 'font/woff2', '.png': 'image/png' };
+  const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.woff2': 'font/woff2', '.png': 'image/png', '.wasm': 'application/wasm' };
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const filename = path.resolve(root, '.' + url.pathname.slice('/app'.length), url.pathname.endsWith('/') ? 'index.html' : '');

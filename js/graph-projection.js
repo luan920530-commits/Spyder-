@@ -25,14 +25,29 @@
     const pages = Math.max(1, Math.ceil(eligible.length / limit));
     const page = Math.max(0, Math.min(pages - 1, Math.floor(options.page || 0)));
     const from = page * limit, selected = eligible.slice(from, from + limit);
-    const visible = hubs.concat(selected), ids = new Set(visible.map(n => n.id));
+    // Hasta siete nodos reales de entregas activas o recientes pueden acompañar
+    // la página sin desplazarla ni alterar sus totales. El filtro sigue vigente.
+    const ids = new Set(hubs.concat(selected).map(n => n.id));
+    const requested = new Set((options.pins || []).slice(0, 7)), pinned = [];
+    if (requested.size) for (const node of eligible) {
+      if (requested.has(node.id) && !ids.has(node.id)) { pinned.push(node); ids.add(node.id); }
+    }
+    const visible = hubs.concat(selected, pinned);
     const matchingLinks = (links || []).filter(link => ids.has(idOf(link.source)) && ids.has(idOf(link.target)));
-    // Priorizar relaciones hacia los hubs hace legible la muestra; el inspector
-    // permite recorrer TODAS las relaciones originales, incluso fuera de página.
     const hubIds = new Set(hubs.map(n => n.id));
-    matchingLinks.sort((a, b) => Number(hubIds.has(idOf(b.source)) || hubIds.has(idOf(b.target))) -
-      Number(hubIds.has(idOf(a.source)) || hubIds.has(idOf(a.target))));
-    return { nodes: visible, links: matchingLinks.slice(0, edgeLimit), eligible, page, pages, limit,
+    const pair = options.affinityPair;
+    const priority = l => {
+      const a = idOf(l.source), b = idOf(l.target);
+      if (l.kind === 'affinity' && pair?.length === 2 &&
+          ((a === pair[0] && b === pair[1]) || (a === pair[1] && b === pair[0]))) return 3;
+      return hubIds.has(a) || hubIds.has(b) ? 2 : l.kind === 'affinity' ? 1 : 0;
+    };
+    matchingLinks.sort((a, b) => priority(b) - priority(a) || (Number(b.score) || 0) - (Number(a.score) || 0));
+    const shownLinks = matchingLinks.slice(0, edgeLimit);
+    // Si hay muy poco espacio no dejar invisibles todas las afinidades.
+    const affinity = matchingLinks.find(l => l.kind === 'affinity');
+    if (edgeLimit && affinity && !shownLinks.includes(affinity)) shownLinks[shownLinks.length - 1] = affinity;
+    return { nodes: visible, links: shownLinks, eligible, page, pages, limit, pinned: pinned.length,
       total: concepts.length, filtered: eligible.length, start: selected.length ? from + 1 : 0,
       end: from + selected.length, matchingLinks: matchingLinks.length };
   }
