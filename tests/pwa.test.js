@@ -85,6 +85,8 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
   await previousShell.put('https://local.test/app/vendor/pdfjs/pdf.worker.min.mjs', new Response('worker legacy'));
   const otherShell = await context.caches.open('neural-spider-os-v11-29');
   await otherShell.put('https://local.test/app/js/parsers.js', new Response('lector de la otra rama'));
+  const latestShell = await context.caches.open('neural-spider-os-v11-30');
+  await latestShell.put('https://local.test/app/js/knowledge-base.js', new Response('base anterior sin cláusula penal'));
   const ocrCache = await context.caches.open('neural-spider-ocr-es-lstm-6.1.2');
   await ocrCache.put('https://local.test/app/vendor/ocr/es-lstm-6.1.2.js', new Response('motor OCR opcional'));
   const modelCache = await context.caches.open('neural-spider-model-v1');
@@ -93,12 +95,12 @@ test('precache incluye el shell completo y funciona desconectado', async () => {
   await qwenCache.put('https://local.test/app/vendor/wllama/wllama.wasm', new Response('runtime qwen'));
   await qwenCache.put('https://local.test/app/' + qwen.modelPath, new Response('pesos qwen'));
   listeners.activate({ waitUntil: p => { pending = p; } }); await pending;
-  assert.deepEqual(removed, ['neural-spider-os-v11-23', 'neural-spider-os-v11-29', 'neural-spider-os-v3']);
-  assert.ok(!buckets.has('neural-spider-os-v11-23') && !buckets.has('neural-spider-os-v11-29'), 'la actualización sustituye ambos shells anteriores');
+  assert.deepEqual(removed, ['neural-spider-os-v11-23', 'neural-spider-os-v11-29', 'neural-spider-os-v11-30', 'neural-spider-os-v3']);
+  assert.ok(!buckets.has('neural-spider-os-v11-23') && !buckets.has('neural-spider-os-v11-29') && !buckets.has('neural-spider-os-v11-30'), 'la actualización sustituye los shells anteriores');
   assert.ok(buckets.has('neural-spider-ocr-es-lstm-6.1.2'), 'actualizar el shell no debe borrar OCR');
   assert.ok(buckets.has('neural-spider-model-v1'), 'actualizar el shell no debe borrar MiniLM');
   assert.ok(buckets.has(qwen.cache), 'actualizar el shell no debe borrar Qwen');
-  const shell = await context.caches.open('neural-spider-os-v11-30');
+  const shell = await context.caches.open('neural-spider-os-v11-31');
   assert.equal(await (await shell.match('https://local.test/app/vendor/pdfjs/pdf.min.mjs')).text(), 'pdf legacy');
   assert.equal(await (await shell.match('https://local.test/app/vendor/pdfjs/pdf.worker.min.mjs')).text(), 'worker legacy');
   let response;

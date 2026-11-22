@@ -251,7 +251,7 @@
 
     out += `### 4. Límite o contraejemplo\n`;
     if (limit) out += `${limit.text}\n\n`;
-    else out += `El material no explicita limitaciones; conviene contrastarlo con otra fuente.\n\n`;
+    else out += `El análisis automático no identifica todas las condiciones o excepciones; revisa el texto y contrasta las fuentes.\n\n`;
 
     if (summary.length > 1) {
       const extra = summary[summary.length - 1];

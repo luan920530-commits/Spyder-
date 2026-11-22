@@ -13,6 +13,9 @@
 })(typeof window !== 'undefined' ? window : globalThis, function (U, R, E) {
   'use strict';
   const REVIEWED = '2026-11-16';
+  // Revisión independiente de las fichas de derecho civil; no cambia la fecha
+  // del resto de la base cuando se actualice este tema.
+  const PENAL_REVIEWED = '2026-11-16';
   const refs = {
     constitution: ['Constitución Política de Colombia, arts. 25 y 53', 'https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=4125'],
     reform: ['Ley 2466 de 2025, reforma laboral', 'https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=260676'],
@@ -23,6 +26,8 @@
     decree: ['Decreto 1072 de 2015, cap. 2.2.4.6', 'https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=72173'],
     standards: ['Resolución 0312 de 2019, estándares mínimos', 'https://normograma.mintic.gov.co/mintic/compilacion/docs/resolucion_mtra_0312_2019.htm'],
     committee: ['Resolución 3461 de 2025, comité de convivencia', 'https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=262916'],
+    civilPenalty: ['Código Civil colombiano, arts. 1592 y 1593 · Normograma de Cancillería', 'https://www.cancilleria.gov.co/sites/default/files/Normograma/docs/codigo_civil_pr049.htm'],
+    penaltyFunctions: ['Consejo de Estado, Sala de Consulta, Concepto 1748 de 2006', 'https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=21359'],
     biology: ['Encyclopaedia Britannica, ciencias de la vida', 'https://www.britannica.com/science/life-sciences'],
     genome: ['NIH/NHGRI, glosario de genética', 'https://www.genome.gov/es/genetics-glossary'],
     photosynthesis: ['NASA, qué necesita la vida para sobrevivir', 'https://science.nasa.gov/astrobiology/learning-resources/alp/what-does-life-need-for-survival/'],
@@ -46,7 +51,8 @@
     pdo: ['Manual PHP, consultas preparadas PDO', 'https://www.php.net/manual/es/pdo.prepared-statements.php'],
     escape: ['Manual PHP, htmlspecialchars', 'https://www.php.net/manual/es/function.htmlspecialchars.php']
   };
-  // ID, categoría, título, resumen, palabras para encontrarlo, referencia, jurídica.
+  // ID, categoría, título, resumen, palabras para encontrarlo, referencia,
+  // jurídica y fecha opcional de revisión independiente.
   const raw = [
     ['constitucion-trabajo', 'Colombia y legislación laboral', 'Constitución: derecho al trabajo', 'El artículo 25 de la Constitución colombiana protege el trabajo en condiciones dignas y justas. El artículo 53 enumera principios laborales mínimos, entre ellos igualdad de oportunidades y primacía de la realidad.', 'constitucion colombia derechos trabajo dignidad principios laboral 25 53', 'constitution', true],
     ['reforma-2466', 'Colombia y legislación laboral', 'Ley 2466 de 2025: reforma laboral', 'La Ley 2466 de 2025 modifica parcialmente el Código Sustantivo del Trabajo y otras normas para el trabajo digno y decente. Sus disposiciones y fechas de aplicación deben examinarse artículo por artículo.', 'reforma laboral colombia ley 2466 trabajo codigo sustantivo cst', 'reform', true],
@@ -58,6 +64,8 @@
     ['horas-extras', 'Colombia y legislación laboral', 'Horas extras y trabajo suplementario', 'El artículo 13 de la Ley 2466 de 2025 establece como regla un máximo de dos horas extras diarias y doce semanales, con excepciones para sectores indicados en la norma. El artículo 12 exige un registro del trabajo suplementario.', 'horas extra extras suplementario limite diario semanal registro 2466', 'reform', true],
     ['debido-proceso', 'Colombia y legislación laboral', 'Debido proceso disciplinario laboral', 'El artículo 7 de la Ley 2466 de 2025 contempla garantías de defensa y debido proceso para sanciones disciplinarias laborales y reglas especiales para ciertos empleadores. El procedimiento y sus excepciones deben verificarse en el texto oficial.', 'debido proceso disciplinario sanciones descargos defensa empleado 2466', 'reform', true],
     ['contrato', 'Colombia y legislación laboral', 'Contrato laboral y modalidades', 'La Ley 2466 de 2025 regula el contrato a término fijo y el de obra o labor determinada, con requisitos escritos y reglas específicas. La modalidad, su duración y las consecuencias dependen de las condiciones y de la norma aplicable.', 'contrato trabajo fijo indefinido obra labor duracion 2466', 'reform', true],
+    ['clausula-penal', 'Derecho civil colombiano', 'Cláusula penal: definición', 'En Colombia es un pacto accesorio de dar o hacer algo cuando se incumple o retrasa la obligación principal. Según el artículo 1592 del Código Civil, su finalidad es asegurar el cumplimiento. Es una pena contractual, no un castigo por un delito. Ejemplo: pactar un pago por demora en una obra.', 'clausula penal pena contractual convencional pacto incumplimiento demora retardo finalidad definicion que es para que sirve 1592 codigo civil colombia', 'civilPenalty', true, PENAL_REVIEWED],
+    ['clausula-penal-funciones', 'Derecho civil colombiano', 'Cláusula penal: funciones y finalidad', 'En Colombia, según el Consejo de Estado, la cláusula penal por regla general estima anticipadamente los perjuicios por incumplimiento o retraso. Puede cumplir una función de apremio o de garantía si hay pacto expreso e inequívoco; la garantía alude al compromiso de un tercero.', 'clausula penal pena contractual convencional finalidad funcion proposito para que sirve indemnizacion tasacion perjuicios incumplimiento mora retardo apremio garantia pacto colombia', 'penaltyFunctions', true, PENAL_REVIEWED],
     ['sst-basica', 'Seguridad y salud en el trabajo', 'Seguridad y salud en el trabajo: SST', 'La seguridad y salud en el trabajo busca prevenir lesiones y enfermedades causadas por las condiciones laborales y proteger la salud de quienes trabajan. El SG-SST organiza la gestión de esos peligros y riesgos.', 'sst salud seguridad trabajo ocupacional prevencion', 'decree', true],
     ['sst-sistema', 'Seguridad y salud en el trabajo', 'SG-SST: sistema de gestión', 'El Sistema de Gestión de Seguridad y Salud en el Trabajo, SG-SST, es un proceso de mejora continua que busca anticipar, reconocer, evaluar y controlar riesgos para la seguridad y salud en el trabajo. El Decreto 1072 de 2015 regula su organización.', 'sst sg-sst sistema gestion seguridad salud trabajo colombia decreto 1072', 'decree', true],
     ['sst-peligro', 'Seguridad y salud en el trabajo', 'Peligro en SST', 'En seguridad y salud en el trabajo, un peligro es una fuente, situación o acto con potencial de causar daño a la salud, equipos o instalaciones. Identificar el peligro es diferente de evaluar el riesgo.', 'peligro identificacion seguridad salud trabajo sst', 'decree', true],
@@ -96,11 +104,11 @@
     ['php-pdo', 'Desarrollo web', 'PHP PDO y consultas preparadas', 'Con PDO se pueden preparar consultas SQL y enviar valores como parámetros: `$stmt = $pdo->prepare("SELECT * FROM usuarios WHERE id = ?"); $stmt->execute([$id]);`. Los identificadores y otras partes dinámicas requieren validación adicional.', 'php pdo sql consulta preparada parametros inyeccion seguridad base datos', 'pdo', false],
     ['php-escape', 'Desarrollo web', 'PHP y escape de salida HTML', 'Para mostrar texto en HTML, `htmlspecialchars($valor, ENT_QUOTES | ENT_SUBSTITUTE, "UTF-8")` convierte caracteres especiales. El escape depende del contexto de salida y no sustituye otros controles de seguridad.', 'php htmlspecialchars html escape seguridad xss salida', 'escape', false]
   ];
-  const entries = raw.map(([key, category, title, text, keywords, reference, legal]) => {
+  const entries = raw.map(([key, category, title, text, keywords, reference, legal, reviewed = REVIEWED]) => {
     const id = `kb:${key}`, source = refs[reference], displayText = `${title}. ${text}`;
     return Object.freeze({ id, docId: id, docName: `Base local · ${source[0]}`, pageNum: null,
       origin: 'knowledge', category, title, sourceName: source[0], sourceUrl: source[1],
-      reviewed: REVIEWED, legal, keywords, sourceText: displayText,
+      reviewed, legal, keywords, sourceText: displayText,
       // Las palabras clave mejoran la búsqueda, pero no se muestran como evidencia.
       text: `${displayText} ${keywords}`, parts: [{ id, text: displayText }] });
   }).concat((E?.list() || []).map(item => {
@@ -118,6 +126,20 @@
     fundacion: R.rebuildFrom(entries.filter(entry => entry.collection))
   };
   const ignored = new Set(U.tokens('explica explicar explícame define definición describir dime dice dicen menciona señala ofrece enseña enseñan trata aborda buscar consulta pregunta información ayuda ejemplo ejemplos cómo cuántas cuántos funciona funcionan quiero saber qué significa hacer usar usa utilizan código realizar aprender guía resumen resume analiza completo documento texto material materiales curso cursos clase clases capacitación capacitaciones'));
+  const penaltyIds = new Set(['kb:clausula-penal', 'kb:clausula-penal-funciones']);
+  const penaltyAliases = ['cláusula penal', 'pacto penal', 'pena contractual', 'pena convencional', 'pena contrato civil'].map(U.tokens);
+  // Detección conservadora de algunas jurisdicciones extranjeras explícitas;
+  // no es un detector exhaustivo de países ni reemplaza el aviso de régimen.
+  const foreignPenaltyContext = /\b(?:mexic(?:o|an[oa]s?)|argentin[oa]s?|espan(?:a|ol(?:a|es|as)?)|peru(?:an[oa]s?)?|chile(?:n[oa]s?)?|bolivi(?:a|an[oa]s?)|brasil(?:en[oa]s?|er[oa]s?)?|uruguay[oa]s?|uruguay|paraguay[oa]s?|paraguay|venezuel(?:a|an[oa]s?)|ecuador|ecuatorian[oa]s?|panam(?:a|en[oa]s?)|cuba(?:n[oa]s?)?|guatemala|honduras|nicaragua|el\s+salvador|costa\s+rica|puerto\s+rico|republica\s+dominicana|estados\s+unidos|eeuu|estadounidenses?|reino\s+unido|union\s+europea|canada|francia|alemania|italia|portugal|extranjera?s?|extranjeros?|internacional(?:es)?)\b/;
+  function isPenaltyQuery(terms, cleaned) {
+    const words = new Set(terms);
+    // «Penal», «pena» y «delito» también pueden referirse al derecho penal.
+    // Exigir el tema compuesto o el artículo civil evita citar estas fichas
+    // para preguntas sobre delitos o sobre una cláusula no identificada.
+    if (foreignPenaltyContext.test(cleaned)) return false;
+    return penaltyAliases.some(alias => alias.every(term => words.has(term))) ||
+      (words.has('1592') && !/\bcodigo\s+penal\b/.test(cleaned));
+  }
   function isBareAprendeQuery(query) {
     return /^aprende\s+(?=(?:cursos?|clases?|recursos?|catalogo|directorio|plataforma|capacitaciones?|formacion|sst|sg[\s-]*sst|epp|programacion|algoritmos?|variables?|pseudocodigo|javascript|python|datos|ia|inteligencia|machine|seguridad|ergonomia|alturas)\b)/.test(U.normalize(query || ''));
   }
@@ -166,7 +188,7 @@
     const result = R.search(contextIndex, query, { parsed, k: entries.length, pool: entries.length, fuzzy: false, diversify: false });
     const scored = result.hits.map(hit => {
       const entry = byId.get(hit.sentence.id);
-      if (!entry) return null;
+      if (!entry || (penaltyIds.has(entry.id) && !isPenaltyQuery(terms, cleaned))) return null;
       const evidence = { ...hit.sentence, text: entry.sourceText };
       // Frases y exclusiones se contrastan con el contenido visible, no con
       // palabras clave internas que no aparecen en la ficha citada.
@@ -178,9 +200,12 @@
       const title = new Set(U.tokens(entry.title));
       const titleMatches = known.filter(term => title.has(term)).length;
       const exact = U.normalize(entry.title).includes(cleaned.trim()) ? 1 : 0;
-      // Consultas breves por siglas o disciplina priorizan su ficha introductoria.
+      const penaltyDefinition = terms.includes('clausul') && terms.includes('penal') &&
+        (terms.length === 2 || /\b(?:que\s+(?:es|son|significa)|define|definicion)\b/.test(cleaned));
+      // Consultas breves o definiciones priorizan su ficha introductoria.
       const introductory = (terms.length === 1 && introductoryIds[terms[0]] === entry.id.slice(3)) ||
-        (terms.length === 2 && terms.includes('intelig') && terms.includes('artificial') && entry.id === 'kb:educacion-ia-general') ? 1 : 0;
+        (terms.length === 2 && terms.includes('intelig') && terms.includes('artificial') && entry.id === 'kb:educacion-ia-general') ||
+        (penaltyDefinition && entry.id === 'kb:clausula-penal') ? 1 : 0;
       return { hit, relevance: matched.length / terms.length + titleMatches * .35 + exact * .5 + introductory + hit.lexScore / 100 };
     }).filter(Boolean).sort((a, b) => b.relevance - a.relevance || b.hit.lexScore - a.hit.lexScore);
     const limit = Number.isFinite(options.k) ? Math.max(0, Math.floor(options.k)) : 6;

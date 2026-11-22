@@ -1,7 +1,7 @@
 /* Shell y dependencias empaquetadas: instalación atómica, sin CDN.
    El acompañante por reglas funciona offline; ni el perfil ni el hilo son recursos de caché. */
 importScripts('./js/qwen-config.js');
-const CACHE_NAME = 'neural-spider-os-v11-30';
+const CACHE_NAME = 'neural-spider-os-v11-31';
 const OCR_CACHE = 'neural-spider-ocr-es-lstm-6.1.2';
 const MODEL_CACHE = 'neural-spider-model-v1';
 const QWEN = self.NCQwenConfig;

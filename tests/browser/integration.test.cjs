@@ -63,6 +63,31 @@ for (const [name, viewport] of [['escritorio', { width: 1440, height: 900 }], ['
     assert.ok(active.tracks.every(track => track.role === 'group' && track.label.includes('Fragmento:')));
     assert.ok(active.tracks.every(track => track.top >= active.zone.top && track.bottom <= active.zone.bottom));
     assert.ok(active.contentTop >= Math.max(...active.tracks.map(track => track.bottom)));
+
+    // Selección y tarjeta reales mientras los cinco lectores siguen activos.
+    // El reloj avanza durante la selección y el guardado, no solo antes/después.
+    const word = text => page.locator('#doc-content .word-span').filter({ hasText: new RegExp(`^${text}$`) }).first();
+    await word('valor').scrollIntoViewIfNeeded();
+    const start = await word('valor').boundingBox(), end = await word('distinto').boundingBox();
+    await page.mouse.move(start.x + .5, start.y + start.height / 2); await page.mouse.down();
+    await page.mouse.move(end.x + end.width - .5, end.y + end.height / 2, { steps: 8 });
+    await page.evaluate(() => window.stepAnimation(1)); await page.mouse.up();
+    assert.equal(await page.evaluate(() => getSelection().toString()), 'valor distinto');
+    assert.equal(await page.evaluate(() => SpiderEngine.getStatus().spiders.filter(s => s.phase === 'EXTRAER_DATOS').length), 5);
+    await page.click('#btn-question'); assert.equal(await page.textContent('#question-quote'), 'valor distinto');
+    await page.fill('#question-front', '¿Qué conserva la variable?');
+    await page.evaluate(() => window.stepAnimation(1)); await page.click('#question-save');
+    await page.evaluate(() => window.stepAnimation(2));
+    const annotation = await page.evaluate(() => ({
+      active: SpiderEngine.getStatus().spiders.filter(s => s.phase === 'EXTRAER_DATOS').length,
+      cards: NeuralStore.state.cards.map(card => ({ quote: card.selector.quote, start: card.selector.start, sentenceId: card.sentenceId })),
+      marks: [...document.querySelectorAll('#doc-content mark')].map(mark => mark.textContent).join('')
+    }));
+    assert.equal(annotation.active, 5);
+    assert.deepEqual(annotation.cards, [{ quote: 'valor distinto', start: 'La variable 0 conserva un '.length, sentenceId: 's0' }]);
+    assert.equal(annotation.marks, 'valor distinto');
+    await page.click('[data-workspace="extract"]');
+
     const cdp = await context.newCDPSession(page);
     await cdp.send('Accessibility.enable');
     const tree = await cdp.send('Accessibility.getFullAXTree');
@@ -92,6 +117,14 @@ for (const [name, viewport] of [['escritorio', { width: 1440, height: 900 }], ['
     assert.equal(combined.orbit, 'true');
     assert.ok(combined.studyLinks > 0 && combined.graphNodes <= 48);
     assert.equal(new Set(combined.delivered.filter(id => active.claims.includes(id))).size, 5);
+    await page.evaluate(() => NeuralStore.flush());
+    await page.reload(); await page.waitForSelector('html[data-app-ready="true"]');
+    const restored = await page.evaluate(() => {
+      NeuralStore.setActiveDoc('lecturas', 1); window.stepAnimation(3);
+      return { cards: NeuralStore.state.cards.map(card => card.selector.quote),
+        marks: [...document.querySelectorAll('#doc-content mark')].map(mark => mark.textContent).join('') };
+    });
+    assert.deepEqual(restored.cards, ['valor distinto']); assert.equal(restored.marks, 'valor distinto');
     assert.deepEqual(errors, []);
   });
 }

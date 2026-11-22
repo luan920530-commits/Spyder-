@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { IDBFactory } = require('fake-indexeddb');
-const { createApp } = require('./support/dom.cjs');
+const { createApp, until } = require('./support/dom.cjs');
 const U = require('../js/util.js');
 
 test('las flexiones comunes se indexan igual que sus singulares', () => {
@@ -46,6 +46,59 @@ test('saludo, base educativa, órdenes de memoria y tutor documental conservan s
     assert.ok(!w.document.getElementById('knowledge-controls').classList.contains('hidden'));
     const stillLocal = await w.NCRag.ask('variables');
     assert.ok(stillLocal.sources.every(source => source.origin === 'knowledge'));
+    assert.deepEqual(errors, []);
+  } finally { dom.window.close(); }
+});
+
+test('el chat responde la pregunta literal sobre cláusula penal con fichas y citas verificables', async () => {
+  const { dom, w, errors } = await createApp(new IDBFactory());
+  try {
+    const S = w.NeuralStore, q = 'Qué es una cláusula penal y cuál es su finalidad';
+    S.setSetting('autoHarvest', false);
+    S.setSetting('searchScope', 'both');
+    w.document.querySelector('[data-workspace="chat"]').click();
+    w.document.getElementById('chat-input').value = q;
+    w.document.getElementById('chat-form').dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
+    await until(() => w.document.querySelector('#chat-messages article.msg-ai'));
+    const answer = S.state.chat.at(-1), article = w.document.querySelector('#chat-messages article.msg-ai');
+    assert.equal(answer.question, q);
+    assert.deepEqual(Array.from(answer.sources, source => source.knowledgeId), ['kb:clausula-penal', 'kb:clausula-penal-funciones']);
+    assert.ok(answer.sources.every(source => source.origin === 'knowledge' && source.legal && source.reviewed === '2026-11-16'));
+    assert.ok(answer.citations.allValid && answer.citations.allSupported);
+    assert.match(article.textContent, /dar o hacer algo.*incumple o retrasa/);
+    assert.match(article.textContent, /estima anticipadamente los perjuicios/);
+    assert.match(article.textContent, /pacto expreso e inequívoco/);
+    assert.doesNotMatch(article.textContent, /El material no explicita limitaciones/);
+    assert.match(article.textContent, /El análisis automático no identifica todas las condiciones o excepciones/);
+    assert.match(article.textContent, /Revisión 2026-11-16.*no sustituye asesoría jurídica/);
+    assert.equal(article.querySelector('.sources-details').open, false);
+    article.querySelector('.answer-body .cite-ref').click();
+    assert.equal(article.querySelector('.sources-details').open, true);
+    const rows = article.querySelectorAll('.source-list li');
+    assert.equal(rows.length, 2);
+    assert.match(rows[0].textContent, /Código Civil colombiano.*2026-11-16|2026-11-16.*Código Civil colombiano/);
+    assert.equal(rows[0].querySelector('a').href, 'https://www.cancilleria.gov.co/sites/default/files/Normograma/docs/codigo_civil_pr049.htm');
+    assert.equal(rows[1].querySelector('a').href, 'https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=21359');
+    const md = w.NCRag.toMarkdown(answer);
+    assert.match(md, /2026-11-16/); assert.match(md, /cancilleria\.gov\.co/); assert.match(md, /funcionpublica\.gov\.co/);
+    assert.equal(S.state.docs.length, 0); assert.equal(S.state.allSentences.length, 0); assert.equal(S.state.vault.length, 0);
+
+    const purpose = await w.NCRag.ask('¿Para qué sirve una cláusula penal?', { scope: 'knowledge' });
+    assert.match(purpose.text, /no un castigo por un delito/);
+    assert.match(purpose.text, /pacto expreso e inequívoco/);
+    assert.ok(purpose.citations.allValid && purpose.citations.allSupported);
+    const docs = await w.NCRag.ask(q, { scope: 'documents' });
+    assert.equal(docs.sources.length, 0); assert.match(docs.text, /Sin evidencia suficiente/);
+    for (const filtered of ['cláusula penal =doc:privado', 'cláusula penal =pag:1', '¿Cuál es la pena por un delito?', '¿Qué es una cláusula penal en México?']) {
+      const result = await w.NCRag.ask(filtered, { scope: 'both' });
+      assert.equal(result.sources.length, 0, filtered); assert.match(result.text, /Sin evidencia suficiente/);
+    }
+    S.addDocument({ id: 'mexico', name: 'apunte-mexico.txt', pages: [{ pageNum: 1, sentences: [
+      { id: 'mexico-s', text: 'Apunte privado sobre la cláusula penal en México para una consulta de prueba.' }
+    ] }] });
+    const privateAnswer = await w.NCRag.ask('¿Qué es una cláusula penal en México?', { scope: 'both' });
+    assert.ok(privateAnswer.sources.some(source => source.origin === 'document' && source.docId === 'mexico'));
+    assert.ok(privateAnswer.sources.every(source => source.origin === 'document'), 'el filtro de fichas no descarta documentos pertinentes');
     assert.deepEqual(errors, []);
   } finally { dom.window.close(); }
 });
