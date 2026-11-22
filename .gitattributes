@@ -1,0 +1,30 @@
+# Los hashes del modelo y su runtime se calculan sobre los bytes originales.
+# Mantenerlos idénticos en cualquier sistema (incluidos checkouts con autocrlf).
+models/minilm/*.json -text whitespace=cr-at-eol
+models/minilm/tokenizer.json -diff
+models/minilm/onnx/*.onnx binary
+vendor/transformers/transformers.min.js -text -diff
+vendor/transformers/*.wasm binary
+# Runtime Qwen: los hashes cubren exactamente estos bytes.
+vendor/wllama/wllama.mjs -text -diff
+vendor/wllama/*.wasm binary
+# Bundles de PDF.js regenerables con tools/package-pdfjs.cjs.
+vendor/pdfjs/*.min.js -text -diff
+vendor/pdfjs/packed-assets.js -text -diff
+# Los mapas y fuentes binarios de PDF.js deben conservarse sin conversión de línea.
+vendor/pdfjs/cmaps/*.bcmap binary
+vendor/pdfjs/standard_fonts/*.pfb binary
+vendor/pdfjs/standard_fonts/*.ttf binary
+# Licencias de terceros conservadas exactamente como se publicaron.
+vendor/pdfjs/cmaps/LICENSE -text whitespace=-blank-at-eol,-blank-at-eof
+vendor/pdfjs/standard_fonts/LICENSE* -text whitespace=-blank-at-eol,-blank-at-eof
+tests/fixtures/*.pdf binary
+
+# Motor OCR local regenerable con tools/package-ocr.cjs.
+vendor/ocr/es-lstm-*.js -text -diff
+vendor/ocr/notices/* -text whitespace=-blank-at-eol,-blank-at-eof
+vendor/ocr/*LICENSE -text whitespace=-blank-at-eol,-blank-at-eof
+
+# UMD regenerable y licencia del planificador local.
+vendor/fsrs/ts-fsrs.umd.js -text -diff
+vendor/fsrs/LICENSE -text

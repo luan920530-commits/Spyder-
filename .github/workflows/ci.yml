@@ -1,0 +1,37 @@
+name: Pruebas locales
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: Comprobar sintaxis
+        run: for file in js/*.js sw.js; do node --check "$file"; done
+      - run: npm test
+      - name: Comprobar asistente personal, tutor, estudio y red 3D en Chrome (disco, vista aislada y PWA offline)
+        if: matrix.node == 22
+        run: npm run test:browser
+      - name: Benchmark sintético informativo (sin ONNX)
+        run: npm run bench -- 20000
+      - name: Benchmark de proyección acotada de la red
+        if: matrix.node == 22
+        run: npm run bench:graph -- 20000
+      - name: Benchmark sintético de afinidades de cosecha
+        if: matrix.node == 22
+        run: npm run bench:harvest -- 20000
